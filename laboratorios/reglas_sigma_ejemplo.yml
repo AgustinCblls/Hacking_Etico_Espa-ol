@@ -4,7 +4,7 @@ status: test
 description: >
   Detecta invocaciones de PowerShell que combinan ejecucion codificada (-EncodedCommand)
   con supresion de perfil o ventana oculta. Regla didactica para laboratorio SOC (Tomo IV).
-author: Hacking Etico y Defensa Integral
+author: Hacking Etico Español
 date: 2026-11-22
 tags:
   - attack.execution

@@ -1,4 +1,4 @@
-# Laboratorio Local Aislado - Hacking Ético y Defensa Integral
+# Laboratorio Local Aislado - Hacking Ético Español
 # Regla de seguridad: todos los puertos escuchan EXCLUSIVAMENTE en 127.0.0.1
 services:
   app-educativa:

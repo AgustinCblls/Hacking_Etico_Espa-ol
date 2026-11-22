@@ -1,4 +1,4 @@
-# Hacking Ético y Defensa Integral (Edición 2.0 · Hiper Biblioteca)
+# Hacking Ético Español (Edición 2.0 · Hiper Biblioteca)
 
 Manual técnico completo, libre y offline de **ciberseguridad ofensiva y defensiva** en español, estructurado en **7 Tomos / 7 Rutas progresivas (54 capítulos)** con trazabilidad curricular sobre **358 módulos y 25 rutas de estudio** de referencia, más hojas de referencia rápida, glosario técnico, 270 preguntas de autoevaluación y kit local de laboratorios.
 

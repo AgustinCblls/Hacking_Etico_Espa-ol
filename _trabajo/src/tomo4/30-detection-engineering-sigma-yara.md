@@ -162,7 +162,7 @@ Salida esperada cuando la condición combinada (`filesize < 512KB` y `$ps_enc1 a
 
 ```text
 # Nombre de regla, metadatos y offsets de las cadenas detectadas (CRLFs de Windows; en LF varían levemente los offsets):
-Lab_Triage_Script_Ofuscado_Generico [author="Hacking Etico y Defensa Integral",date="2026-11-22",severity="medium"] laboratorios/muestras/muestra_triage_inofensiva.txt
+Lab_Triage_Script_Ofuscado_Generico [author="Hacking Etico Español",date="2026-11-22",severity="medium"] laboratorios/muestras/muestra_triage_inofensiva.txt
 0x24d:$ps_enc1: FromBase64String
 0x2ba:$ps_iex: Invoke-Expression
 ```

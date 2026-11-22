@@ -5,7 +5,7 @@
 rule Lab_Triage_Script_Ofuscado_Generico
 {
     meta:
-        author = "Hacking Etico y Defensa Integral"
+        author = "Hacking Etico Español"
         description = "Identifica indicadores basicos de ofuscacion en scripts de texto para revision manual"
         date = "2026-11-22"
         severity = "medium"

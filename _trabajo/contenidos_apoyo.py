@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Contenidos de apoyo para Hacking Ético y Defensa Integral:
+"""Contenidos de apoyo para Hacking Ético Español:
 - Hojas de Referencia Rápida (Cheat Sheets)
 - Glosario técnico (65+ términos)
 - Guía del Kit de Laboratorios

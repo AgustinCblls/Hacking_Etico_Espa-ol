@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Constructor maestro de 'Hacking Ético y Defensa Integral' (Edición 2.0 · Hiper Biblioteca).
+"""Constructor maestro de 'Hacking Ético Español' (Edición 2.0 · Hiper Biblioteca).
 Genera el sitio HTML 100 % offline (54 capítulos en 7 Tomos + Portada + Mapa + Catálogo interactivo de 358 módulos y 25 paths
 + Cheat Sheets + Glosario ampliado + Preguntas de repaso + Buscador offline + Orden de impresión)
 y compila los 9 PDFs A4 (Tomos I–VII + Separata + Maestro único) con TOC paginado, marcadores jerárquicos y paridad par estricta.
@@ -35,7 +35,7 @@ from contenidos_apoyo import (
 )
 
 EDICION_LABEL = "edición 2.0 · Hiper Biblioteca · Noviembre 2026"
-CURSO_NOMBRE = "Hacking Ético y Defensa Integral"
+CURSO_NOMBRE = "Hacking Ético Español"
 
 TOMOS_META = [
     {
@@ -579,7 +579,7 @@ def construir_sitio_html(data):
         )
 
     portada_body = f"""
-<h1 id="portada">Cómo estudiar este curso de Hacking Ético y Defensa Integral</h1>
+<h1 id="portada">Cómo estudiar este curso de Hacking Ético Español</h1>
 <p>Esta obra reúne un recorrido completo, progresivo y <strong>100 % original</strong> en español que integra <strong>seguridad ofensiva y defensiva</strong>: fundamentos de sistemas, redes y criptografía, pentesting general, seguridad web y APIs, infraestructura y Active Directory, operaciones SOC, SIEM, DFIR e ingeniería de detección.</p>
 <p>No es una colección de apuntes sueltos: cada uno de los <strong>{len(caps)} capítulos</strong> explica el mecanismo técnico desde cero, muestra comandos y salidas verificables, incluye la <strong>perspectiva defensiva y de mitigación</strong>, propone una práctica en laboratorio local aislado y cierra con 5 preguntas razonadas de autoevaluación ({total_qa} preguntas en total, ~{total_words:,} palabras técnicas originales).</p>
 
@@ -639,7 +639,7 @@ def construir_sitio_html(data):
 </aside>
 """
     with open(os.path.join(REPO_ROOT, "00_EMPEZAR_AQUI.html"), "w", encoding="utf-8") as f:
-        f.write(page_shell("Portada", f"Hiper Biblioteca completa de Hacking Ético y Defensa Integral ({len(TOMOS_META)} Tomos, {len(caps)} capítulos).", portada_body, depth=0))
+        f.write(page_shell("Portada", f"Hiper Biblioteca completa de Hacking Ético Español ({len(TOMOS_META)} Tomos, {len(caps)} capítulos).", portada_body, depth=0))
 
     # 5. Build catalogo_completo.html (Interactive offline explorer for 358 modules + 25 paths)
     cap_file_map = {c["id"]: c["archivo"] for c in caps}
@@ -1195,7 +1195,7 @@ def compilar_todos_los_pdfs(data, rendered_chapters):
     resultados.append(sep_res)
 
     # Obra Maestra Digital Consolidada (merge de los 8 volúmenes con marcadores jerárquicos)
-    master_name = "Hacking_Etico_y_Defensa_Integral_Completo.pdf"
+    master_name = "Hacking_Etico_Español_Completo.pdf"
     master_path = os.path.join(REPO_ROOT, master_name)
     writer = pypdf.PdfWriter()
     offset = 0

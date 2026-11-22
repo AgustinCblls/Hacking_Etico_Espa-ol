@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cap. 4.5 · Detection Engineering: reglas Sigma, firmas YARA y validación Purple Team · Hacking Ético y Defensa Integral</title>
+<title>Cap. 4.5 · Detection Engineering: reglas Sigma, firmas YARA y validación Purple Team · Hacking Ético Español</title>
 <meta name="description" content="Redactar y validar reglas Sigma y YARA con pruebas controladas y baja tasa de FP">
 <link rel="stylesheet" href="../guia/estilo.css">
 
@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -139,7 +139,7 @@ NOT ParentImage="*\\ccmexec.exe"</code></pre>
 yara -m -s laboratorios/reglas_yara_ejemplo.yar laboratorios/muestras/muestra_triage_inofensiva.txt</code></pre>
 <p>Salida esperada cuando la condición combinada (<code>filesize &lt; 512KB</code> y <code>$ps_enc1 and $ps_iex</code>) coincide:</p>
 <pre><code class="lenguaje-text"># Nombre de regla, metadatos y offsets de las cadenas detectadas (CRLFs de Windows; en LF varían levemente los offsets):
-Lab_Triage_Script_Ofuscado_Generico [author="Hacking Etico y Defensa Integral",date="2026-11-22",severity="medium"] laboratorios/muestras/muestra_triage_inofensiva.txt
+Lab_Triage_Script_Ofuscado_Generico [author="Hacking Etico Español",date="2026-11-22",severity="medium"] laboratorios/muestras/muestra_triage_inofensiva.txt
 0x24d:$ps_enc1: FromBase64String
 0x2ba:$ps_iex: Invoke-Expression</code></pre>
 <aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p><strong>Detección y gobierno:</strong> mantené cada regla vinculada a una fuente de telemetría verificada y ejecutá pruebas de regresión automáticas ante cambios de esquema en el SIEM o EDR. <strong>Mitigación complementaria:</strong> una detección nunca reemplaza al endurecimiento. Restringí la ejecución de scripts no firmados mediante políticas de control de aplicaciones, aplicá principio de mínimo privilegio y segmentá el acceso administrativo para reducir la superficie antes de depender de la alerta.</p></aside>
