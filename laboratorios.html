@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kit de Laboratorios · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Entorno local aislado en Docker, scripts defensivos y plantillas.">
+<link rel="stylesheet" href="guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="guia/index.html">Curso</a>
+    <a href="catalogo_completo.html">Catálogo 358</a>
+    <a href="laboratorios.html">Laboratorios</a>
+    <a href="hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="glosario.html">Glosario</a>
+    <a href="preguntas_y_respuestas.html">Repaso</a>
+    <a href="buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+
+<h1 id="kit-de-laboratorios">Kit de laboratorios locales y plantillas</h1>
+<p>Todas las prácticas de este curso se ejecutan en <strong>tu propia máquina virtual aislada o en contenedores locales ligados exclusivamente a <code>127.0.0.1</code></strong>. La carpeta <a href="laboratorios/"><code>laboratorios/</code></a> reúne los archivos base listos para estudiar y modificar sin depender de internet ni exponer servicios a tu red local.</p>
+
+<aside class="callout peligro">
+<p class="callout-titulo">Regla estricta de entorno local</p>
+<p>Los archivos de práctica están configurados para escuchar únicamente en <code>127.0.0.1</code> (loopback) o dentro de redes virtuales aisladas (Host-Only / Docker interno). Nunca expongas una aplicación educativa a internet ni ejecutes scripts de auditoría contra sistemas sin autorización escrita previa.</p>
+</aside>
+
+<h2 id="inventario-labs">Contenido de la carpeta <code>laboratorios/</code></h2>
+<div class="tabla"><table>
+<thead><tr><th>Archivo / Recurso</th><th>Capítulos donde se usa</th><th>Propósito técnico</th></tr></thead>
+<tbody>
+<tr><td><a href="laboratorios/docker-compose.yml"><code>docker-compose.yml</code></a></td><td>Tomo I (1.8) y Tomo II</td><td>Despliega la app educativa local en <code>127.0.0.1:5050</code>, Nginx en <code>127.0.0.1:8080</code> y perfil opcional <code>--profile owasp</code> (OWASP Juice Shop en <code>127.0.0.1:3000</code>).</td></tr>
+<tr><td><a href="laboratorios/app_lab_educativa.py"><code>app_lab_educativa.py</code></a></td><td>Cap. 1.8 y Tomo II (2.3–2.5)</td><td>Aplicación Flask + SQLite en memoria con endpoints seguros de referencia (SQL parametrizado, escape HTML + CSP, control anti-IDOR).</td></tr>
+<tr><td><a href="laboratorios/auditor_red_local.py"><code>auditor_red_local.py</code></a></td><td>Cap. 1.6 y 2.1</td><td>Inspector TCP y banners en Python 3 restringido por código a direcciones <code>127.0.0.0/8</code> y RFC 1918.</td></tr>
+<tr><td><a href="laboratorios/analizador_logs_soc.py"><code>analizador_logs_soc.py</code></a></td><td>Cap. 1.6, 4.3 y 4.6</td><td>Parser de logs SSH/HTTP en Python 3 que detecta fuerza bruta y escaneo 4xx emitiendo alertas JSON estructuradas.</td></tr>
+<tr><td><a href="laboratorios/diccionario_web_lab.txt"><code>diccionario_web_lab.txt</code></a></td><td>Cap. 2.2</td><td>Lista controlada de 40 rutas y parámetros comunes para practicar enumeración HTTP y calibración de filtros con <code>ffuf</code> en <code>127.0.0.1</code>.</td></tr>
+<tr><td><a href="laboratorios/sysmon_config_lab.xml"><code>sysmon_config_lab.xml</code></a></td><td>Cap. 4.2</td><td>Configuración educativa Sysmon v4.90 que captura creación de procesos, red de shells, <code>CreateRemoteThread</code>, acceso a <code>lsass.exe</code>, claves Run y DNS.</td></tr>
+<tr><td><a href="laboratorios/suricata_lab.rules"><code>suricata_lab.rules</code></a></td><td>Cap. 4.4</td><td>Cuatro reglas IDS Suricata comentadas para detectar sondas HTTP de auditoría, accesos a <code>.env</code>/<code>.git</code>, descargas PE y ráfagas SSH.</td></tr>
+<tr><td><a href="laboratorios/reglas_sigma_ejemplo.yml"><code>reglas_sigma_ejemplo.yml</code></a></td><td>Cap. 4.5</td><td>Regla Sigma válida en YAML para detectar invocaciones sospechosas de PowerShell codificado con exclusiones documentadas.</td></tr>
+<tr><td><a href="laboratorios/reglas_yara_ejemplo.yar"><code>reglas_yara_ejemplo.yar</code></a></td><td>Cap. 4.5 y 4.8</td><td>Regla YARA educativa para triage estático de scripts ofuscados en entorno de laboratorio DFIR.</td></tr>
+<tr><td><a href="laboratorios/muestras/auth_ssh_simulado.log"><code>muestras/auth_ssh_simulado.log</code></a></td><td>Cap. 1.5, 1.6 y 4.3</td><td>Registro SSH simulado con actividad legítima más ráfaga de fuerza bruta desde IP RFC 5737 (<code>198.51.100.42</code>) listo para probar <code>analizador_logs_soc.py</code>.</td></tr>
+<tr><td><a href="laboratorios/muestras/web_access_simulado.log"><code>muestras/web_access_simulado.log</code></a></td><td>Cap. 2.2, 4.3 y 4.6</td><td>Log de acceso Nginx simulado con barrido <code>404/403</code> (<code>198.51.100.88</code>) y sonda <code>Lab-Audit-Probe</code>.</td></tr>
+<tr><td><a href="laboratorios/muestras/correo_phishing_simulado.eml"><code>muestras/correo_phishing_simulado.eml</code></a></td><td>Cap. 4.6</td><td>Correo de práctica 100 % seguro (dominios RFC 2606 <code>.invalid</code>) con fallos SPF/DKIM/DMARC para practicar triage pasivo de cabeceras.</td></tr>
+<tr><td><a href="laboratorios/muestras/muestra_triage_inofensiva.txt"><code>muestras/muestra_triage_inofensiva.txt</code></a></td><td>Cap. 4.8</td><td>Muestra de texto 100 % inofensiva codificada en Base64 UTF-16LE que activa <code>reglas_yara_ejemplo.yar</code> para practicar desofuscación pasiva.</td></tr>
+<tr><td><a href="laboratorios/plantilla_informe_pentest.md"><code>plantilla_informe_pentest.md</code></a></td><td>Cap. 2.8</td><td>Estructura profesional de informe técnico y ejecutivo con alcance, fichas de hallazgo, CVSS/CWE y hoja de remediación.</td></tr>
+<tr><td><a href="laboratorios/plantilla_informe_incidente.md"><code>plantilla_informe_incidente.md</code></a></td><td>Cap. 4.1 y 4.8</td><td>Plantilla de reporte de incidentes alineada con NIST SP 800-61 (línea temporal UTC, IOCs defanged, contención y lecciones aprendidas).</td></tr>
+<tr><td><a href="laboratorios/auditor_whitebox_codereview.py"><code>auditor_whitebox_codereview.py</code></a></td><td>Cap. 2.7 y 6.4</td><td>Analizador AST en Python para auditar fuentes → sumideros (<code>eval</code>, <code>pickle</code>, <code>shell=True</code>, SQL dinámico) en revisión White-Box.</td></tr>
+<tr><td><a href="laboratorios/Dockerfile.lab_seguro"><code>Dockerfile.lab_seguro</code></a></td><td>Cap. 5.3 y 5.5</td><td>Ejemplo de compilación multi-etapa endurecida (usuario sin privilegios, versión fijada, mínima superficie) para auditar con Trivy.</td></tr>
+<tr><td><a href="laboratorios/k8s_pod_hardening.yaml"><code>k8s_pod_hardening.yaml</code></a></td><td>Cap. 5.4</td><td>Manifiesto Kubernetes con perfil <em>Restricted</em> (sin root, <code>drop: ALL</code>, rootfs solo lectura) y <code>NetworkPolicy</code> por defecto.</td></tr>
+<tr><td><a href="laboratorios/iac_cloud_hardening.tf"><code>iac_cloud_hardening.tf</code></a></td><td>Cap. 5.1, 5.2 y 5.5</td><td>Plantilla Terraform con bloqueo público S3, cifrado en reposo y exigencia obligatoria de tokens <code>IMDSv2</code>.</td></tr>
+<tr><td><a href="laboratorios/plantilla_threat_model_stride.md"><code>plantilla_threat_model_stride.md</code></a></td><td>Cap. 6.3</td><td>Plantilla lista para construir Diagramas de Flujo de Datos, matriz STRIDE, árboles de ataque y controles ASVS.</td></tr>
+<tr><td><a href="laboratorios/plantilla_roe_alcance.md"><code>plantilla_roe_alcance.md</code></a></td><td>Cap. 2.8 y 7.7</td><td>Plantilla de <em>Rules of Engagement</em> (RoE), exclusiones, protocolo <em>stop-and-notify</em> y firmas de autorización escrita.</td></tr>
+</tbody></table></div>
+
+<h2 id="arranque-rapido-lab">Arranque rápido y pruebas verificables sin descargas externas</h2>
+<pre><code class="lenguaje-bash"># 1. Probar de inmediato el analizador SOC y el auditor White-Box AST desde la raíz del curso
+python laboratorios/analizador_logs_soc.py laboratorios/muestras/auth_ssh_simulado.log 5
+python laboratorios/analizador_logs_soc.py laboratorios/muestras/web_access_simulado.log 4
+python laboratorios/auditor_whitebox_codereview.py ./laboratorios/
+
+# 2. Levantar la app educativa y Nginx localmente (solo en 127.0.0.1)
+cd laboratorios
+docker compose up -d
+
+# 3. (Opcional Tomo II) Activar también OWASP Juice Shop local para prácticas web interactivas en 127.0.0.1:3000
+docker compose --profile owasp up -d
+
+# 4. Verificar puertos locales y probar endpoints seguros
+python auditor_red_local.py 127.0.0.1
+curl -s "http://127.0.0.1:5050/buscar-seguro?q=redes"
+curl -sI "http://127.0.0.1:5050/saludo-seguro?nombre=Analista"
+
+# 5. Detener contenedores al finalizar la sesión
+docker compose --profile owasp down</code></pre>
+
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="00_EMPEZAR_AQUI.html">Inicio</a> · <a href="guia/index.html">Mapa del curso</a> · <a href="catalogo_completo.html">Catálogo 358</a> · <a href="orden_impresion.html">Imprenta y PDFs</a> · <a href="fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

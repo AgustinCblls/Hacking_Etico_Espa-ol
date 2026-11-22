@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 6.5 · Red Teaming, OPSEC operativo, LOLBAS/GTFOBins y perfiles C2 · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Evaluar la huella telemétrica de cada comando en laboratorio y diseñar detecciones de abuso LOLBAS">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo6.html">Tomo VI</a><span aria-hidden="true">›</span><span>Cap. 6.5</span></nav>
+<h1 id="cap-6-5">Capítulo 6.5 · Red Teaming, OPSEC operativo, LOLBAS/GTFOBins y perfiles C2</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Ingeniería Ofensiva y OPSEC</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo VI · Ruta 6 · Ingeniería Ofensiva y OPSEC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="46-evasion-conceptual-av-edr-y-cargas.html">6.6 Arquitectura AV/EDR, límites de AMSI/ETW, unhooking, PPID spoofing y detección</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a distinguir con precisión operativa entre un pentest tradicional y un ejercicio de Red Teaming orientado a objetivos y medición de detección; vas a identificar qué telemetría exacta delata los comandos clásicos de enumeración y los scripts no firmados; vas a comprender el funcionamiento y los artefactos forenses de LOLBAS en Windows y GTFOBins en Linux; y vas a analizar cómo funciona la infraestructura C2 moderna junto con las técnicas matemáticas y conductuales que usa el Blue Team para detectar <em>beaconing</em> y anomalías padre-hijo en un laboratorio aislado.</p></aside>
+<h2 id="cap-6-5-pentest-tradicional-red-teaming-y-enfoque-purple-team">Pentest tradicional, Red Teaming y enfoque Purple Team</h2>
+<p>En seguridad ofensiva aplicada a entornos corporativos, confundir un <em>penetration test</em> (pentest) con una operación de <strong>Red Teaming</strong> lleva a expectativas equivocadas y mediciones inútiles. Aunque ambos evalúan la resiliencia técnica bajo autorización contractual explícita, sus objetivos, su huella en la telemetría y sus criterios de éxito son opuestos.</p>
+<p>Un <strong>pentest tradicional</strong> busca <strong>cobertura total</strong> dentro de un alcance definido (un rango de IPs, una aplicación web o un segmento de Active Directory). El operador prioriza encontrar la mayor cantidad posible de vulnerabilidades en un tiempo acotado: lanza escaneos ruidosos de puertos y servicios, ejecuta enumeraciones masivas, prueba credenciales por diccionario dentro de límites acordados y valida configuraciones inseguras. Que el SOC bloquee al pentester suele ser un obstáculo administrativo (a menudo se pide poner la IP de origen en lista blanca), porque el foco está en el <strong>inventario de fallos técnicos y su remediación</strong>.</p>
+<p>Un ejercicio de <strong>Red Teaming</strong>, en cambio, adopta la lógica de emulación de adversarios reales (estilo CRTO/OSEP/RTFM, siempre en entorno autorizado o laboratorio aislado). No busca barrer toda la red ni reportar cada cabecera HTTP faltante. Persigue <strong>objetivos de negocio específicos</strong> (<em>crown jewels</em>: acceso a un controlador de dominio, lectura de un repositorio de secretos de CI/CD o acceso a una base de datos financiera) operando con <strong>sigilo y disciplina de OPSEC</strong> (<em>Operations Security</em>). El verdadero cliente de un Red Team no es solo infraestructura: es el <strong>Blue Team</strong>. La métrica principal consiste en medir el <strong>Tiempo Medio de Detección (MTTD)</strong>, la calidad de las alertas y el <strong>Tiempo Medio de Respuesta (MTTR)</strong> ante TTPs (<em>Tactics, Techniques, and Procedures</em>) alineados a MITRE ATT&amp;CK.</p>
+<p>De esa tensión nace el enfoque <strong>Purple Team</strong>: en lugar de mantener una competencia opaca donde el equipo rojo oculta sus pasos hasta el informe final, ambos equipos colaboran en ciclos cortos. El operador rojo ejecuta una técnica controlada en el laboratorio, y el analista azul verifica en tiempo real si el evento llegó al EDR, si Sysmon registró la línea de comandos completa y si la regla de correlación en el SIEM disparó la alerta esperada.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Dimensión operativa</th>
+<th>Pentest tradicional</th>
+<th>Red Teaming</th>
+<th>Purple Teaming</th>
+</tr></thead><tbody>
+<tr><td><strong>Propósito central</strong></td><td>Descubrir el máximo de vulnerabilidades en un activo</td><td>Emular un adversario hacia objetivos críticos (<em>flags</em>)</td><td>Validar y afinar capacidades de detección y respuesta</td></tr>
+<tr><td><strong>Ruido y visibilidad</strong></td><td>Alto (escaneos exhaustivos, fuzzing, scanners)</td><td>Mínimo (evita firmas obvias y respeta OPSEC)</td><td>Controlado y transparente por iteración</td></tr>
+<tr><td><strong>Relación con el SOC</strong></td><td>Frecuentemente en <em>allowlist</em> para no perder tiempo</td><td>Sin <em>allowlist</em>; se mide si el SOC detecta y contiene</td><td>Trabajo conjunto hombro a hombro en el SIEM/EDR</td></tr>
+<tr><td><strong>Alcance técnico</strong></td><td>Amplio sobre una superficie acotada</td><td>Profundo y oportunista sobre rutas de ataque reales</td><td>Basado en matriz ATT&amp;CK y casos de uso prioritarios</td></tr>
+<tr><td><strong>Entregable clave</strong></td><td>Listado priorizado de fallos y remediación</td><td>Línea de tiempo ataque vs detección (MTTD/MTTR)</td><td>Reglas nuevas, telemetría corregida y brechas cerradas</td></tr>
+</tbody></table></div>
+<aside class="callout aviso"><p class="callout-titulo">Regla de laboratorio y autorización</p><p>Todas las técnicas analizadas en este capítulo se estudian para comprender la cadena causal entre ejecución y telemetría. En cualquier evaluación real, la emulación de TTPs fuera de un laboratorio propio exige reglas de enfrentamiento (RoE) firmadas, ventanas horarias definidas y canales de desescalamiento inmediato con el SOC.</p></aside>
+<h2 id="cap-6-5-opsec-operativo-y-telemetria-que-delata">OPSEC operativo y telemetría que delata</h2>
+<p>El <strong>OPSEC operativo</strong> es la disciplina de evaluar cada acción antes de ejecutarla según la huella que deja en disco, en memoria, en la red y en los registros de auditoría del sistema operativo. En redes modernas con EDR y recolección centralizada de eventos, el mayor delator de un operador novato no es una vulnerabilidad compleja, sino el reflejo automático de tipear comandos administrativos heredados de guías antiguas.</p>
+<p>Considerá lo que sucede apenas alguien obtiene una shell interactiva en Windows y ejecuta la secuencia clásica de reconocimiento:</p>
+<pre><code class="lenguaje-text">whoami /all
+net user /domain
+net group "Domain Admins" /domain
+ipconfig /all
+nltest /dclist:corp.local</code></pre>
+<p>Cada uno de esos comandos genera una cascada de telemetría de altísima fidelidad para el Blue Team:</p>
+<ol><li><strong>Windows Security Event ID <code>4688</code></strong> (<em>A new process has been created</em>): si la política <em>Include command line in process creation events</em> está activa, registra el proceso padre (<code>cmd.exe</code>, <code>powershell.exe</code> o un binario inusual), el ejecutable hijo (<code>whoami.exe</code>, <code>net.exe</code>, <code>nltest.exe</code>) y los argumentos literales.</li><li><strong>Sysmon Event ID <code>1</code></strong> (<em>Process Creation</em>): agrega contexto crítico como el hash del binario, el usuario, el <em>Integrity Level</em>, <code>ParentImage</code>, <code>ParentCommandLine</code> y el <code>ProcessGuid</code> único para reconstruir todo el árbol de ejecución.</li><li><strong>PowerShell Event ID <code>4104</code></strong> (<em>Script Block Logging</em>): captura el contenido completo del bloque de script en memoria. Incluso si un operador ejecuta <code>powershell.exe -EncodedCommand &lt;base64&gt;</code> o concatena cadenas para ocultar un <code>Invoke-WebRequest</code>, el motor de PowerShell registra el código <strong>ya decodificado</strong> en el log <code>Microsoft-Windows-PowerShell/Operational</code> antes de ejecutarlo.</li><li><strong>PowerShell Event ID <code>4103</code></strong> (<em>Module Logging</em>) y <strong><code>400</code>/<code>600</code></strong>: registran la carga de módulos, el inicio del motor de PowerShell y el cambio de estado de proveedores, delatando sesiones interactivas o <em>downgrade attacks</em> hacia PowerShell v2.</li><li><strong>Tráfico RPC/LDAP y Event ID <code>4662</code> / consultas SAMR</strong>: comandos como <code>net user /domain</code> realizan llamadas SAMR/LDAP predecibles hacia el controlador de dominio, fácilmente correlacionables con herramientas de detección de anomalías de identidad.</li></ol>
+<p>En un ejercicio Purple Team, la pregunta clave no es "cómo escondo <code>whoami</code>", sino "qué información ya existe en el contexto del proceso o en el token sin necesidad de lanzar subprocesos ruidosos, y qué señales debe priorizar el SOC para no ahogarse en falsos positivos". Por ejemplo, un script de administración legítimo rara vez lanza <code>whoami /all</code> seguido de <code>nltest /dclist</code> y <code>net group "Domain Admins" /domain</code> en menos de diez segundos desde <code>winword.exe</code> o <code>wmiprvse.exe</code>. La correlación temporal (<em>burst</em> de comandos de descubrimiento en un mismo <code>ProcessGuid</code> padre) convierte comandos individualmente benignos en alertas de severidad alta.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Acción o comando clásico</th>
+<th>Proceso y evento principal</th>
+<th>Telemetría específica generada</th>
+<th>Señal que alerta al SOC</th>
+</tr></thead><tbody>
+<tr><td><code>whoami /all</code> o <code>whoami /priv</code></td><td><code>whoami.exe</code> (Sec <code>4688</code>, Sysmon <code>1</code>)</td><td>Argumentos <code>/all</code> o <code>/priv</code>; <code>ParentImage</code> atípico</td><td>Ejecución desde procesos no interactivos (<code>w3wp.exe</code>, <code>sqlservr.exe</code>)</td></tr>
+<tr><td><code>net user /domain</code> / <code>net group</code></td><td><code>net.exe</code> y <code>net1.exe</code> (Sysmon <code>1</code>, <code>3</code>)</td><td>Línea de comandos con <code>/domain</code>; consulta LDAP/SMB</td><td>Ráfaga de enumeración de cuentas privilegiadas desde una estación</td></tr>
+<tr><td><code>powershell -nop -w hidden -enc ...</code></td><td><code>powershell.exe</code> (Sysmon <code>1</code>, PS <code>4104</code>)</td><td>Flags de ocultamiento + bloque decodificado en <code>4104</code></td><td>Combinación de <code>-w hidden</code> / <code>-enc</code> y uso de <code>Net.WebClient</code> o <code>IEX</code></td></tr>
+<tr><td>Scripts PowerShell no firmados</td><td><code>powershell.exe</code> (PS <code>4104</code>, <code>4103</code>, AppLocker <code>8004</code>)</td><td>Ruta en <code>%TEMP%</code> o <code>C:\Users\Public</code>, estado de firma</td><td>Bypass de <code>ExecutionPolicy</code> o scripts desde directorios escribibles</td></tr>
+<tr><td><code>ipconfig /all</code> + <code>arp -a</code> + <code>route print</code></td><td>Múltiples binarios nativos (Sysmon <code>1</code>)</td><td>Secuencia rápida bajo el mismo árbol de proceso</td><td>Patrón automatizado de reconocimiento inicial post-explotación</td></tr>
+</tbody></table></div>
+<h2 id="cap-6-5-uso-y-abuso-de-lolbas-en-windows-y-gtfobins-en-linux">Uso y abuso de LOLBAS en Windows y GTFOBins en Linux</h2>
+<p>El término <strong>LOLBAS</strong> (<em>Living Off the Land Binaries, Scripts and Libraries</em>) describe binarios, scripts y bibliotecas legítimas, preinstaladas y <strong>firmadas digitalmente por el fabricante del sistema operativo</strong> (Microsoft en Windows) o por software corporativo de confianza, que pueden reutilizarse fuera de su propósito original para descargar archivos, compilar código, evadir restricciones simples de ejecución o lanzar procesos de forma indirecta. En entornos POSIX/Linux, el catálogo equivalente se conoce como <strong>GTFOBins</strong> (o <em>LoLBins</em>).</p>
+<p>El atractivo conceptual de estas herramientas radica en que no requieren subir binarios propios a disco inicialmente y aprovechan la confianza implícita de reglas de control de aplicaciones mal diseñadas (como permitir todo lo firmado por Microsoft). Sin embargo, desde el punto de vista de OPSEC y defensa moderna, <strong>usar un LOLBin no vuelve invisible a la operación</strong>: al contrario, muchos LOLBins tienen patrones de uso tan anómalos fuera de tareas específicas de administración que generan alertas inmediatas de alta prioridad.</p>
+<h3 id="cap-6-5-lolbas-criticos-en-windows-y-su-huella-forense">LOLBAS críticos en Windows y su huella forense</h3>
+<ol><li><strong><code>certutil.exe</code></strong>: herramienta administrativa para gestionar certificados, CA y listas de revocación (CRL). Su abuso clásico consiste en descargar archivos remotos o decodificar bloques Base64 en disco.</li></ol>
+<ul><li><em>Huella defensiva</em>: Sysmon ID <code>1</code> con parámetros como <code>-urlcache</code>, <code>-split</code>, <code>-f</code> o <code>-decode</code>; Sysmon ID <code>3</code> (conexión saliente de red desde <code>certutil.exe</code> hacia una IP externa o dominio no PKI); creación de artefactos de caché en <code>%USERPROFILE%\AppData\LocalLow\Microsoft\CryptnetUrlCache\Content</code> y <code>MetaData</code>; y Event ID <code>11</code> (<em>FileCreate</em>).</li></ul>
+<ol start="2"><li><strong><code>mshta.exe</code></strong>: intérprete legítimo de aplicaciones HTML (<code>.hta</code>) que ejecuta JScript o VBScript mediante el motor de Internet Explorer/MSHTML.</li></ol>
+<ul><li><em>Huella defensiva</em>: hoy prácticamente no existe uso corporativo legítimo de <code>mshta.exe</code> conectándose a internet o ejecutándose desde <code>cmd.exe</code> / documentos de Office. Deja Sysmon ID <code>1</code> con URLs en la línea de comandos o scripts inline (<code>javascript:</code> / <code>vbscript:</code>), Sysmon ID <code>3</code> hacia servidores externos y carga de DLLs de scripting (<code>jscript.dll</code>, <code>vbscript.dll</code>, Sysmon ID <code>7</code>).</li></ul>
+<ol start="3"><li><strong><code>rundll32.exe</code></strong>: cargador nativo diseñado para invocar funciones exportadas de DLLs mediante una firma específica (<code>EntryPoint</code>).</li></ol>
+<ul><li><em>Huella defensiva</em>: es un blanco clásico de abuso para proxy execution (por ejemplo, invocando DLLs de JavaScript/COM o bibliotecas propias). El Blue Team monitorea <code>rundll32.exe</code> ejecutando DLLs desde rutas de usuario (<code>AppData</code>, <code>Temp</code>, <code>ProgramData</code>), sin argumentos válidos, invocando funciones por ordinal (<code>#1</code>) o generando conexiones de red (Sysmon ID <code>3</code>) y procesos hijos inesperados.</li></ul>
+<ol start="4"><li><strong><code>regsvr32.exe</code></strong>: utilidad para registrar y desregistrar controles COM/DLL en el Registro de Windows. Su abuso conocido como <em>Squiblydoo</em> emplea el flag <code>/i:</code> apuntando a un scriptlet <code>.sct</code> local o remoto junto con <code>scrobj.dll</code>.</li></ol>
+<ul><li><em>Huella defensiva</em>: Sysmon ID <code>1</code> combinando <code>/s /n /u /i:http...</code> y <code>scrobj.dll</code>; Sysmon ID <code>7</code> mostrando la carga de <code>scrobj.dll</code> y motores de scripting dentro de <code>regsvr32.exe</code>; y tráfico HTTP/S saliente originado en un binario de registro del sistema.</li></ul>
+<ol start="5"><li><strong><code>bitsadmin.exe</code></strong>: herramienta heredada (reemplazada operativamente por los cmdlets de PowerShell de BITS) para administrar trabajos de transferencia en segundo plano (<em>Background Intelligent Transfer Service</em>).</li></ol>
+<ul><li><em>Huella defensiva</em>: además de Sysmon ID <code>1</code> con argumentos <code>/transfer</code>, <code>/create</code> o <code>/addfile</code>, el propio servicio BITS registra eventos dedicados en <code>Microsoft-Windows-Bits-Client/Operational</code> (Event ID <code>3</code>, <code>4</code>, <code>59</code>, <code>60</code>) con la URL exacta, el archivo destino y el usuario solicitante, además de persistir metadatos en la base <code>qmgr.db</code>.</li></ul>
+<ol start="6"><li><strong><code>msbuild.exe</code></strong>: motor de compilación de Microsoft Build Engine incluido en .NET Framework. Permite definir tareas inline en C# dentro de archivos <code>.csproj</code> o <code>.xml</code>, lo que posibilita compilar y ejecutar código en memoria desde un archivo de texto XML sin invocar <code>csc.exe</code> directamente de forma visible para reglas simples.</li></ol>
+<ul><li><em>Huella defensiva</em>: fuera de estaciones de desarrollo o servidores de CI/CD, la ejecución de <code>msbuild.exe</code> es altamente sospechosa. Aún más delator es verlo lanzado por un padre no vinculado a Visual Studio (<code>cmd.exe</code>, <code>wmiprvse.exe</code>, <code>explorer.exe</code>) o leyendo archivos XML desde carpetas temporales, sumado a la telemetría de carga de ensamblados .NET (ETW <code>Microsoft-Windows-DotNETRuntime</code>).</li></ul>
+<ol start="7"><li><strong><code>forfiles.exe</code></strong>: utilidad de línea de comandos para iterar sobre archivos y ejecutar un comando por cada coincidencia. En ejercicios ofensivos suele analizarse como método de ejecución indirecta (<em>parent-child spoofing</em> básico o evasión de firmas de cadena simple) para lanzar un segundo binario.</li></ol>
+<ul><li><em>Huella defensiva</em>: argumentos <code>/p</code>, <code>/m</code>, <code>/c</code> invocando <code>cmd /c</code>, <code>powershell</code> o <code>mshta</code> en rutas del sistema como <code>C:\Windows\System32</code> con una máscara fija para forzar una única iteración.</li></ul>
+<h3 id="cap-6-5-gtfobins-lolbins-en-linux-y-su-deteccion">GTFOBins / LoLBins en Linux y su detección</h3>
+<p>En sistemas Linux (servidores de aplicaciones, contenedores, nodos Kubernetes o bastiones), la ausencia de binarios adicionales no impide acciones posteriores al acceso inicial si las políticas de <code>sudoers</code>, los permisos SUID o las capacidades POSIX están mal configuradas:</p>
+<ul><li><strong><code>curl</code> y <code>wget</code></strong>: transferencia de artefactos, exfiltración vía POST/headers y sondeo interno (<em>SSRF</em> local o enumeración de metadatos cloud). Su ejecución desde cuentas de servicio web (<code>www-data</code>, <code>nginx</code>) hacia destinos externos genera eventos <code>execve</code> en <code>auditd</code> y conexiones salientes detectables por <code>netfilter</code>/eBPF.</li><li><strong><code>python</code> / <code>python3</code></strong>: presente en casi toda distribución moderna. Permite abrir sockets, interactuar con APIs o lanzar subshells interactivas (<code>pty.spawn</code>) desde una shell restringida.</li><li><strong><code>tar</code></strong>: si un usuario tiene permisos <code>sudo</code> para ejecutar <code>tar</code> (por ejemplo, en un script de respaldo), flags legítimos como <code>--checkpoint=1 --checkpoint-action=exec=...</code> permiten ejecutar comandos arbitrarios con el privilegio del proceso <code>tar</code>.</li><li><strong><code>awk</code> y <code>find</code></strong>: herramientas estándar de procesamiento de texto y búsqueda que incorporan primitivas de ejecución (<code>BEGIN { system(...) }</code> en <code>awk</code>, o <code>-exec ... \;</code> en <code>find</code>). Si se habilitan en reglas <code>sudo</code> sin el parámetro <code>NOEXEC</code>, rompen cualquier restricción de shell.</li></ul>
+<p>Para el Blue Team en Linux, la defensa no pasa por borrar <code>tar</code> o <code>python3</code> (lo cual rompería el sistema operativo), sino por:</p>
+<ul><li>Auditar <code>sudo -l</code> y agregar la etiqueta <code>NOEXEC:</code> en <code>/etc/sudoers</code> cuando un operador solo deba leer o empaquetar sin lanzar subprocesos.</li><li>Recolectar eventos <code>execve</code> (syscall <code>59</code> en x86_64) mediante <strong><code>auditd</code></strong> o sensores <strong>eBPF</strong> (como Falco o Tetragon), alertando cuando un daemon de red (<code>nginx</code>, <code>postgres</code>, <code>java</code>) genera hijos como <code>curl</code>, <code>python3</code>, <code>bash</code> o <code>sh</code>.</li></ul>
+<div class="tabla"><table>
+<thead><tr>
+<th>Binario</th>
+<th>Plataforma</th>
+<th>Uso legítimo</th>
+<th>Señal clave de abuso en telemetría</th>
+</tr></thead><tbody>
+<tr><td><code>certutil.exe</code></td><td>Windows</td><td>Gestión de certificados y CRL</td><td>Flags <code>-urlcache</code> / <code>-decode</code> + conexión red saliente (Sysmon <code>1</code>, <code>3</code>)</td></tr>
+<tr><td><code>mshta.exe</code></td><td>Windows</td><td>Ejecución de aplicaciones <code>.hta</code></td><td>URL remota o inline script en CLI + carga de <code>vbscript.dll</code> / <code>jscript.dll</code></td></tr>
+<tr><td><code>rundll32.exe</code></td><td>Windows</td><td>Invocación de exports en DLL</td><td>Ruta DLL en <code>%TEMP%</code>/<code>AppData</code>, ordinales o conexiones salientes</td></tr>
+<tr><td><code>regsvr32.exe</code></td><td>Windows</td><td>Registro de componentes COM</td><td>Flags <code>/s /n /u /i:</code> con <code>scrobj.dll</code> y URL externa</td></tr>
+<tr><td><code>bitsadmin.exe</code></td><td>Windows</td><td>Transferencias BITS heredadas</td><td>Logs <code>Bits-Client</code> IDs <code>3</code>/<code>59</code> con URLs externas no corporativas</td></tr>
+<tr><td><code>msbuild.exe</code></td><td>Windows</td><td>Compilación de proyectos .NET</td><td>Ejecución fuera de equipos dev o desde rutas temporales</td></tr>
+<tr><td><code>forfiles.exe</code></td><td>Windows</td><td>Procesamiento por lotes de archivos</td><td>Uso de <code>/c</code> invocando intérpretes sin iteración real de negocio</td></tr>
+<tr><td><code>tar</code> / <code>find</code> / <code>awk</code></td><td>Linux</td><td>Archivo, búsqueda y texto</td><td>Invocación con <code>sudo</code> sin <code>NOEXEC</code> usando <code>-exec</code> o <code>--checkpoint-action</code></td></tr>
+</tbody></table></div>
+<h2 id="cap-6-5-infraestructura-c2-moderna-canales-jitter-perfiles-y-redirectores">Infraestructura C2 moderna: canales, <em>jitter</em>, perfiles y redirectores</h2>
+<p>En una operación de Red Teaming madura, el agente desplegado en el laboratorio nunca se conecta directamente a la IP administrativa del <strong>Team Server</strong> (el servidor central de Comando y Control). Exponer el servidor C2 en primera línea permitiría que un analista bloquee una única IP, analice el certificado TLS del panel administrativo o identifique la huella del framework con escáneres públicos como Shodan o Censys.</p>
+<p>Por ese motivo, la infraestructura C2 moderna se diseña en capas:</p>
+<ol><li><strong>Redirectores HTTP/S</strong>: servidores intermedios desechables (implementados con Nginx, Apache <code>mod_rewrite</code>, Caddy o detrás de redes CDN legítimas en simulaciones autorizadas) que reciben el tráfico del perímetro. Solo reenvían al Team Server las peticiones que cumplen criterios estrictos (ruta URI válida, cabecera personalizada, <em>User-Agent</em> esperado o rango de IP del objetivo). Cualquier otro visitante —como un analista haciendo <code>curl</code> manual o un <em>crawler</em> de sandbox— recibe una redirección a un sitio benigno o un error <code>404</code> genérico.</li><li><strong>Canales HTTP/S</strong>: se prefiere HTTPS sobre puertos estándar (<code>443</code>) para integrarse con el tráfico cifrado corporativo y atravesar proxies salientes. Cuando existe inspección TLS (<em>SSL Bump</em>) en el proxy corporativo, el canal queda expuesto a análisis de cabeceras y contenido en capa 7.</li><li><strong><em>Sleep</em> y <em>Jitter</strong></em>: el agente no mantiene una conexión TCP abierta permanente ni consulta cada <code>5.000</code> segundos exactos. Combina un intervalo base (<em>sleep</em>, por ejemplo <code>60</code> segundos) con un porcentaje de variación aleatoria (<em>jitter</em>, por ejemplo <code>25%</code>), de modo que cada consulta ocurre en una ventana variable entre <code>45</code> y <code>75</code> segundos para dificultar reglas ingenuas de periodicidad fija.</li><li><strong>Perfiles maleables (<em>Malleable C2 profiles</em>)</strong>: definen la "forma" del tráfico HTTP en tránsito. Permiten mapear el identificador de sesión dentro de una cookie estándar, codificar comandos dentro de respuestas JSON o bloques HTML simulando telemetría de un servicio SaaS, y ajustar cabeceras <code>Server</code>, <code>Cache-Control</code> y <code>Content-Type</code> para evitar firmas por defecto de frameworks C2.</li></ol>
+<h3 id="cap-6-5-como-detecta-el-blue-team-anomalias-padre-hijo-y-beaconing">Cómo detecta el Blue Team anomalías padre-hijo y <em>beaconing</em></h3>
+<p>Incluso con redirectores, HTTPS, <em>jitter</em> y perfiles maleables, la combinación de telemetría de endpoint y red deja rastros claros:</p>
+<ul><li><strong>Anomalías en el árbol de procesos (<em>parent-child</em>)</strong>: un navegador (<code>chrome.exe</code>, <code>msedge.exe</code>) iniciando tráfico HTTPS hacia <code>443</code> es normal; <code>rundll32.exe</code>, <code>regsvr32.exe</code>, <code>notepad.exe</code> o <code>svchost.exe</code> sin servicio asociado abriendo sockets hacia internet (Sysmon ID <code>3</code>) es una anomalía crítica. Asimismo, procesos de ofimática (<code>winword.exe</code>, <code>excel.exe</code>) generando hijos como <code>cmd.exe</code>, <code>powershell.exe</code>, <code>mshta.exe</code> o <code>wmic.exe</code> activan detecciones inmediatas.</li><li><strong>Análisis estadístico de <em>beaconing</strong></em>: aunque el <em>jitter</em> rompe el intervalo exacto, las distribuciones de intervalos (<code>delta_t</code>) entre un proceso y un mismo dominio externo mantienen una media acotada y un <strong>coeficiente de variación (CV)</strong> relativamente bajo en comparación con la navegación humana, que alterna ráfagas de cientos de peticiones por segundo con largos períodos de inactividad. Herramientas como Zeek + RITA analizan:</li><li>Histogramas de intervalos <code>delta_t</code> y simetría alrededor del <em>sleep</em> configurado.</li><li>Baja entropía en el tamaño de las respuestas HTTP cuando el C2 está en reposo (respuestas vacías o de tamaño casi constante como "no hay tareas").</li><li><strong>Huellas TLS (JA3/JA4)</strong> inconsistentes con el <code>User-Agent</code> declarado (por ejemplo, declarar ser Chrome en Windows pero presentar una negociación TLS propia de <code>WinHTTP</code> o <code>curl</code>).</li><li>Dominios recién registrados, certificados TLS de corta duración con historial nulo en la organización y ausencia de consultas DNS previas coherentes (Sysmon ID <code>22</code>).</li></ul>
+<h2 id="cap-6-5-deteccion-y-verificacion-defensiva-en-laboratorio">Detección y verificación defensiva en laboratorio</h2>
+<p>En un entorno Purple Team, podés validar la capacidad de detección tanto en red (analizando registros de conexiones salientes para encontrar <em>beaconing</em> incluso con <em>jitter</em>) como en endpoint (auditando eventos Sysmon).</p>
+<p>El siguiente script en <strong>Python</strong> implementa un detector estadístico defensivo de <em>beaconing</em>. Procesa marcas de tiempo y tamaños de respuesta simulados de un log de proxy/Zeek, calcula el coeficiente de variación de los intervalos y señala destinos sospechosos:</p>
+<pre><code class="lenguaje-python">import statistics
+from collections import defaultdict
+from datetime import datetime
+
+
+def analizar_beaconing(registros, min_conexiones=6, cv_umbral=0.35):
+    """
+    Analiza registros (origen, destino, timestamp_iso, bytes_resp)
+    para identificar patrones compatibles con beaconing HTTP/S con jitter.
+    """
+    agrupado = defaultdict(list)
+    for origen, destino, ts, tam in registros:
+        agrupado[(origen, destino)].append((datetime.fromisoformat(ts), tam))
+
+    hallazgos = []
+    for (origen, destino), eventos in agrupado.items():
+        if len(eventos) &lt; min_conexiones:
+            continue
+
+        eventos.sort(key=lambda x: x[0])
+        deltas = [
+            (eventos[i][0] - eventos[i - 1][0]).total_seconds()
+            for i in range(1, len(eventos))
+        ]
+        tamanos = [e[1] for e in eventos]
+
+        media_dt = statistics.mean(deltas)
+        if media_dt &lt;= 0:
+            continue
+
+        stdev_dt = statistics.pstdev(deltas)
+        cv_dt = stdev_dt / media_dt
+        stdev_bytes = statistics.pstdev(tamanos)
+
+        # Un CV bajo en deltas indica periodicidad acotada incluso con jitter
+        if cv_dt &lt;= cv_umbral:
+            hallazgos.append({
+                "origen": origen,
+                "destino": destino,
+                "muestras": len(eventos),
+                "sleep_estimado_s": round(media_dt, 2),
+                "cv_intervalo": round(cv_dt, 3),
+                "desv_bytes": round(stdev_bytes, 2),
+            })
+
+    return hallazgos
+
+
+if __name__ == "__main__":
+    # Simulacion controlada de trafico en laboratorio:
+    # 10.10.20.15 -&gt; cdn-telemetry-lab.example con ~60s y jitter ~20%
+    # 10.10.20.15 -&gt; portal-noticias.example con navegacion humana irregular
+    logs_lab = [
+        ("10.10.20.15", "cdn-telemetry-lab.example", "2026-11-22T10:00:00", 248),
+        ("10.10.20.15", "cdn-telemetry-lab.example", "2026-11-22T10:00:52", 248),
+        ("10.10.20.15", "cdn-telemetry-lab.example", "2026-11-22T10:02:01", 252),
+        ("10.10.20.15", "cdn-telemetry-lab.example", "2026-11-22T10:02:58", 248),
+        ("10.10.20.15", "cdn-telemetry-lab.example", "2026-11-22T10:04:09", 248),
+        ("10.10.20.15", "cdn-telemetry-lab.example", "2026-11-22T10:05:03", 250),
+        ("10.10.20.15", "portal-noticias.example", "2026-11-22T10:00:05", 14200),
+        ("10.10.20.15", "portal-noticias.example", "2026-11-22T10:00:07", 890),
+        ("10.10.20.15", "portal-noticias.example", "2026-11-22T10:03:40", 53200),
+        ("10.10.20.15", "portal-noticias.example", "2026-11-22T10:03:42", 1200),
+        ("10.10.20.15", "portal-noticias.example", "2026-11-22T10:15:10", 4100),
+        ("10.10.20.15", "portal-noticias.example", "2026-11-22T10:15:11", 650),
+    ]
+    for alerta in analizar_beaconing(logs_lab):
+        print("[ALERTA BEACONING]", alerta)</code></pre>
+<p>En el endpoint Windows, podés auditar ejecuciones sospechosas de LOLBAS en tu máquina de laboratorio mediante <strong>PowerShell</strong> consultando el canal de Sysmon y cruzando proceso padre con línea de comandos:</p>
+<pre><code class="lenguaje-powershell"># Auditoria defensiva en laboratorio sobre Sysmon Event ID 1 (ultimas 24 horas)
+$inicio = (Get-Date).AddHours(-24)
+$lolbas = @('certutil.exe', 'mshta.exe', 'rundll32.exe', 'regsvr32.exe', 'bitsadmin.exe', 'msbuild.exe', 'forfiles.exe')
+
+Get-WinEvent -FilterHashtable @{
+    LogName   = 'Microsoft-Windows-Sysmon/Operational'
+    Id        = 1
+    StartTime = $inicio
+} -ErrorAction SilentlyContinue | ForEach-Object {
+    $xml = [xml]$_.ToXml()
+    $datos = @{}
+    foreach ($d in $xml.Event.EventData.Data) {
+        $datos[$d.Name] = $d.'#text'
+    }
+    $img = Split-Path $datos['Image'] -Leaf
+    if ($lolbas -contains $img.ToLower()) {
+        [PSCustomObject]@{
+            Hora        = $_.TimeCreated
+            Proceso     = $img
+            Padre       = Split-Path $datos['ParentImage'] -Leaf
+            Usuario     = $datos['User']
+            CommandLine = $datos['CommandLine']
+        }
+    }
+} | Format-Table -AutoSize</code></pre>
+<p>Para estandarizar esta visibilidad en un SIEM, una regla <strong>Sigma</strong> conceptual para detectar el abuso de <code>certutil.exe</code> o <code>mshta.exe</code> con tráfico/URLs y padres inusuales se estructura de la siguiente forma:</p>
+<pre><code class="lenguaje-yaml">title: Ejecucion Sospechosa de LOLBAS con Indicadores de Descarga o Scripting
+status: experimental
+description: Detecta argumentos de descarga o ejecucion remota en binarios firmados de Windows.
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  sel_certutil:
+    Image|endswith: '\certutil.exe'
+    CommandLine|contains:
+      - 'urlcache'
+      - '-decode'
+      - 'verifyctl'
+  sel_mshta:
+    Image|endswith: '\mshta.exe'
+    CommandLine|contains:
+      - 'http://'
+      - 'https://'
+      - 'javascript:'
+      - 'vbscript:'
+  condition: sel_certutil or sel_mshta
+level: high
+tags:
+  - attack.defense_evasion
+  - attack.t1218</code></pre>
+<h2 id="cap-6-5-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En tu laboratorio aislado (una VM Windows con Sysmon configurado con un esquema comunitario como SwiftOnSecurity o Olaf Hartong, y una VM Linux con <code>auditd</code>), ejecutá un ciclo Purple Team controlado:</p>
+<ol><li><strong>Verificá la telemetría base de Windows</strong>: habilitá <em>Command Line Process Auditing</em> (Directiva de grupo para Event ID <code>4688</code>) y <em>PowerShell Script Block Logging</em> (Event ID <code>4104</code>).</li><li><strong>Generá eventos benignos de prueba</strong>: en una consola PowerShell de prueba ejecutá <code>whoami /all</code> y un bloque de script inocuo (<code>Write-Output "Prueba Purple Team"</code>), y luego ejecutá <code>certutil.exe -?</code> y una consulta controlada en <code>forfiles.exe /p C:\Windows\System32 /m notepad.exe /c "cmd /c echo test_lab"</code>.</li><li><strong>Inspeccioná los logs</strong>: ejecutá el script de auditoría PowerShell visto en el capítulo y confirmá que podés reconstruir <code>ParentImage</code>, <code>CommandLine</code> y <code>ScriptBlockText</code> en el Visor de Eventos.</li><li><strong>Probá el detector de <em>beaconing</strong></em>: corré el script Python sobre el dataset de laboratorio, modificá el <em>jitter</em> simulado entre <code>5%</code> y <code>40%</code> y observá cómo cambia el coeficiente de variación (<code>cv_intervalo</code>).</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Documentá una tabla de validación Purple Team con al menos <strong>4 pruebas</strong> ejecutadas en tu laboratorio (comando benigno de prueba, Event ID capturado en Windows o <code>auditd</code> en Linux, campos críticos visibles como <code>ParentImage</code> y <code>CommandLine</code>, y la regla o consulta exacta con la que el Blue Team lo detectaría). Adjuntá la salida del script Python mostrando cómo varía <code>cv_intervalo</code> al incrementar el <em>jitter</em>.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>La mitigación efectiva frente al abuso de LOLBAS e infraestructura C2 requiere defensa en profundidad: aplicar políticas de <strong>Control de Aplicaciones (WDAC / AppLocker)</strong> que bloqueen explícitamente binarios innecesarios para usuarios estándar (<code>mshta.exe</code>, <code>msbuild.exe</code> en equipos no dev, <code>wscript.exe</code>); habilitar <strong>ASR (Attack Surface Reduction)</strong> para impedir que aplicaciones de Office creen procesos hijos o realicen llamadas ejecutables sospechosas; exigir inspección de salida HTTP/S con análisis de <strong>JA3/JA4</strong> y <em>beaconing</em>; activar <strong>PowerShell Constrained Language Mode</strong> junto con <code>4104</code>; y en Linux aplicar <code>NOEXEC</code> en <code>sudoers</code> junto con monitoreo eBPF/<code>auditd</code> sobre <code>execve</code>.</p></aside>
+<h2 id="cap-6-5-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Cuál es la diferencia fundamental entre el éxito de un pentest tradicional y el de una operación de Red Teaming?</strong> Un pentest busca cobertura exhaustiva para inventariar y remediar la mayor cantidad posible de vulnerabilidades en un alcance fijado, mientras que el Red Teaming emula un adversario enfocado en objetivos críticos con sigilo (OPSEC) para medir la capacidad real de detección y respuesta (MTTD/MTTR) del Blue Team.</p>
+<p><strong>2. ¿Por qué codificar un comando de PowerShell en Base64 con <code>-EncodedCommand</code> ya no oculta la intención frente a un entorno bien configurado?</strong> Porque el Event ID <code>4104</code> (<em>Script Block Logging</em>) captura el bloque de código dentro del motor de PowerShell una vez decodificado en memoria antes de su ejecución, dejando el texto plano completo registrado en el log <code>Microsoft-Windows-PowerShell/Operational</code>.</p>
+<p><strong>3. ¿Qué diferencia operativa existe en la telemetría entre ejecutar <code>certutil.exe</code> para verificar un certificado corporativo y abusarlo para transferir un archivo?</strong> El abuso con fines de descarga deja argumentos específicos en Sysmon ID <code>1</code> (<code>-urlcache</code>, <code>-split</code>, <code>-f</code>), una conexión de red saliente anómala en Sysmon ID <code>3</code> desde <code>certutil.exe</code> hacia dominios no PKI, creación de archivos en disco (ID <code>11</code>) y artefactos persistentes en <code>CryptnetUrlCache</code>.</p>
+<p><strong>4. ¿Para qué sirven los redirectores y el <em>jitter</em> en una arquitectura C2 moderna?</strong> Los redirectores protegen la IP y la identidad del Team Server filtrando peticiones que no corresponden al perfil esperado hacia sitios benignos o errores 404, mientras que el <em>jitter</em> introduce variación pseudoaleatoria en el intervalo <em>sleep</em> del agente para evitar que los sistemas de monitoreo detecten callbacks con periodicidad matemática exacta.</p>
+<p><strong>5. ¿Cómo puede un analista Blue Team detectar un canal C2 que utiliza HTTPS y <em>jitter</em> del 20%?</strong> Correlacionando telemetría de red y endpoint: analizando el coeficiente de variación de los intervalos <code>delta_t</code> y la baja variación de tamaños de respuesta HTTP (detección estadística de <em>beaconing</em>), revisando discrepancias entre huellas TLS (JA3/JA4) y el <code>User-Agent</code> declarado, y verificando mediante Sysmon ID <code>3</code> y ID <code>1</code> si procesos que no son navegadores o tienen relaciones padre-hijo anómalas están iniciando conexiones externas.</p>
+<h2 id="cap-6-5-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de pasar al capítulo 6.6 sobre arquitectura interna de AV/EDR y señales de evasión en memoria y kernel, asegurate de poder responder sin dudas:</p>
+<ul><li>Qué eventos de Windows Security (<code>4688</code>), PowerShell (<code>4104</code>) y Sysmon (<code>1</code>, <code>3</code>, <code>7</code>, <code>11</code>, <code>22</code>) registran la ejecución de comandos y LOLBAS.</li><li>Cómo distinguir un proceso hijo legítimo de una anomalía padre-hijo en Windows y Linux.</li><li>Por qué la estadística de intervalos y las huellas TLS complementan la detección basada en firmas.</li></ul></aside>
+<h2 id="cap-6-5-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>MITRE ATT&amp;CK Framework — Enterprise Tactics &amp; Techniques (<code>T1059</code> Command and Scripting Interpreter, <code>T1218</code> System Binary Proxy Execution, <code>T1071</code> Application Layer Protocol).</li><li>Proyecto <strong>LOLBAS</strong> (<em>Living Off The Land Binaries, Scripts and Libraries</em>): catálogo abierto de binarios Windows y reglas de detección asociadas.</li><li>Proyecto <strong>GTFOBins</strong>: lista curada de binarios Unix/Linux y restricciones de <code>sudoers</code> / <code>NOEXEC</code>.</li><li>Microsoft Learn — <em>Sysmon (System Monitor)</em> y <em>PowerShell Security Logging</em> (Event IDs <code>4103</code> y <code>4104</code>).</li><li>SigmaHQ — Repositorio abierto de reglas de detección genéricas para SIEM.</li><li>Active Countermeasures — <em>RITA (Real Intelligence Threat Analytics)</em>: documentación abierta sobre detección estadística de <em>beaconing</em>.</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="44-whitebox-pentesting-y-code-review.html">← 6.4 White-Box Pentesting y Secure Code Review (Python, Node, PHP, Java y .NET)</a></div><div><a href="46-evasion-conceptual-av-edr-y-cargas.html">6.6 Arquitectura AV/EDR, límites de AMSI/ETW, unhooking, PPID spoofing y detección →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 2.2 · Enumeración web, fuzzing con ffuf y análisis de JavaScript · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Descubrir endpoints, vhosts y parámetros ocultos en una app local">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo2.html">Tomo II</a><span aria-hidden="true">›</span><span>Cap. 2.2</span></nav>
+<h1 id="cap-2-2">Capítulo 2.2 · Enumeración web, fuzzing con ffuf y análisis de JavaScript</h1>
+<div class="meta-nivel"><span class="nivel-badge intermedio">Intermedio</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo II · Ruta 2 · Intermedio</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="12-inyecciones-sql-nosql-comandos.html">2.3 Inyecciones en servidor: SQLi, NoSQLi y Command Injection</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al terminar este capítulo vas a saber realizar un inventario completo de la superficie expuesta de una aplicación web en tu laboratorio local: identificar tecnologías del stack (<em>fingerprinting</em>), inspeccionar archivos de metadatos (<code>robots.txt</code>, <code>sitemap.xml</code>, <code>security.txt</code>), descubrir rutas, parámetros y <em>virtual hosts</em> con <code>ffuf</code> aplicando filtros precisos para eliminar ruido, y analizar archivos JavaScript del lado cliente para mapear endpoints de API y lógica expuesta.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 1.8 (Fundamentos Web y HTTP) y Capítulo 2.1 (Reconocimiento y Nmap). <strong>Duración sugerida:</strong> 5 a 7 horas.</p>
+<h2 id="cap-2-2-1-metodologia-de-inventario-de-superficie-web">1. Metodología de inventario de superficie web</h2>
+<p>Cuando auditás una aplicación web autorizada, lo que ves en la página principal rara vez representa el 100 % del sistema. Detrás de la interfaz principal suelen coexistir paneles administrativos, versiones anteriores de APIs (<code>/api/v1/</code>, <code>/api/v2/</code>), archivos de configuración o endpoints de diagnóstico que quedaron habilitados tras el despliegue.</p>
+<p>De acuerdo con la guía <strong>OWASP Web Security Testing Guide (WSTG-INFO)</strong>, el relevamiento técnico de una aplicación web se divide en cuatro fases ordenadas de menor a mayor interacción:</p>
+<ol><li><strong>Inspección pasiva de respuestas y cabeceras:</strong> análisis de encabezados HTTP, cookies, códigos de estado y certificados TLS devueltos en una navegación normal.</li><li><strong>Revisión de archivos estándar y metadatos:</strong> lectura de <code>/robots.txt</code>, <code>/sitemap.xml</code>, <code>/.well-known/security.txt</code>, <code>/crossdomain.xml</code> y manifiestos de aplicación (<code>manifest.json</code>).</li><li><strong>Análisis estático del código entregado al cliente:</strong> inspección del HTML, comentarios de desarrollo, mapas de código (<em>source maps</em> <code>.js.map</code>) y paquetes JavaScript (<em>bundles</em>) donde se definen las rutas hacia el backend.</li><li><strong>Descubrimiento activo controlado (<em>Fuzzing</em> de contenido):</strong> sondeo metódico de rutas, extensiones, parámetros y nombres de host virtuales (<em>vhosts</em>) mediante diccionarios adaptados a la tecnología detectada.</li></ol>
+<h2 id="cap-2-2-2-identificacion-del-stack-tecnologico-fingerprinting">2. Identificación del stack tecnológico (Fingerprinting)</h2>
+<p>Antes de lanzar cualquier diccionario de rutas conviene saber qué tecnología ejecuta el servidor. No tiene sentido buscar rutas <code>.aspx</code> en un servidor que corre Python/Flask sobre Linux, ni buscar endpoints de Spring Boot en una aplicación PHP.</p>
+<h3 id="cap-2-2-pistas-observables-en-una-peticion-estandar">Pistas observables en una petición estándar</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Fuente de observación</th>
+<th>Ejemplo de evidencia</th>
+<th>Tecnología revelada</th>
+</tr></thead><tbody>
+<tr><td>Cabeceras <code>Server</code> / <code>X-Powered-By</code></td><td><code>Server: Werkzeug/3.0.3 Python/3.12</code> o <code>X-Powered-By: Express</code></td><td>Lenguaje, framework y versión exacta del motor HTTP.</td></tr>
+<tr><td>Nombre de la cookie de sesión</td><td><code>PHPSESSID</code>, <code>JSESSIONID</code>, <code>ASP.NET_SessionId</code>, <code>connect.sid</code>, <code>session</code></td><td>PHP, Java/Servlet, ASP.NET, Node.js/Express, Python/Flask.</td></tr>
+<tr><td>Estructura de rutas y activos</td><td><code>/_next/static/</code>, <code>/wp-content/</code>, <code>/static/admin/css/</code></td><td>Next.js, WordPress, Django Admin.</td></tr>
+<tr><td>Páginas de error por defecto</td><td>Traza de error con formato específico ante un <code>404</code> o <code>400</code></td><td>Servidor web (Nginx, Apache, IIS, Tomcat) o framework subyacente.</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Inspección rápida de cabeceras y archivos de metadatos en el laboratorio local
+curl -sI http://127.0.0.1:5050/
+curl -i http://127.0.0.1:8080/robots.txt
+curl -i http://127.0.0.1:8080/sitemap.xml</code></pre>
+<aside class="callout nota"><p class="callout-titulo">Por qué ocultar la versión no reemplaza el parcheo</p><p>Desactivar la versión en la cabecera <code>Server</code> (por ejemplo con <code>server_tokens off;</code> en Nginx) es una buena práctica de higiene para dificultar el inventario automatizado, pero un analista siempre puede deducir el stack por el comportamiento de las cookies, el orden de las cabeceras o las respuestas ante peticiones malformadas. La seguridad real depende de mantener las dependencias actualizadas y bien configuradas.</p></aside>
+<h2 id="cap-2-2-3-descubrimiento-controlado-con-ffuf-y-filtrado-de-ruido">3. Descubrimiento controlado con <code>ffuf</code> y filtrado de ruido</h2>
+<p><strong><code>ffuf</code> (Fuzz Faster U Fool)</strong> es una herramienta escrita en Go diseñada para realizar descubrimiento de contenido web reemplazando la palabra clave <code>FUZZ</code> en la URL, en las cabeceras o en el cuerpo de una petición por cada línea de un diccionario (<em>wordlist</em>).</p>
+<p>La habilidad que distingue a un profesional de alguien que ejecuta herramientas a ciegas es <strong>la calibración y el filtrado</strong>. Muchas aplicaciones modernas (especialmente las <em>Single-Page Applications</em> en React, Vue o Angular) devuelven código <code>200 OK</code> con la misma plantilla HTML de inicio para cualquier ruta inexistente (<em>soft 404</em>). Si no filtrás por tamaño, palabras o líneas, obtendrás miles de falsos positivos.</p>
+<h3 id="cap-2-2-opciones-esenciales-de-ffuf">Opciones esenciales de <code>ffuf</code></h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Opción</th>
+<th>Función técnica</th>
+<th>Cuándo usarla</th>
+</tr></thead><tbody>
+<tr><td><code>-u URL</code></td><td>Define la URL objetivo incluyendo el marcador <code>FUZZ</code>.</td><td>Siempre (<code>http://127.0.0.1:5050/FUZZ</code>).</td></tr>
+<tr><td><code>-w ruta</code></td><td>Especifica la lista de palabras (<em>wordlist</em>) a utilizar.</td><td>Siempre (elegir listas específicas y acotadas según el stack).</td></tr>
+<tr><td><code>-mc</code> / <code>-fc</code></td><td>Incluye (<em>match</em>) o excluye (<em>filter</em>) códigos de estado HTTP.</td><td><code>-fc 404</code> para ocultar recursos no encontrados.</td></tr>
+<tr><td><code>-fs N</code></td><td>Excluye respuestas con un tamaño exacto de <code>N</code> bytes.</td><td>Cuando el servidor devuelve un <em>soft 404</em> con <code>200 OK</code> de tamaño fijo.</td></tr>
+<tr><td><code>-fw N</code> / <code>-fl N</code></td><td>Excluye respuestas con <code>N</code> palabras o <code>N</code> líneas.</td><td>Cuando el <em>soft 404</em> refleja la ruta buscada (cambiando el tamaño en bytes, pero manteniendo constante el número de palabras).</td></tr>
+<tr><td><code>-ac</code></td><td>Calibración automática (<em>auto-calibrate</em>): prueba rutas aleatorias inexistentes al inicio y configura los filtros sola.</td><td>Muy recomendable al empezar contra un servicio desconocido en el lab.</td></tr>
+<tr><td><code>-rate N</code> / <code>-t N</code></td><td>Limita la tasa de peticiones por segundo y el número de hilos concurrentes.</td><td>Obligatorio en auditorías reales para no degradar el servicio (<code>-rate 30 -t 10</code>).</td></tr>
+<tr><td><code>-H "Cabecera: Valor"</code></td><td>Añade una cabecera HTTP personalizada (útil para descubrir <em>Virtual Hosts</em> con <code>Host: FUZZ.lab.local</code>).</td><td>En auditoría de múltiples subdominios alojados en una misma IP.</td></tr>
+</tbody></table></div>
+<h3 id="cap-2-2-casos-de-uso-practicos-en-laboratorio">Casos de uso prácticos en laboratorio</h3>
+<pre><code class="lenguaje-bash"># 1. Descubrimiento de rutas en la aplicación local con calibración automática y límite de tasa
+ffuf -u http://127.0.0.1:5050/FUZZ -w diccionarios/rutas_web.txt -ac -rate 50 -t 10
+
+# 2. Descubrimiento de parámetros GET aceptados por un endpoint conocido
+ffuf -u "http://127.0.0.1:5050/buscar-seguro?FUZZ=redes" -w diccionarios/parametros.txt -ac
+
+# 3. Descubrimiento de Virtual Hosts (vhosts) enviando la cabecera Host contra el proxy local
+ffuf -u http://127.0.0.1:8080/ -H "Host: FUZZ.lab.local" -w diccionarios/subdominios.txt -ac</code></pre>
+<h2 id="cap-2-2-4-analisis-y-desofuscacion-de-javascript-del-lado-cliente">4. Análisis y desofuscación de JavaScript del lado cliente</h2>
+<p>En aplicaciones modernas basadas en APIs REST o GraphQL, el navegador descarga archivos <code>.js</code> que contienen toda la tabla de enrutamiento del frontend, los nombres exactos de los endpoints del backend, los parámetros esperados y comentarios o constantes olvidados.</p>
+<h3 id="cap-2-2-que-buscar-al-auditar-archivos-javascript">Qué buscar al auditar archivos JavaScript</h3>
+<ol><li><strong>Rutas de API y endpoints internos:</strong> cadenas que comienzan con <code>/api/</code>, <code>/v1/</code>, <code>/internal/</code>, <code>/admin/</code>, <code>/graphql</code> o llamadas a <code>fetch()</code>, <code>axios.get()</code>, <code>axios.post()</code> y <code>XMLHttpRequest</code>.</li><li><strong>Archivos <code>.js.map</code> (Source Maps):</strong> si el servidor publica el archivo <code>main.bundle.js.map</code> en producción, las herramientas de desarrollador del navegador reconstruyen el árbol completo del código fuente original en TypeScript/React con sus nombres de variables y comentarios intactos.</li><li><strong>Validaciones o controles de interfaz en el cliente:</strong> condiciones como <code>if (user.role === 'admin') { mostrarBotonPanel(); }</code> revelan qué rutas administrativas existen en el backend para verificar luego si el servidor valida realmente el rol o solo ocultaba el botón.</li></ol>
+<h3 id="cap-2-2-desofuscacion-y-lectura-de-codigo-minificado">Desofuscación y lectura de código minificado</h3>
+<p>Existe una diferencia fundamental entre <strong>minificación</strong> y <strong>ofuscación</strong>:</p>
+<ul><li><strong>Minificación (Webpack, Vite, Esbuild, Terser):</strong> elimina espacios, saltos de línea y acorta nombres de variables locales para reducir el peso del archivo. Se revierte en un clic con el botón <strong>Pretty Print (<code>{}</code>)</strong> de las DevTools del navegador o con herramientas como <code>js-beautify</code>.</li><li><strong>Ofuscación (codificación en arreglos hexadecimales, <code>eval</code>, <code>atob</code>, rotación de tablas de strings):</strong> busca dificultar la lectura estática, pero como el navegador necesita ejecutar las instrucciones reales, siempre se puede analizar de forma segura sin ejecutar código desconocido o inspeccionando las funciones decodificadoras en un entorno aislado.</li></ul>
+<pre><code class="lenguaje-python"># Ejemplo didáctico en Python para extraer rutas tipo /api/... de un bundle JS descargado en el lab
+import re, sys
+
+texto_js = open(sys.argv[1], "r", encoding="utf-8", errors="replace").read()
+rutas = sorted(set(re.findall(r'["\'](/[a-zA-Z0-9_\-/]+)["\']', texto_js)))
+for r in rutas:
+    print("  Ruta detectada:", r)</code></pre>
+<h2 id="cap-2-2-5-auditoria-de-aplicaciones-comunes-y-cms-wordpress-joomla-y-drupal">5. Auditoría de aplicaciones comunes y CMS (WordPress, Joomla y Drupal)</h2>
+<p>En evaluaciones reales es habitual encontrarse con <strong>Sistemas de Gestión de Contenidos (CMS)</strong> como <strong>WordPress</strong>, <strong>Joomla</strong> o <strong>Drupal</strong>, así como aplicaciones estándar (GitLab, Jenkins, paneles internos) que exponen rutas predecibles y suelen fallar por <strong>plugins desactualizados</strong> o <strong>configuraciones por defecto</strong> más que por el núcleo del CMS.</p>
+<h3 id="cap-2-2-superficie-critica-al-auditar-wordpress-en-laboratorio-autorizado">Superficie crítica al auditar WordPress en laboratorio autorizado</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Vector / Ruta en WordPress</th>
+<th>Qué revisar en auditoría</th>
+<th>Mitigación recomendada</th>
+</tr></thead><tbody>
+<tr><td><code>/wp-content/plugins/</code> y <code>/wp-content/themes/</code></td><td>Versiones exactas de plugins y temas (<code>readme.txt</code>) que pueden contener CVEs públicos conocidos; listado de directorios abierto.</td><td>Mantener actualizaciones automáticas del núcleo y plugins, eliminar plugins sin uso y desactivar <em>Directory Indexing</em>.</td></tr>
+<tr><td><code>/wp-json/wp/v2/users</code> y <code>/?author=1</code></td><td><strong>Enumeración pública de nombres de usuario</strong> vía REST API o redirección por ID de autor.</td><td>Restringir la exposición del endpoint <code>/wp/v2/users</code> a usuarios autenticados.</td></tr>
+<tr><td><code>/xmlrpc.php</code></td><td>Interfaz XML-RPC heredada que permite realizar múltiples intentos de autenticación dentro de una única petición HTTP (<code>system.multicall</code>) y amplificación SSRF/pingback.</td><td>Bloquear completamente el acceso a <code>xmlrpc.php</code> en Nginx/Apache si no se usa activamente.</td></tr>
+<tr><td><code>/wp-login.php</code> y <code>wp-config.php~</code></td><td>Falta de límite de tasa o MFA en el login, y copias de respaldo olvidadas (<code>wp-config.php.bak</code>) accesibles por HTTP.</td><td>Activar 2FA, limitar tasa de peticiones y mover/denegar copias temporales fuera del webroot.</td></tr>
+</tbody></table></div>
+<p>En un entorno autorizado, herramientas especializadas como <strong><code>wpscan</code></strong> (o enumeración dirigida con <code>ffuf</code>) agilizan la correlación de versiones de plugins contra bases de CVEs, siempre limitando la tasa de peticiones para no saturar el servidor.</p>
+<h2 id="cap-2-2-6-ejemplo-paso-a-paso-mapeo-completo-de-nuestra-app-de-laboratorio">6. Ejemplo paso a paso: mapeo completo de nuestra app de laboratorio</h2>
+<p>Veamos cómo combinar la inspección manual, un micro-diccionario y el análisis de respuestas sobre <code>http://127.0.0.1:5050</code>:</p>
+<pre><code class="lenguaje-bash"># Paso 1: Crear un diccionario mínimo de prueba en el laboratorio
+cat &lt;&lt; 'EOF' &gt; /tmp/wordlist_lab.txt
+admin
+login
+buscar-seguro
+saludo-seguro
+ticket-seguro/1
+status
+health
+EOF
+
+# Paso 2: Probar cada ruta con curl mostrando código HTTP y tamaño en bytes
+while read -r ruta; do
+  curl -s -o /dev/null -w "Ruta: /%-18s -&gt; HTTP %{http_code} (%{size_download} bytes)\n" "http://127.0.0.1:5050/$ruta"
+done &lt; /tmp/wordlist_lab.txt</code></pre>
+<p>Salida comentada del laboratorio:</p>
+<pre><code class="lenguaje-text">Ruta: /admin              -&gt; HTTP 404 (207 bytes)
+Ruta: /login              -&gt; HTTP 404 (207 bytes)
+Ruta: /buscar-seguro      -&gt; HTTP 200 (283 bytes)
+Ruta: /saludo-seguro      -&gt; HTTP 200 (88 bytes)
+Ruta: /ticket-seguro/1    -&gt; HTTP 403 (51 bytes)
+Ruta: /status             -&gt; HTTP 404 (207 bytes)
+Ruta: /health             -&gt; HTTP 404 (207 bytes)</code></pre>
+<p>Observá tres hallazgos inmediatos a partir de una tabla tan simple:</p>
+<ol><li>Todas las rutas inexistentes devuelven <code>404</code> con un tamaño exacto de <code>207 bytes</code> (nuestro valor de referencia para filtrar ruido con <code>-fc 404</code> o <code>-fs 207</code>).</li><li><code>/buscar-seguro</code> y <code>/saludo-seguro</code> responden <code>200 OK</code> con longitudes distintas.</li><li><code>/ticket-seguro/1</code> devuelve <code>403 Forbidden</code> (51 bytes): ¡eso confirma que el recurso existe y está protegido por una validación de acceso que acepta un parámetro de usuario!</li></ol>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><ol><li><strong>No publicar artefactos de compilación ni <code>.git</code> en el webroot:</strong> bloqueá explícitamente en Nginx/Apache el acceso a directorios ocultos (<code>location ~ /\. { deny all; }</code>) y excluí los archivos <code>*.js.map</code> del paquete de producción.</li><li><strong>No confiar en rutas "secretas" (seguridad por oscuridad):</strong> cualquier endpoint administrativo o interno debe exigir autenticación fuerte y control de acceso en el servidor, además de restringirse a la red de administración o VPN interna.</li><li><strong>Monitoreo y limitación de tasa (<em>Rate Limiting</em>):</strong> un pico repentino de respuestas <code>404</code>/<code>403</code> desde una misma IP es la huella clásica del fuzzing de directorios (detectable con <code>laboratorios/analizador_logs_soc.py</code> bajo la regla <code>SOC-WEB-002</code>).</li></ol></aside>
+<h2 id="cap-2-2-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Levantá el entorno local con <code>python laboratorios/app_lab_educativa.py</code>.</li><li>Creá un diccionario de 20 rutas en tu carpeta temporal que incluya las rutas válidas de la aplicación y 15 rutas inexistentes.</li><li>Ejecutá el bucle de inventario (o <code>ffuf</code> con <code>-fc 404</code>) contra <code>http://127.0.0.1:5050/FUZZ</code> y documentá todas las rutas que devuelven códigos <code>200</code> o <code>403</code>.</li><li>Guardá los logs generados por la aplicación o por Nginx en un archivo <code>acceso_lab.log</code> y pasalos por <code>python laboratorios/analizador_logs_soc.py acceso_lab.log 3</code> para observar cómo el SOC detecta el barrido de rutas <code>404</code>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Tabla comparativa en tu bitácora con las rutas descubiertas, sus códigos HTTP y tamaños en bytes, junto con la salida JSON de <code>analizador_logs_soc.py</code> detectando el patrón de enumeración.</p></aside>
+<h2 id="cap-2-2-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Qué es un "soft 404" y cómo se filtra correctamente al usar <code>ffuf</code>?</strong> Un <em>soft 404</em> ocurre cuando una aplicación web devuelve el código de estado <code>200 OK</code> (en lugar de <code>404 Not Found</code>) junto con una plantilla genérica para cualquier ruta que no existe. Para filtrarlo en <code>ffuf</code>, se utiliza <code>-fs &lt;bytes&gt;</code> (si el tamaño de la página genérica es fijo), <code>-fw &lt;palabras&gt;</code> (si el tamaño varía porque refleja el nombre de la ruta pero la cantidad de palabras es constante) o la opción <code>-ac</code> de calibración automática.</p>
+<p><strong>2. ¿Por qué es un riesgo dejar archivos <code>.js.map</code> (Source Maps) accesibles públicamente en un entorno de producción?</strong> Porque los <em>source maps</em> contienen el mapeo completo y a menudo el código fuente original sin minificar (TypeScript/JavaScript), exponiendo comentarios internos, nombres de funciones, estructura de carpetas del proyecto y rutas de API que no estaban destinadas a ser documentadas públicamente.</p>
+<p><strong>3. ¿Cómo permite la cabecera HTTP <code>Host</code> descubrir múltiples sitios o aplicaciones alojados en una misma dirección IP?</strong> Un servidor web como Nginx o Apache utiliza el valor de la cabecera <code>Host</code> de la petición HTTP para decidir a qué bloque <code>server</code> (<em>Virtual Host</em>) debe entregar la solicitud. Al variar la cabecera <code>Host: subdominio.ejemplo.local</code> apuntando a la misma IP del servidor en un entorno autorizado, es posible identificar aplicaciones secundarias que no estaban listadas en el DNS público.</p>
+<p><strong>4. ¿Por qué la presencia de una ruta en <code>Disallow:</code> dentro de <code>/robots.txt</code> no protege ese directorio?</strong> Porque <code>robots.txt</code> es únicamente una indicación voluntaria para buscadores indexadores bien comportados. No aplica ningún control de acceso: por el contrario, publicar rutas administrativas o privadas en <code>robots.txt</code> le informa a cualquier visitante exactamente dónde se encuentran.</p>
+<p><strong>5. ¿Qué señal en los logs del servidor web permite al equipo defensivo (SOC) detectar un escaneo de directorios en curso?</strong> Una ráfaga de peticiones HTTP desde una misma dirección IP en un intervalo corto de tiempo que genera una proporción elevada de respuestas <code>404 Not Found</code> o <code>403 Forbidden</code> sobre rutas secuenciales.</p>
+<h2 id="cap-2-2-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Identificar tecnologías de un servicio web a partir de sus cabeceras, cookies y estructura de respuestas.</li><li>Filtrar respuestas repetitivas por código, tamaño o cantidad de palabras durante un descubrimiento de rutas en laboratorio.</li><li>Extraer endpoints de API leyendo el código JavaScript entregado al navegador.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Una vez que tenés el mapa completo de rutas y parámetros de la aplicación de laboratorio, el siguiente paso es analizar cómo procesa el servidor las entradas recibidas en cada parámetro: avanzá al <strong>Capítulo 2.3 · Inyecciones en servidor</strong>.</p></aside>
+<h2 id="cap-2-2-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>OWASP Web Security Testing Guide (WSTG v4.2) — Secciones 4.1 (Information Gathering) y 4.2 (Configuration and Deployment Management Testing):</strong> metodología estándar de inventario web.</li><li><strong>RFC 9309 (Robots Exclusion Protocol):</strong> especificación oficial del estándar <code>robots.txt</code> y sus alcances.</li><li><strong>RFC 9116 (<code>security.txt</code>):</strong> estándar para la publicación de contactos y políticas de reporte responsable de vulnerabilidades.</li><li><strong>Documentación oficial de <code>ffuf</code> (GitHub / Open Source):</strong> guía de filtros, calibración automática y control de tasa.</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 7 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Hacking WordPress</td><td>Easy</td><td>Offensive</td><td>16</td></tr><tr><td>JavaScript Deobfuscation</td><td>Easy</td><td>Defensive</td><td>11</td></tr><tr><td>Attacking Web Applications with Ffuf</td><td>Easy</td><td>Offensive</td><td>13</td></tr><tr><td>Using Web Proxies</td><td>Easy</td><td>Offensive</td><td>15</td></tr><tr><td>Attacking Common Applications</td><td>Medium</td><td>Offensive</td><td>33</td></tr><tr><td>Information Gathering - Web Edition</td><td>Easy</td><td>Offensive</td><td>19</td></tr><tr><td>Web Fuzzing</td><td>Easy</td><td>Offensive</td><td>12</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="10-reconocimiento-y-nmap.html">← 2.1 Reconocimiento, footprinting, Nmap y evaluación de vulnerabilidades</a></div><div><a href="12-inyecciones-sql-nosql-comandos.html">2.3 Inyecciones en servidor: SQLi, NoSQLi y Command Injection →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

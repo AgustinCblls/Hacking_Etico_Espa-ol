@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 6.6 · Arquitectura AV/EDR, límites de AMSI/ETW, unhooking, PPID spoofing y detección · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Explicar mecanismos internos de hooking/AMSI/ETW/PPID y detectar anomalías de pila de llamadas en Blue Team">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo6.html">Tomo VI</a><span aria-hidden="true">›</span><span>Cap. 6.6</span></nav>
+<h1 id="cap-6-6">Capítulo 6.6 · Arquitectura AV/EDR, límites de AMSI/ETW, unhooking, PPID spoofing y detección</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Ingeniería Ofensiva y OPSEC</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo VI · Ruta 6 · Ingeniería Ofensiva y OPSEC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="47-ingenieria-social-y-acceso-inicial.html">6.7 Ingeniería social controlada, OSINT humano y simulaciones éticas de phishing</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender la arquitectura interna de los sistemas AV y EDR modernos en Windows —desde <em>mini-filter drivers</em> y callbacks en kernel hasta <em>hooks</em> en <code>ntdll.dll</code>, AMSI y ETW-TI—; vas a entender a nivel técnico-conceptual cómo operan técnicas avanzadas discutidas en evaluaciones Red Team (cifrado de cargas, <em>unhooking</em>, syscalls directas e indirectas, <em>PPID Spoofing</em>, <code>BlockDLLs</code> y ejecución <em>in-memory</em>); y vas a saber exactamente qué señales de hardware, kernel y telemetría permiten al Blue Team detectarlas hoy en laboratorio.</p></aside>
+<h2 id="cap-6-6-arquitectura-interna-de-av-y-edr-modernos">Arquitectura interna de AV y EDR modernos</h2>
+<p>Para analizar por qué ciertas técnicas existen y por qué hoy resultan mucho más detectables que hace algunos años, primero tenés que entender cómo observa un sistema operativo una solución de seguridad moderna. Un antivirus clásico de primera generación se limitaba casi exclusivamente a calcular hashes y buscar firmas estáticas sobre archivos en disco. Un <strong>EDR (Endpoint Detection and Response)</strong> moderno, en cambio, opera como una red distribuida de sensores tanto en <strong>espacio de usuario (user-land)</strong> como en <strong>modo kernel (kernel-land)</strong>.</p>
+<pre><code class="lenguaje-text">+-----------------------------------------------------------------------+
+| ESPACIO DE USUARIO (Ring 3)                                           |
+|  [Aplicacion / PowerShell / .NET]                                     |
+|       |---&gt; AMSI (AmsiScanBuffer) ---&gt; Proveedor AV/EDR               |
+|       |---&gt; Win32 API (kernel32 / kernelbase)                         |
+|       |---&gt; ntdll.dll [User-land API Hooks del EDR]                   |
+|       |---&gt; ETW User Providers (DotNETRuntime, PowerShell, etc.)      |
++-----------------------------------+-----------------------------------+
+                                    | Transicion syscall
++-----------------------------------v-----------------------------------+
+| MODO KERNEL (Ring 0)                                                  |
+|  [Mini-filter Driver (fltmgr.sys)]  --&gt; E/S de archivos en disco      |
+|  [Kernel Callbacks]                 --&gt; PsSetCreateProcessNotify...   |
+|                                     --&gt; PsSetCreateThreadNotify...    |
+|                                     --&gt; PsSetLoadImageNotify...       |
+|                                     --&gt; ObRegisterCallbacks (Handles) |
+|  [ETW-TI (Threat Intelligence)]     --&gt; Servicio PPL del EDR (ELAM)   |
++-----------------------------------------------------------------------+</code></pre>
+<aside class="callout nota"><p class="callout-titulo">Profundización en internos y kernel de Windows</p><p>El análisis detallado de la transición Ring 3 a Ring 0, las estructuras del kernel (<code>EPROCESS</code>, <code>ETHREAD</code>, <code>PEB</code>), los descriptores de servicio y el ciclo completo de llamadas del sistema en Windows se desarrolla en el material de referencia del proyecto: <a href="../../CLS_Guia/2d.html">Guía de internos y kernel de Windows</a>. Te conviene consultarlo antes de diseñar pruebas de telemetría en kernel en tu laboratorio.</p></aside>
+<p>Los cinco pilares arquitectónicos que debés conocer son:</p>
+<ol><li><strong><em>Mini-filter drivers</em> en kernel (<code>fltmgr.sys</code>)</strong>: el EDR registra un controlador <em>mini-filter</em> con una altitud asignada por Microsoft dentro de la pila del sistema de archivos. Cada vez que un proceso intenta crear, escribir, leer o ejecutar un archivo (<code>IRP_MJ_CREATE</code>, <code>IRP_MJ_WRITE</code>), el controlador intercepta la operación antes de que se complete, inspecciona el contenido y puede bloquear el acceso en tiempo real.</li><li><strong>Callbacks nativos del kernel</strong>: Windows expone interfaces oficiales y documentadas para que los controladores de seguridad reciban notificaciones síncronas o asíncronas desde Ring 0:</li></ol>
+<ul><li><code>PsSetCreateProcessNotifyRoutine</code> (y su variante extendida <code>Ex</code>): notifica la creación y terminación de todo proceso, entregando el PID real del creador, la línea de comandos y el objeto <code>EPROCESS</code>.</li><li><code>PsSetCreateThreadNotifyRoutine</code>: alerta cuando se crea un hilo nuevo, especialmente crítico para distinguir hilos locales de hilos creados en un proceso ajeno.</li><li><code>PsSetLoadImageNotifyRoutine</code>: registra cada ejecutable o DLL mapeado en memoria por cualquier proceso.</li><li><code>ObRegisterCallbacks</code>: intercepta solicitudes de apertura o duplicación de <em>handles</em> (<code>NtOpenProcess</code>, <code>NtDuplicateObject</code>). Así es como el EDR protege a <code>lsass.exe</code> y a sus propios procesos quitando permisos como <code>PROCESS_VM_READ</code> o <code>PROCESS_TERMINATE</code> a solicitantes no autorizados.</li></ul>
+<ol start="3"><li><strong>API Hooking en user-land dentro de <code>ntdll.dll</code></strong>: aunque el kernel ve el nacimiento del proceso y la carga de módulos, inspeccionar cada argumento de memoria en cada llamada desde Ring 0 tendría un costo de rendimiento alto. Por eso, muchos EDR inyectan su propia DLL de monitoreo dentro de cada proceso nuevo y sobrescriben los primeros bytes (el prólogo) de funciones nativas sensibles en <code>ntdll.dll</code> —como <code>NtAllocateVirtualMemory</code>, <code>NtProtectVirtualMemory</code>, <code>NtWriteVirtualMemory</code>, <code>NtCreateThreadEx</code> o <code>NtQueueApcThread</code>— con un salto (<code>JMP</code>) hacia código de inspección en su DLL antes de ejecutar la instrucción <code>syscall</code>.</li><li><strong>Proveedores AMSI (<em>Antimalware Scan Interface</em>)</strong>: interfaz estándar de Windows integrada en intérpretes dinámicos como PowerShell, Windows Script Host (<code>cscript</code>/<code>wscript</code>), VBA de Office y el <em>Common Language Runtime</em> (.NET 4.8+). Justo antes de compilar o evaluar un script o ensamblado en memoria, el intérprete invoca <code>AmsiScanBuffer</code>, permitiendo al motor AV/EDR inspeccionar el código ya desencriptado y desofuscado en tiempo de ejecución.</li><li><strong>ETW y ETW-TI (<em>Event Tracing for Windows - Threat Intelligence</em>)</strong>:</li></ol>
+<ul><li>El <strong>ETW tradicional</strong> emite eventos desde componentes de usuario y kernel (por ejemplo, <code>Microsoft-Windows-DotNETRuntime</code>, que registra qué ensamblados y métodos .NET se cargan en un proceso).</li><li><strong>ETW-TI</strong> (<code>Microsoft-Windows-Threat-Intelligence</code>) es un proveedor especial <strong>generado íntegramente en el kernel</strong> y protegido: solo puede consumirlo un proceso ejecutándose como <strong>PPL (<em>Protected Process Light</em>)</strong> con firma de controlador ELAM (<em>Early Launch Anti-Malware</em>), exactamente el nivel de privilegio que posee el servicio del EDR. Como se origina en Ring 0, los parches en memoria de usuario no lo ciegan.</li></ul>
+<aside class="callout peligro"><p class="callout-titulo">Alcance educativo y prohibición de uso malicioso</p><p>En este módulo analizamos las técnicas de evasión únicamente a nivel <strong>conceptual y arquitectónico</strong>, sin incluir código malicioso, shellcode ni implementaciones funcionales contra controles de terceros. El objetivo es entender las primitivas del sistema operativo para diseñar mejores detecciones Purple Team en laboratorio aislado.</p></aside>
+<h2 id="cap-6-6-comprension-tecnica-de-tecnicas-avanzadas-en-evaluaciones-red-team">Comprensión técnica de técnicas avanzadas en evaluaciones Red Team</h2>
+<p>En evaluaciones avanzadas (tipo CRTO/OSEP), los equipos rojos estudian cómo interactúan los artefactos de prueba con los cinco pilares descriptos. Comprender la mecánica teórica detrás de cada técnica es indispensable para que el Blue Team no confíe en detecciones obsoletas.</p>
+<h3 id="cap-6-6-cifrado-y-ofuscacion-en-reposo-vs-memoria">Cifrado y ofuscación en reposo vs memoria</h3>
+<p>En disco ("en reposo"), un binario con cadenas en texto claro o secuencias de bytes conocidas cae de inmediato ante reglas YARA o firmas estáticas. Al cifrar o comprimir una carga en reposo, la firma estática desaparece, pero se introduce una anomalía medible: <strong>alta entropía de Shannon</strong> en la sección que contiene los datos cifrados (valores cercanos a <code>7.2</code>–<code>8.0</code> bits por byte en comparación con código compilado normal de <code>5.5</code>–<code>6.5</code>).</p>
+<p>Además, ocultar el binario en disco no resuelve el problema en tiempo de ejecución: apenas el programa descifra su contenido en memoria para ejecutarlo, los escáneres de memoria del EDR (activados al crear hilos o ante eventos ETW-TI) inspeccionan las regiones recién asignadas. Esto motivó el concepto de <em>sleep obfuscation</em> (ofuscación en reposo en memoria): cifrar las regiones de datos y código propias del agente y retirar permisos de ejecución (<code>PAGE_EXECUTE_READ</code> -&gt; <code>PAGE_READWRITE</code>) mientras el agente duerme entre <em>beacons</em>, restaurándolos brevemente solo al despertar.</p>
+<h3 id="cap-6-6-unhooking-de-ntdll-dll-y-syscalls-directas-e-indirectas"><em>Unhooking</em> de <code>ntdll.dll</code> y syscalls directas e indirectas</h3>
+<p>Dado que el <em>API Hooking</em> en user-land modifica los bytes de <code>ntdll.dll</code> cargada en la memoria del proceso, existen tres enfoques conceptuales ampliamente documentados en la literatura técnica:</p>
+<ul><li><strong><em>Unhooking</em> de <code>ntdll.dll</code></strong>: el proceso abre una copia limpia y sin modificar de <code>ntdll.dll</code> (desde <code>\KnownDlls\ntdll.dll</code>, desde el disco <code>C:\Windows\System32\ntdll.dll</code> o leyendo la sección <code>.text</code> de un proceso secundario creado en estado suspendido) y sobrescribe la sección <code>.text</code> en memoria propia para restaurar los prólogos originales, eliminando los <code>JMP</code> colocados por el EDR.</li><li><strong>Syscalls directas (<em>Direct Syscalls</em>)</strong>: cada función <code>Nt*</code> en <code>ntdll.dll</code> simplemente carga en el registro <code>EAX</code> su número de servicio del sistema (<strong>SSN</strong>, <em>System Service Number</em>) y ejecuta la instrucción de CPU <code>syscall</code>. Una implementación de syscall directa resuelve dinámicamente el SSN correspondiente a la versión exacta de Windows y ejecuta la instrucción <code>syscall</code> directamente desde su propio código en memoria, <strong>evitando pasar por <code>ntdll.dll</code></strong>.</li><li><strong>Syscalls indirectas (<em>Indirect Syscalls</em>)</strong>: debido a que ejecutar <code>syscall</code> fuera de <code>ntdll.dll</code> deja un rastro evidente en la pila de llamadas (<em>call stack</em>), la variante indirecta prepara los argumentos y el SSN en los registros, pero en lugar de ejecutar <code>syscall</code> en su propia región de memoria, realiza un salto hacia la dirección de una instrucción <code>syscall; ret</code> legítima dentro de <code>ntdll.dll</code>.</li></ul>
+<h3 id="cap-6-6-ppid-spoofing-y-politica-blockdlls"><em>PPID Spoofing</em> y política <code>BlockDLLs</code></h3>
+<p>Muchas reglas iniciales de SIEM y EDR dependían casi exclusivamente del árbol padre-hijo (<code>ParentImage</code> -&gt; <code>Image</code>). Dos atributos documentados de la API <code>CreateProcessW</code> (mediante <code>STARTUPINFOEX</code> y <code>UpdateProcThreadAttribute</code>) ilustran los límites de esa detección ingenua:</p>
+<ul><li><strong><em>PPID Spoofing</strong></em> (<code>PROC_THREAD_ATTRIBUTE_PARENT_PROCESS</code>): permite especificar un proceso padre arbitrario al crear un proceso hijo (por ejemplo, simular que un nuevo proceso nació de <code>explorer.exe</code> o <code>svchost.exe</code> en lugar de una macro de <code>winword.exe</code>). El nuevo proceso hereda el entorno y aparece visualmente bajo ese padre falso en herramientas basadas solo en <code>CreateToolhelp32Snapshot</code> o el campo padre del PEB.</li><li><strong>Política <code>BlockDLLs</code></strong> (<code>PROCESS_CREATION_MITIGATION_POLICY_BLOCK_NON_MICROSOFT_BINARIES_ALWAYS_ON</code>): es una mitigación legítima de Windows diseñada para impedir la inyección de DLLs no firmadas por Microsoft (como adware o hooks de terceros). Cuando un proceso se crea con esta política, el cargador de Windows rechaza DLLs de terceros en user-land. Como efecto secundario conceptual, si la DLL de <em>hooking</em> de un EDR no cuenta con firma Microsoft/WHQL compatible con esa política, no logra cargarse en ese proceso hijo. (Sin embargo, esto no detiene en absoluto los callbacks en kernel ni ETW-TI).</li></ul>
+<h3 id="cap-6-6-ejecucion-in-memory-vs-disco">Ejecución <em>in-memory</em> vs disco</h3>
+<p>Mientras que el lanzamiento tradicional escribe un ejecutable en disco y llama a <code>CreateProcess</code>, la ejecución <em>in-memory</em> busca evitar el <em>mini-filter driver</em> de archivos cargando lógica directamente en memoria virtual: carga reflectiva de DLLs (mapear manualmente cabeceras PE y resolver importaciones sin usar <code>LoadLibrary</code>), ejecución de ensamblados .NET en memoria mediante <code>System.Reflection.Assembly.Load</code>, o <em>Module Stomping</em> (cargar una DLL legítima poco usada desde disco y sobrescribir su sección de código para que la memoria ejecutada figure respaldada por un archivo firmado en lugar de ser memoria privada anónima).</p>
+<h2 id="cap-6-6-senales-defensivas-que-hoy-los-detectan">Señales defensivas que hoy los detectan</h2>
+<p>Lejos de ser "indetectables", las técnicas anteriores desplazan el punto de observación desde firmas estáticas en disco hacia <strong>anomalías estructurales de memoria, pila de llamadas y telemetría de kernel</strong> mucho más difíciles de falsificar.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Técnica conceptual</th>
+<th>Lo que intenta evitar</th>
+<th>Señal defensiva moderna que la detecta</th>
+</tr></thead><tbody>
+<tr><td><strong>Cifrado de payload en reposo</strong></td><td>Firmas YARA y escaneo estático en disco</td><td>Entropía de Shannon elevada (&gt; 7.2) en secciones PE; detección en memoria al descifrar</td></tr>
+<tr><td><strong><em>Unhooking</em> de <code>ntdll.dll</code></strong></td><td>Hooks de monitoreo en Ring 3</td><td>Evento de cambio de permisos (<code>PAGE_EXECUTE_READWRITE</code> sobre <code>ntdll.dll</code> vía ETW-TI <code>PROTECTVM_LOCAL</code>) y verificación de integridad de <code>.text</code></td></tr>
+<tr><td><strong>Syscalls directas</strong></td><td>Hooks de user-land en <code>ntdll.dll</code></td><td><strong>Call Stack Inspection</strong>: la dirección de retorno (<code>RIP</code>) tras <code>syscall</code> apunta a memoria privada no respaldada (<em>unbacked memory</em>), no a <code>ntdll.dll</code></td></tr>
+<tr><td><strong>Syscalls indirectas</strong></td><td>Validación simple de RIP en <code>ntdll.dll</code></td><td><strong>Deep Call Stack Walking</strong>: la pila de retorno debajo de <code>ntdll.dll</code> no atraviesa <code>kernelbase.dll</code> ni el marco de llamada esperado</td></tr>
+<tr><td><strong><em>PPID Spoofing</strong></em></td><td>Reglas simples de <code>ParentImage</code></td><td>Discrepancia entre el creador real en <code>ETW Kernel-Process</code> / <code>Sysmon ID 10</code> (handle <code>PROCESS_CREATE_PROCESS</code> hacia el padre falso) y el padre declarado</td></tr>
+<tr><td><strong>Política <code>BlockDLLs</code></strong></td><td>Inyección de DLL de hooking en user-land</td><td>Telemetría íntegra en kernel (<code>PsSetCreateProcessNotifyRoutine</code>, ETW-TI) + flag anómalo de mitigación en procesos comunes</td></tr>
+<tr><td><strong>Ejecución <em>in-memory</strong></em></td><td>Mini-filter de archivos en disco</td><td>Regiones <code>MEM_PRIVATE</code> con permisos <code>RWX</code>/<code>RX</code> sin respaldo en disco (<em>unbacked executable memory</em>) y eventos ETW de .NET</td></tr>
+</tbody></table></div>
+<h3 id="cap-6-6-profundizacion-en-los-cuatro-detectores-modernos-clave">Profundización en los cuatro detectores modernos clave</h3>
+<ol><li><strong>Inspección de la pila de llamadas (<em>Call Stack Inspection</em>)</strong>: cuando el kernel captura un evento crítico mediante ETW-TI (como asignar memoria ejecutable remota o abrir un handle a otro proceso), recorre hacia atrás los marcos de pila (<em>stack unwinding</em>) tanto en kernel como en usuario. En una llamada legítima, el flujo desciende ordenadamente desde la aplicación -&gt; <code>kernelbase.dll</code> -&gt; <code>ntdll.dll</code> -&gt; kernel. Si la pila muestra un salto abrupto desde una región <code>MEM_PRIVATE</code> sin DLL asociada, o marcos de retorno inconsistentes propios de syscalls indirectas o <em>ROP/call-stack spoofing</em> rudimentario, el EDR genera una alerta de alta confianza.</li><li><strong>Discrepancias de páginas privadas ejecutables (<code>MEM_PRIVATE</code> + <code>RX</code>/<code>RWX</code>)</strong>: el código legítimo en Windows se mapea como <code>MEM_IMAGE</code> respaldado por un archivo PE en disco (<code>.exe</code> o <code>.dll</code>). Cuando una herramienta inyecta código en memoria o hace carga reflectiva, aparecen páginas de tipo <code>MEM_PRIVATE</code> con permisos de ejecución (<code>PAGE_EXECUTE_READ</code> o <code>PAGE_EXECUTE_READWRITE</code>) sin archivo asociado. Motores como <em>Moneta</em> o los escáneres de memoria de los EDR señalan de inmediato memoria privada ejecutable o hilos cuyo <code>StartAddress</code> cae fuera de módulos mapeados. En <em>Module Stomping</em>, la memoria figura como <code>MEM_IMAGE</code>, pero sus páginas fueron modificadas (<em>Copy-on-Write</em> / páginas privadas sucias respecto al archivo original en disco), lo cual también es detectable comparando hashes de páginas en memoria contra disco.</li><li><strong>Telemetría ETW-TI desde kernel</strong>: aunque un proceso modifique en su propia memoria la función <code>EtwEventWrite</code> de <code>ntdll.dll</code> para silenciar proveedores de usuario, el proveedor <strong>ETW-TI</strong> corre dentro del núcleo del sistema operativo y emite eventos como <code>THREATINT_ALLOCVM_REMOTE</code>, <code>THREATINT_PROTECTVM_REMOTE</code> y <code>THREATINT_WRITEVM_REMOTE</code> directamente al servicio protegido (PPL) del EDR.</li><li><strong>Sysmon Event IDs <code>8</code>, <code>10</code> y <code>25</code></strong>:</li></ol>
+<ul><li><strong>Sysmon ID <code>8</code> (<em>CreateRemoteThread</em>)</strong>: registra el proceso origen (<code>SourceImage</code>), el proceso destino (<code>TargetImage</code>) y la dirección inicial (<code>StartAddress</code> y módulo) cuando un proceso crea un hilo dentro de otro.</li><li><strong>Sysmon ID <code>10</code> (<em>ProcessAccess</em>)</strong>: captura el acceso entre procesos (<code>GrantedAccess</code> y <code>CallTrace</code>). Es fundamental tanto para detectar intentos de volcado de credenciales sobre <code>lsass.exe</code> (<code>0x1010</code>, <code>0x1410</code>, <code>0x1fffff</code>) como para detectar <strong><em>PPID Spoofing</strong></em>, porque el proceso creador debe pedir un <em>handle</em> con permiso <code>PROCESS_CREATE_PROCESS</code> (<code>0x0080</code>) o <code>PROCESS_ALL_ACCESS</code> sobre el proceso padre que intenta suplantar, dejando expuesto el <code>SourceImage</code> verdadero junto al <code>CallTrace</code>.</li><li><strong>Sysmon ID <code>25</code> (<em>ProcessTampering</em>)</strong>: introducido específicamente para detectar manipulación de la imagen de un proceso en memoria respecto al archivo en disco, cubriendo técnicas como <em>Process Hollowing</em>, <em>Process Herpaderping</em> y <em>Process Ghosting</em>.</li></ul>
+<h2 id="cap-6-6-metodologia-practica-frente-a-antivirus-en-laboratorio-aislado-enfoque-pen-200">Metodología práctica frente a Antivirus en laboratorio aislado (enfoque PEN-200)</h2>
+<p>En evaluaciones prácticas como <strong>PEN-200 (OSCP)</strong> no basta con conocer la teoría del kernel: las máquinas de laboratorio cuentan habitualmente con <strong>Windows Defender</strong> activo, y los auditores necesitan diagnosticar por qué una herramienta o binario de prueba es bloqueado antes de validar controles defensivos:</p>
+<ol><li><strong>Por qué caen al instante los binarios estándar (<code>msfvenom</code> sin modificar):</strong> los generadores automáticos utilizan plantillas PE fijas, secciones predecibles y secuencias de bytes ampliamente indexadas en las bases de firmas de todo antivirus. Además, cuando el archivo se escribe en disco o se ejecuta, el emulador integrado de Windows Defender corre los primeros ciclos en una mini-sandbox interna buscando llamadas API típicas (<code>VirtualAlloc</code> → <code>RtlMoveMemory</code> → <code>CreateThread</code>) y patrones de alta entropía.</li><li><strong>Aislamiento de firmas offline (<em>Signature Identification</em>):</strong> frente a un falso o verdadero positivo en un ejecutable compilado de laboratorio, herramientas analíticas como <strong><code>DefenderCheck</code></strong> o <strong><code>ThreatCheck</code></strong> automatizan una búsqueda por bisección binaria invocando localmente el motor del antivirus sobre fragmentos crecientes del archivo (<code>MpCmdRun.exe -Scan -ScanType 3</code>) hasta señalar el <em>offset</em> exacto o cadena de texto que dispara la detección (tanto estática como en <code>AMSITrigger</code> para scripts PowerShell). Toda esta prueba se realiza <strong>100 % offline en la VM de laboratorio</strong>, jamás subiendo artefactos internos a plataformas públicas como VirusTotal.</li><li><strong>Cargadores gestionados (C# / .NET) vs visibilidad AMSI/ETW:</strong> frente a ejecutables nativos fáciles de firmar, las evaluaciones modernas comparan el comportamiento de ensamblados C#/.NET o scripts en memoria. Sin embargo, desde .NET 4.8 todos los ensamblados cargados dinámicamente (<code>Assembly.Load</code>) pasan automáticamente por <strong><code>AmsiScanBuffer</code></strong> y emiten eventos en el proveedor <strong>ETW <code>Microsoft-Windows-DotNETRuntime</code></strong>, por lo que en entornos modernos la validación Purple Team siempre verifica la correlación en SIEM (<code>4104</code>, <code>Sysmon ID 1/8/10</code>) más allá de que el antivirus de disco no haya detenido un archivo estático.</li></ol>
+<h2 id="cap-6-6-verificacion-defensiva-y-auditoria-en-laboratorio">Verificación defensiva y auditoría en laboratorio</h2>
+<p>Podés comprobar estas señales defensivas de forma totalmente segura en tu laboratorio usando herramientas de análisis estático y consultas a eventos reales del sistema.</p>
+<p>El siguiente script en <strong>Python</strong> calcula la entropía de Shannon por ventana o por secciones básicas de un archivo PE de prueba (sin ejecutar el binario), ayudando al Blue Team a identificar artefactos empaquetados o con bloques cifrados sospechosos:</p>
+<pre><code class="lenguaje-python">import math
+import sys
+from collections import Counter
+
+
+def entropia_shannon(datos: bytes) -&gt; float:
+    """Calcula la entropia de Shannon (0.0 a 8.0 bits por byte)."""
+    if not datos:
+        return 0.0
+    total = len(datos)
+    conteo = Counter(datos)
+    entropia = 0.0
+    for frecuencia in conteo.values():
+        prob = frecuencia / total
+        entropia -= prob * math.log2(prob)
+    return entropia
+
+
+def auditar_bloques_archivo(ruta: str, tamano_bloque: int = 4096):
+    """Analiza un binario de laboratorio por bloques para detectar zonas de alta entropia."""
+    with open(ruta, "rb") as f:
+        contenido = f.read()
+
+    entropia_global = entropia_shannon(contenido)
+    print(f"Archivo: {ruta} | Tamano: {len(contenido)} bytes | Entropia global: {entropia_global:.3f}")
+
+    bloques_altos = 0
+    for offset in range(0, len(contenido), tamano_bloque):
+        bloque = contenido[offset : offset + tamano_bloque]
+        ent = entropia_shannon(bloque)
+        if ent &gt;= 7.20:
+            bloques_altos += 1
+            print(f"  [!] Bloque 0x{offset:08X} con entropia alta: {ent:.3f} bits/byte")
+
+    if bloques_altos == 0:
+        print("  [OK] No se observaron bloques con entropia &gt;= 7.20 bits/byte.")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Uso: python analizar_entropia.py &lt;ruta_archivo_laboratorio&gt;")
+        sys.exit(1)
+    auditar_bloques_archivo(sys.argv[1])</code></pre>
+<p>En Windows, el siguiente script defensivo en <strong>PowerShell</strong> inspecciona los <strong>Sysmon IDs <code>8</code>, <code>10</code> y <code>25</code></strong> de las últimas 24 horas y verifica qué políticas de mitigación (incluida la restricción de DLLs no firmadas por Microsoft) están activas sobre procesos en ejecución:</p>
+<pre><code class="lenguaje-powershell"># Auditoria defensiva en laboratorio: Sysmon IDs 8, 10 y 25 + Politicas de Mitigacion
+$inicio = (Get-Date).AddHours(-24)
+
+Write-Host "=== Eventos Sysmon 8 (CreateRemoteThread), 10 (ProcessAccess sospechoso) y 25 (ProcessTampering) ===" -ForegroundColor Cyan
+$eventos = Get-WinEvent -FilterHashtable @{
+    LogName   = 'Microsoft-Windows-Sysmon/Operational'
+    Id        = @(8, 10, 25)
+    StartTime = $inicio
+} -ErrorAction SilentlyContinue
+
+foreach ($ev in $eventos) {
+    $xml = [xml]$ev.ToXml()
+    $d = @{}
+    foreach ($campo in $xml.Event.EventData.Data) {
+        $d[$campo.Name] = $campo.'#text'
+    }
+    [PSCustomObject]@{
+        EventID      = $ev.Id
+        Hora         = $ev.TimeCreated
+        Origen       = $d['SourceImage']
+        Destino      = if ($d['TargetImage']) { $d['TargetImage'] } else { $d['Image'] }
+        AccesoOTipo  = if ($d['GrantedAccess']) { $d['GrantedAccess'] } else { $d['Type'] }
+        CallTrace    = $d['CallTrace']
+    }
+} | Format-List
+
+Write-Host "=== Verificacion de politicas de mitigacion en procesos activos (ej. msedge / powershell) ===" -ForegroundColor Cyan
+Get-ProcessMitigation -Name powershell.exe -ErrorAction SilentlyContinue |
+    Select-Object ProcessName, @{Name='BlockNonMSBinaries';Expression={$_.BinarySignature.BlockNonMicrosoftBinaries}}</code></pre>
+<h2 id="cap-6-6-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En tu máquina virtual de laboratorio Windows (con Sysmon habilitado usando configuración de visibilidad para IDs <code>8</code>, <code>10</code> y <code>25</code>), realizá la siguiente verificación estrictamente defensiva y sin herramientas ofensivas externas:</p>
+<ol><li><strong>Medí entropía de referencia</strong>: ejecutá el script <code>analizar_entropia.py</code> sobre una copia de <code>C:\Windows\System32\notepad.exe</code> (entropía típica de código nativo) y luego sobre un archivo <code>.zip</code> o <code>.7z</code> de prueba (entropía cercana a <code>7.9</code> bits/byte) para calibrar visualmente cómo luce un bloque comprimido/cifrado frente a una sección <code>.text</code> legítima.</li><li><strong>Inspeccioná <code>CallTrace</code> en Sysmon ID <code>10</code></strong>: abrí el Administrador de tareas o Process Explorer en tu laboratorio (herramientas administrativas legítimas que leen información de otros procesos) y filtrá en PowerShell los eventos <code>Sysmon ID 10</code> generados. Observá el formato del campo <code>CallTrace</code> y verificá cómo las direcciones resuelven a <code>ntdll.dll</code> y <code>kernelbase.dll</code>, contrastándolo con lo que ocurriría si apareciera una dirección <code>UNKNOWN</code> sin módulo respaldado.</li><li><strong>Auditá mitigaciones de procesos</strong>: ejecutá <code>Get-ProcessMitigation -System</code> y <code>Get-ProcessMitigation -Name msedge.exe</code> (o un navegador instalado en la VM) para ver en la práctica cómo Windows aplica <em>CFG</em>, <em>DEP</em> y políticas de firma binaria (<code>BlockNonMicrosoftBinaries</code>).</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Entregá un breve reporte de laboratorio que contenga: (a) la salida comparativa de <code>analizar_entropia.py</code> entre un binario nativo de Windows y un archivo comprimido de prueba; (b) una captura o transcripción anonimizada de un evento <code>Sysmon ID 10</code> de tu VM mostrando <code>SourceImage</code>, <code>TargetImage</code>, <code>GrantedAccess</code> y un fragmento del <code>CallTrace</code> legítimo; y (c) el detalle de tres mitigaciones verificadas con <code>Get-ProcessMitigation</code>.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>La defensa moderna contra técnicas de evasión en memoria no depende de un solo gancho en user-land. Se apoya en habilitar <strong>EDR con sensor kernel y consumidor PPL de ETW-TI</strong>, activar <strong>HVCI / Integridad de Memoria</strong> (VBS) para blindar el kernel y los controladores, exigir <strong>Credential Guard</strong> (aislando secretos de <code>lsass.exe</code> en VTL1), configurar <strong>Sysmon</strong> capturando IDs <code>1</code>, <code>7</code>, <code>8</code>, <code>10</code> (con <code>CallTrace</code>) y <code>25</code>, y correlacionar la presencia de memoria <code>MEM_PRIVATE</code> ejecutable con anomalías en el <em>call stack</em>.</p></aside>
+<h2 id="cap-6-6-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué un <em>unhooking</em> de <code>ntdll.dll</code> en user-land no logra cegar la visibilidad completa de un EDR moderno?</strong> Porque los EDR modernos operan principalmente mediante callbacks registrados en Ring 0 (<code>PsSetCreateProcessNotifyRoutine</code>, <code>ObRegisterCallbacks</code>, <em>mini-filters</em>) y consumen <strong>ETW-TI</strong> desde el kernel mediante un servicio protegido (PPL), canales que no dependen de los <em>hooks</em> en <code>ntdll.dll</code> ni pueden desactivarse desde la memoria de usuario del proceso.</p>
+<p><strong>2. ¿Cuál es la diferencia técnica entre una syscall directa y una syscall indirecta, y qué delata a cada una ante el análisis de pila?</strong> Una syscall directa ejecuta la instrucción <code>syscall</code> desde la memoria del propio programa fuera de <code>ntdll.dll</code>, dejando un <code>RIP</code> de retorno en memoria privada no respaldada; una syscall indirecta salta a una instrucción <code>syscall; ret</code> dentro de <code>ntdll.dll</code> para aparentar legitimidad, pero sigue siendo detectable mediante <em>deep call stack inspection</em> cuando los marcos inferiores de la pila no corresponden al flujo normal de <code>kernelbase.dll</code> y las APIs de usuario.</p>
+<p><strong>3. ¿Qué ventaja aporta Sysmon Event ID <code>10</code> (<em>ProcessAccess</em>) para detectar <em>PPID Spoofing</em>?</strong> Para suplantar a un proceso padre benigno mediante <code>PROC_THREAD_ATTRIBUTE_PARENT_PROCESS</code>, el proceso atacante debe abrir un <em>handle</em> hacia ese padre falso con derechos de creación de procesos (<code>PROCESS_CREATE_PROCESS</code>), lo que genera un evento Sysmon ID <code>10</code> donde queda registrado el <code>SourceImage</code> real junto con su <code>CallTrace</code>.</p>
+<p><strong>4. ¿Qué indica la presencia de páginas <code>MEM_PRIVATE</code> con permisos <code>PAGE_EXECUTE_READWRITE</code> o <code>RX</code> en un proceso estándar?</strong> Indica código ejecutable alojado en memoria dinámica sin un archivo PE legítimo respaldado en disco (<code>MEM_IMAGE</code>), un patrón característico de cargas reflectivas, inyección de memoria o intérpretes JIT no esperados en binarios nativos.</p>
+<p><strong>5. ¿Qué tipo de anomalías busca detectar específicamente Sysmon Event ID <code>25</code> (<em>ProcessTampering</em>)?</strong> Detecta discrepancias entre la imagen del ejecutable mapeada en la memoria de un proceso y el archivo original en disco, cubriendo técnicas de manipulación como <em>Process Hollowing</em>, <em>Process Herpaderping</em> y <em>Process Ghosting</em>.</p>
+<h2 id="cap-6-6-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de pasar al capítulo 6.7 sobre Ingeniería Social y acceso inicial, confirmá que podés explicar con claridad:</p>
+<ul><li>La diferencia entre telemetría en Ring 3 (<code>ntdll.dll</code>, AMSI) y telemetría protegida en Ring 0 (callbacks, <em>mini-filters</em>, ETW-TI).</li><li>Por qué el <em>Call Stack Inspection</em> y la detección de memoria <code>MEM_PRIVATE</code> ejecutable cerraron la brecha de las syscalls directas y la carga reflectiva.</li><li>Qué registra específicamente cada uno de los eventos Sysmon <code>8</code>, <code>10</code> y <code>25</code>.</li></ul></aside>
+<h2 id="cap-6-6-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>Microsoft Learn — <em>Antimalware Scan Interface (AMSI)</em>, <em>Process Mitigation Policies</em> y documentación de kernel callbacks (<code>PsSetCreateProcessNotifyRoutineEx</code>, <code>ObRegisterCallbacks</code>).</li><li>Microsoft Learn — <em>Sysmon v15+ Documentation</em> (Event ID <code>8</code>, <code>10</code> y <code>25</code>).</li><li>MITRE ATT&amp;CK — <code>T1055</code> (<em>Process Injection</em>), <code>T1134.004</code> (<em>Parent PID Spoofing</em>), <code>T1562.001</code> (<em>Impair Defenses</em>), <code>T1620</code> (<em>Reflective Code Loading</em>).</li><li>Proyecto abierto <strong>Moneta</strong> y <strong>Hunt-Sleeping-Beacons</strong> — Referencias educativas sobre detección de memoria privada ejecutable y <em>call stack anomalies</em>.</li><li>Material interno de arquitectura: <a href="../../CLS_Guia/2d.html">Guía de internos y kernel de Windows</a>.</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="45-red-teaming-opsec-y-lolbas.html">← 6.5 Red Teaming, OPSEC operativo, LOLBAS/GTFOBins y perfiles C2</a></div><div><a href="47-ingenieria-social-y-acceso-inicial.html">6.7 Ingeniería social controlada, OSINT humano y simulaciones éticas de phishing →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

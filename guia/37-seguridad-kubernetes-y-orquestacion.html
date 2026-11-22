@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 5.4 · Seguridad en Kubernetes: RBAC, Pods, etcd, Network Policies y CIS Benchmark · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar permisos RBAC, ServiceAccounts y configuraciones de Pods aplicando Pod Security Standards">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo5.html">Tomo V</a><span aria-hidden="true">›</span><span>Cap. 5.4</span></nav>
+<h1 id="cap-5-4">Capítulo 5.4 · Seguridad en Kubernetes: RBAC, Pods, etcd, Network Policies y CIS Benchmark</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Cloud y DevSecOps</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo V · Ruta 5 · Cloud y DevSecOps</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="38-devsecops-cicd-e-iac.html">5.5 DevSecOps, pipelines CI/CD, secretos en Git e Infraestructura como Código (IaC)</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a dominar la arquitectura interna de Kubernetes (plano de control y nodos trabajadores), auditar permisos en el modelo RBAC (<code>Role</code>, <code>ClusterRole</code>, <code>RoleBinding</code> y <code>ServiceAccount</code>) detectando combinaciones de riesgo como creación de pods, suplantación de identidad o lectura de secretos, evaluar riesgos de configuración en especificaciones de Pods y manejo de datos en <code>etcd</code>/<code>ConfigMaps</code>, diseñar aislamiento de tráfico con <code>NetworkPolicies</code>, y aplicar controles preventivos modernos mediante Pod Security Standards (PSS), motores de admisión (OPA Gatekeeper / Kyverno) y auditoría con <code>kube-bench</code>.</p></aside>
+<p>Cuando una organización escala de decenas de contenedores individuales en un servidor hacia cientos o miles de cargas distribuidas en múltiples máquinas, necesita un orquestador. <strong>Kubernetes (K8s)</strong> se consolidó como el estándar de facto para automatizar despliegue, escalado y recuperación de contenedores, pero introduce un plano de control distribuido complejo basado en APIs REST declarativas.</p>
+<p>En Kubernetes, comprometer un contenedor aislado ya no es el fin del análisis sino el posible punto de partida: <strong>una mala configuración de RBAC, un token de cuenta de servicio montado innecesariamente o un Pod sin restricciones de seguridad puede comprometer todo el clúster</strong>.</p>
+<h2 id="cap-5-4-arquitectura-del-cluster-plano-de-control-y-nodos">Arquitectura del Clúster: Plano de Control y Nodos</h2>
+<p>Un clúster de Kubernetes se divide lógicamente en dos planos claramente diferenciados: el <strong>Control Plane</strong> (cerebro que toma decisiones globales y almacena el estado) y los <strong>Worker Nodes</strong> (máquinas donde corren efectivamente las aplicaciones dentro de Pods).</p>
+<pre><code>+-----------------------------------------------------------------------+
+| CONTROL PLANE                                                         |
+|  [kubectl / Usuarios] ---&gt; [ kube-apiserver ] &lt;---&gt; [ etcd (TLS) ]    |
+|                                ^        ^                             |
+|                                |        |                             |
+|                    [ kube-scheduler ] [ kube-controller-manager ]     |
++--------------------------------|--------------------------------------+
+                                 | (HTTPS / mTLS)
++--------------------------------v--------------------------------------+
+| WORKER NODE                                                           |
+|  [ kubelet ] &lt;---&gt; [ Container Runtime (CRI: containerd / CRI-O) ]    |
+|  [ kube-proxy ]    [ Pod A ] [ Pod B ]                                |
++-----------------------------------------------------------------------+</code></pre>
+<h3 id="cap-5-4-componentes-criticos-y-su-superficie-de-seguridad">Componentes Críticos y su Superficie de Seguridad</h3>
+<ol><li><strong><code>kube-apiserver</code>:</strong> Es la única puerta de entrada al estado del clúster. Todas las peticiones (<code>kubectl</code>, controladores internos, nodos) pasan por su tubería de <strong>Autenticación -&gt; Autorización (RBAC) -&gt; Control de Admisión</strong> antes de persistirse. Nunca debe exponerse sin autenticación o con acceso anónimo habilitado (<code>--anonymous-auth=false</code> en entornos estrictos o fuertemente acotado).</li><li><strong><code>etcd</code>:</strong> Base de datos distribuida clave-valor que guarda <strong>todo</strong> el estado del clúster, incluidos manifiestos de configuración, tokens y objetos <code>Secret</code>. Si un actor logra acceso directo al puerto de <code>etcd</code> (TCP <code>2379</code>) sin autenticación mutua TLS (mTLS) o accede a copias de respaldo sin cifrar, obtiene control administrativo total del clúster.</li><li><strong><code>kube-scheduler</code>:</strong> Observa Pods recién creados sin nodo asignado y selecciona el Worker Node óptimo según recursos disponibles, afinidad y restricciones de seguridad (<em>taints</em> y <em>tolerations</em>).</li><li><strong><code>kube-controller-manager</code>:</strong> Ejecuta bucles de control continuos (Controlador de Replicación, Controlador de Nodos, Controlador de Tokens de ServiceAccount) para reconciliar el estado real con el estado deseado.</li><li><strong><code>kubelet</code>:</strong> Agente residente en cada Worker Node que recibe especificaciones de Pods desde el <code>kube-apiserver</code> y ordena su ejecución al <strong>CRI</strong> (<em>Container Runtime Interface</em>, típicamente <code>containerd</code> o <code>CRI-O</code>). Expone su propia API (puerto TCP <code>10250</code>); históricamente, configurarlo con <code>--anonymous-auth=true</code> y <code>--authorization-mode=AlwaysAllow</code> permitía ejecutar comandos remotos dentro de los Pods del nodo sin credenciales.</li><li><strong><code>kube-proxy</code>:</strong> Mantiene las reglas de red (iptables/IPVS/eBPF) en cada nodo para enrutar servicios internos, pero <strong>no</strong> aplica aislamiento de firewall entre Pods por sí solo (para eso se requiere un plugin CNI compatible con <code>NetworkPolicy</code>, como Cilium o Calico).</li></ol>
+<h2 id="cap-5-4-rbac-role-based-access-control-y-riesgos-de-autorizacion">RBAC (Role-Based Access Control) y Riesgos de Autorización</h2>
+<p>Kubernetes utiliza <strong>RBAC</strong> como mecanismo estándar de autorización sobre los recursos de la API. Todo permiso es <strong>denegado por defecto</strong> y únicamente existen reglas aditivas (<code>allow</code>); a diferencia de AWS IAM, <strong>RBAC de Kubernetes no posee reglas explícitas de <code>Deny</code></strong>.</p>
+<h3 id="cap-5-4-objetos-fundamentales-de-rbac">Objetos Fundamentales de RBAC</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Objeto RBAC</th>
+<th>Ámbito</th>
+<th>Propósito</th>
+</tr></thead><tbody>
+<tr><td><strong><code>Role</code></strong></td><td>Un único Namespace</td><td>Define verbos (<code>get</code>, <code>list</code>, <code>create</code>, <code>delete</code>, <code>patch</code>) sobre recursos dentro de ese namespace</td></tr>
+<tr><td><strong><code>ClusterRole</code></strong></td><td>Todo el clúster (o reutilizable por namespace)</td><td>Define permisos sobre nodos, namespaces, PersistentVolumes o recursos globales</td></tr>
+<tr><td><strong><code>RoleBinding</code></strong></td><td>Un único Namespace</td><td>Vincula un <code>Role</code> (o <code>ClusterRole</code>) con sujetos (<code>User</code>, <code>Group</code>, <code>ServiceAccount</code>) solo dentro de ese namespace</td></tr>
+<tr><td><strong><code>ClusterRoleBinding</code></strong></td><td>Todo el clúster</td><td>Otorga los permisos de un <code>ClusterRole</code> a nivel global en todos los namespaces</td></tr>
+<tr><td><strong><code>ServiceAccount</code></strong></td><td>Un único Namespace</td><td>Identidad no humana asignada automáticamente a los Pods para autenticarse ante el <code>kube-apiserver</code></td></tr>
+</tbody></table></div>
+<h3 id="cap-5-4-combinaciones-rbac-de-alto-riesgo">Combinaciones RBAC de Alto Riesgo</h3>
+<p>Al auditar manifiestos RBAC, debés buscar permisos que permiten escalar privilegios dentro de un namespace o hacia el clúster completo:</p>
+<ul><li><strong>Creación o modificación de cargas de trabajo (<code>create pods</code>, <code>deployments</code>, <code>daemonsets</code>):</strong> Un sujeto que puede crear Pods dentro de un namespace puede definir en el YAML un Pod privilegiado o que monte el token de otro <code>ServiceAccount</code> existente en el mismo namespace con mayores privilegios.</li><li><strong>Lectura masiva de secretos (<code>get</code>/<code>list</code>/<code>watch</code> sobre <code>secrets</code>):</strong> Permite extraer tokens de ServiceAccounts de larga duración, contraseñas de bases de datos o certificados TLS almacenados en el namespace o en todo el clúster si está vinculado por <code>ClusterRoleBinding</code>.</li><li><strong>Suplantación de identidad (<code>impersonate</code> sobre <code>users</code>, <code>groups</code> o <code>serviceaccounts</code>):</strong> Permite que una identidad actúe ante el <code>kube-apiserver</code> enviando cabeceras de suplantación (<code>Impersonate-User: system:masters</code>), asumiendo el nivel de privilegio del sujeto suplantado.</li><li><strong>Modificación de enlaces RBAC (<code>bind</code> / <code>escalate</code> / <code>create rolebindings</code>):</strong> Permite asignar roles existentes de mayor jerarquía a la propia cuenta de servicio.</li><li><strong>Ejecución remota (<code>pods/exec</code> o <code>pods/attach</code>):</strong> Habilita abrir sesiones interactivas en contenedores ya en ejecución dentro del namespace y acceder a los secretos montados en sus procesos.</li></ul>
+<pre><code class="lenguaje-yaml"># Ejemplo de Role RBAC bien acotado (Principio de Mínimo Privilegio)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: produccion-pagos
+  name: lector-configuracion-acotado
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["config-publica-app"] # Restringido a un recurso específico, no a todo el namespace
+  verbs: ["get"]</code></pre>
+<h2 id="cap-5-4-riesgos-criticos-en-la-especificacion-de-pods">Riesgos Críticos en la Especificación de Pods</h2>
+<p>Por defecto, Kubernetes monta automáticamente un token JWT del <code>ServiceAccount</code> <code>default</code> dentro de cada Pod en <code>/var/run/secrets/kubernetes.io/serviceaccount/token</code> e inicia los contenedores sin restricciones estrictas sobre <code>securityContext</code>.</p>
+<p>Los principales indicadores de riesgo en un manifiesto <code>Pod</code> o <code>Deployment</code> son:</p>
+<ol><li><strong><code>securityContext.privileged: true</code>:</strong> Equivalente a <code>--privileged</code> en Docker; otorga control total de capabilities y dispositivos del nodo trabajador subyacente.</li><li><strong><code>hostPID: true</code> / <code>hostIPC: true</code> / <code>hostNetwork: true</code>:</strong> Rompe el aislamiento de namespaces compartiendo el árbol de procesos, memoria compartida o interfaces de red del nodo anfitrión (incluyendo escucha en puertos del nodo o acceso a interfaces locales de metadatos/kubelet).</li><li><strong><code>volumes</code> con <code>hostPath</code>:</strong> Monta directorios arbitrarios del nodo trabajador (como <code>/</code>, <code>/var/log</code>, <code>/etc/kubernetes</code> o el socket del runtime <code>/run/containerd/containerd.sock</code>) directamente dentro del Pod.</li><li><strong>Tokens montados innecesariamente:</strong> Si una aplicación web no necesita consultar la API de Kubernetes, dejar <code>automountServiceAccountToken</code> habilitado por defecto expone credenciales internas válidas ante cualquier vulnerabilidad de aplicación (por ejemplo, lectura local de archivos). Debés fijar explícitamente <strong><code>automountServiceAccountToken: false</code></strong> en la definición del <code>ServiceAccount</code> o del Pod.</li></ol>
+<h2 id="cap-5-4-secretos-en-etcd-y-manejo-de-configmaps">Secretos en <code>etcd</code> y Manejo de <code>ConfigMaps</code></h2>
+<p>Un error conceptual frecuente es asumir que los objetos <code>Secret</code> de Kubernetes están cifrados por defecto. <strong>En realidad, los <code>Secrets</code> simplemente se codifican en Base64</strong> en los manifiestos y, si no se configura explícitamente <strong>Encryption at Rest</strong> (<code>EncryptionConfiguration</code> en el <code>kube-apiserver</code> usando KMS o AES-CBC/GCM), se almacenan en <strong>texto claro</strong> dentro de <code>etcd</code>.</p>
+<p>Por su parte, los <strong><code>ConfigMaps</code></strong> están pensados exclusivamente para configuración no sensible (banderas de entorno, rutas, puertos). Jamás debés almacenar claves API o cadenas de conexión en un <code>ConfigMap</code>, ya que suelen ser legibles por múltiples roles de monitoreo y desarrollo con permisos amplios de lectura. Para entornos productivos exigentes, la mejor práctica es utilizar gestores externos como <strong>External Secrets Operator (ESO)</strong> o <strong>CSI Secrets Store Driver</strong> integrados con AWS Secrets Manager, Azure Key Vault o HashiCorp Vault.</p>
+<h2 id="cap-5-4-aislamiento-de-red-con-networkpolicies">Aislamiento de Red con NetworkPolicies</h2>
+<p>Por defecto, la red de Kubernetes es <strong>plana</strong>: cualquier Pod en cualquier namespace puede comunicarse libremente con cualquier otro Pod del clúster. Para implementar microsegmentación de confianza cero (<em>Zero Trust</em>), se definen objetos <strong><code>NetworkPolicy</code></strong> (que requieren un plugin CNI con soporte activo, como Calico, Cilium o Antrea).</p>
+<p>Un enfoque profesional comienza aplicando una política de <strong>denegación por defecto</strong> (<em>Default Deny</em>) para todo el tráfico entrante y saliente en cada namespace productivo, y luego habilitando explícitamente únicamente los flujos indispensables:</p>
+<pre><code class="lenguaje-yaml"># 1. Bloquear todo tráfico entrante y saliente por defecto en el namespace 'pagos'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: pagos
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# 2. Permitir únicamente tráfico de la API hacia PostgreSQL en el puerto 5432
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: permitir-api-a-postgres
+  namespace: pagos
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres-pagos
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-pagos
+    ports:
+    - protocol: TCP
+      port: 5432</code></pre>
+<h2 id="cap-5-4-pod-security-standards-pss-y-control-de-admision">Pod Security Standards (PSS) y Control de Admisión</h2>
+<p>Tras la eliminación definitiva de <em>PodSecurityPolicy (PSP)</em> en Kubernetes 1.25, el estándar nativo incorporado en el plano de control es <strong>Pod Security Admission (PSA)</strong> aplicando los <strong>Pod Security Standards (PSS)</strong> mediante etiquetas directamente en cada <code>Namespace</code>.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Perfil PSS</th>
+<th>Nivel de Restricción</th>
+<th>Qué Permite o Bloquea</th>
+</tr></thead><tbody>
+<tr><td><strong><code>Privileged</code></strong></td><td>Sin restricciones</td><td>Permite cualquier configuración (solo para infraestructura crítica del sistema como CNI/CSI)</td></tr>
+<tr><td><strong><code>Baseline</code></strong></td><td>Protección mínima estándar</td><td>Bloquea escaladas conocidas: prohíbe <code>privileged: true</code>, <code>hostNetwork</code>, <code>hostPID</code>, <code>hostIPC</code>, <code>hostPath</code> y capabilities peligrosas</td></tr>
+<tr><td><strong><code>Restricted</code></strong></td><td>Endurecimiento máximo recomendado</td><td>Exige además ejecución no root (<code>runAsNonRoot: true</code>), <code>allowPrivilegeEscalation: false</code>, eliminación de todas las capabilities (<code>drop: ["ALL"]</code>) y perfil <code>seccompProfile: RuntimeDefault</code></td></tr>
+</tbody></table></div>
+<p>PSA puede operar en tres modos simultáneos por namespace: <code>enforce</code> (rechaza Pods que violen el perfil), <code>audit</code> (registra la infracción en el log de auditoría) y <code>warn</code> (advierte al usuario por CLI).</p>
+<pre><code class="lenguaje-yaml"># Etiquetar un namespace para exigir el perfil Restricted en producción
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: produccion-pagos
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# Fragmento de Pod compatible con el perfil PSS Restricted
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-pagos-endurecida
+  namespace: produccion-pagos
+spec:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: api
+    image: mi-org/api-pagos@sha256:4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL</code></pre>
+<h3 id="cap-5-4-motores-de-politicas-de-admision-opa-gatekeeper-y-kyverno">Motores de Políticas de Admisión: OPA Gatekeeper y Kyverno</h3>
+<p>Cuando los requisitos organizacionales superan el alcance de PSS (por ejemplo: prohibir imágenes sin firmar, exigir etiquetas de propietario, impedir repositorios públicos no autorizados o validar reglas personalizadas en Ingress), se implementan <strong>Validating/Mutating Admission Webhooks</strong>:</p>
+<ul><li><strong>OPA Gatekeeper:</strong> Basado en Open Policy Agent y el lenguaje declarativo <strong>Rego</strong>; evalúa restricciones complejas mediante <code>ConstraintTemplates</code> y <code>Constraints</code>.</li><li><strong>Kyverno:</strong> Motor nativo de Kubernetes que define políticas de validación, mutación y generación directamente en <strong>YAML</strong> sin necesidad de aprender un lenguaje de consulta externo, lo que acelera su adopción en equipos DevSecOps.</li></ul>
+<h2 id="cap-5-4-auditoria-con-cis-kubernetes-benchmark-y-kube-bench">Auditoría con CIS Kubernetes Benchmark y <code>kube-bench</code></h2>
+<p>Al igual que en Docker, la verificación sistemática de la configuración del plano de control, <code>etcd</code>, <code>kubelet</code> y políticas del clúster se automatiza mediante <strong>CIS Kubernetes Benchmark</strong> utilizando la herramienta de código abierto <strong><code>kube-bench</code></strong> de Aqua Security, complementada con comandos nativos de verificación <code>kubectl auth can-i</code>:</p>
+<pre><code class="lenguaje-bash"># 1. Auditar qué acciones tiene permitidas el ServiceAccount actual o un usuario específico
+kubectl auth can-i --list --namespace=produccion-pagos
+kubectl auth can-i create pods --as=system:serviceaccount:produccion-pagos:app-sa -n produccion-pagos
+
+# 2. Listar todos los ClusterRoleBindings para detectar asignaciones amplias (ej. cluster-admin)
+kubectl get clusterrolebindings -o custom-columns="NOMBRE:.metadata.name,ROL:.roleRef.name,SUJETOS:.subjects[*].name"
+
+# 3. Buscar Pods en ejecución con configuración privilegiada o namespaces del host compartidos
+kubectl get pods --all-namespaces -o json | jq -r '
+  .items[] | select(
+    .spec.hostPID == true or
+    .spec.hostNetwork == true or
+    (.spec.containers[]?.securityContext.privileged == true)
+  ) | "\(.metadata.namespace)/\(.metadata.name)"'
+
+# 4. Ejecutar auditoría de cumplimiento CIS Kubernetes Benchmark en un clúster local (kind / k3s / minikube)
+kube-bench run --targets master,node,policies</code></pre>
+<h2 id="cap-5-4-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>Desplegá un clúster local liviano en tu estación de trabajo utilizando <strong><code>kind</code></strong> (<em>Kubernetes in Docker</em>) o <strong><code>k3s</code></strong> con un CNI compatible con <code>NetworkPolicy</code> (como Calico o Cilium). Creá un namespace <code>lab-seguro</code> etiquetado con Pod Security Standards en modo <code>enforce: restricted</code>. Intentá aplicar un manifiesto de Pod inseguro (con <code>privileged: true</code> o sin <code>runAsNonRoot: true</code>) para verificar que el controlador de admisión lo rechaza en tiempo real. Luego corregí el manifiesto aplicando <code>securityContext</code> endurecido, <code>automountServiceAccountToken: false</code> y una <code>NetworkPolicy</code> de denegación por defecto.</p>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Consolidá en un archivo <code>auditoria-k8s-lab.md</code>:</p>
+<ol><li>El mensaje exacto de rechazo emitido por Pod Security Admission al intentar desplegar el Pod inseguro en <code>lab-seguro</code>.</li><li>El YAML final del Pod o Deployment aprobado bajo perfil <code>restricted</code> junto con el <code>Role</code> RBAC mínimo y la <code>NetworkPolicy</code> <em>default-deny</em>.</li><li>Un resumen con al menos 3 hallazgos (<code>FAIL</code> o <code>WARN</code>) detectados al ejecutar <code>kube-bench</code> o <code>kubectl auth can-i --list</code> en tu clúster de laboratorio y su plan de remediación.</li></ol></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y endurecimiento</p><ul><li><strong>Blindá el plano de control y <code>etcd</code>:</strong> Exigí mTLS entre <code>kube-apiserver</code> y <code>etcd</code>, habilitá el cifrado en reposo (<code>EncryptionConfiguration</code>) con KMS externo, deshabilitá la autenticación anónima en <code>kubelet</code> y activá los <em>Audit Logs</em> de la API para monitorear eventos de RBAC y <code>pods/exec</code>.</li><li><strong>Implementá PSS <code>restricted</code> y motores de admisión:</strong> Aplicá <code>pod-security.kubernetes.io/enforce: restricted</code> en todos los namespaces de aplicación y complementalo con <strong>Kyverno</strong> u <strong>OPA Gatekeeper</strong> para validar firmas de imágenes y bloquear etiquetas <code>:latest</code>.</li><li><strong>Principio de mínimo privilegio en RBAC y tokens:</strong> Fijá <code>automountServiceAccountToken: false</code> en los ServiceAccounts predeterminados, evitá <code>ClusterRoleBindings</code> innecesarios y auditá periódicamente permisos críticos (<code>impersonate</code>, <code>secrets</code>, <code>create pods</code>, <code>bind</code>).</li><li><strong>Microsegmentación por defecto:</strong> Desplegá un CNI con soporte completo de <code>NetworkPolicy</code> e imponé políticas <code>default-deny</code> de ingreso y egreso en cada namespace antes de habilitar comunicaciones entre microservicios.</li></ul></aside>
+<h2 id="cap-5-4-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué <code>etcd</code> representa el componente más sensible del plano de control de Kubernetes?</strong> Porque almacena la totalidad del estado del clúster, incluyendo configuraciones, credenciales de acceso y objetos <code>Secret</code>. Si no se habilita cifrado en reposo (<code>EncryptionConfiguration</code>) ni autenticación mutua TLS estricta, la lectura directa de <code>etcd</code> expone los secretos de todos los namespaces en texto plano (codificados únicamente en Base64).</p>
+<p><strong>2. ¿Qué riesgo implica otorgar el permiso RBAC <code>create</code> sobre <code>pods</code> a un usuario o ServiceAccount en un namespace compartido?</strong> Aunque la identidad no tenga permiso directo para leer <code>secrets</code>, puede crear un Pod que monte los secretos o el <code>ServiceAccount</code> de mayor privilegio existente en ese mismo namespace, o intentar desplegar configuraciones de riesgo si no hay políticas de admisión que lo impidan.</p>
+<p><strong>3. ¿Qué diferencia existe entre una <code>NetworkPolicy</code> y un objeto <code>Service</code> en Kubernetes?</strong> Un <code>Service</code> provee descubrimiento y balanceo de tráfico interno, mientras que una <code>NetworkPolicy</code> actúa como reglas de firewall L3/L4 aplicadas por el plugin CNI para aislar qué Pods o namespaces pueden enviar o recibir tráfico entre sí.</p>
+<p><strong>4. ¿Qué exige el perfil <code>restricted</code> de Pod Security Standards (PSS) que el perfil <code>baseline</code> no impone?</strong> Además de bloquear configuraciones peligrosas de host (<code>privileged</code>, <code>hostNetwork</code>, <code>hostPath</code>), el perfil <code>restricted</code> obliga a ejecutar contenedores sin privilegios de root (<code>runAsNonRoot: true</code>), deshabilitar la escalada de privilegios (<code>allowPrivilegeEscalation: false</code>), eliminar todas las capabilities (<code>drop: ["ALL"]</code>) y definir un perfil <code>seccompProfile</code> válido (<code>RuntimeDefault</code> o <code>Localhost</code>).</p>
+<p><strong>5. ¿Para qué sirve la propiedad <code>automountServiceAccountToken: false</code> y cuándo conviene aplicarla?</strong> Evita que Kubernetes inyecte automáticamente el token JWT del <code>ServiceAccount</code> dentro del sistema de archivos del Pod (<code>/var/run/secrets/kubernetes.io/serviceaccount/token</code>). Conviene aplicarla en todo Pod y cuenta de servicio de aplicación que no necesite interactuar directamente con la API de Kubernetes, reduciendo la superficie de exposición ante fallos de aplicación.</p>
+<h2 id="cap-5-4-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de continuar hacia los capítulos siguientes de seguridad en pipelines DevSecOps y respuesta a incidentes en la nube, verificá que cumplís estos criterios:</p>
+<ul><li>Identificás el rol de cada componente del plano de control (<code>kube-apiserver</code>, <code>etcd</code>, <code>kube-scheduler</code>) y del worker node (<code>kubelet</code>, CRI).</li><li>Sabés auditar roles RBAC, detectar combinaciones de alto riesgo y restringir <code>ServiceAccount</code> tokens.</li><li>Podés escribir e implementar políticas <code>NetworkPolicy</code> <em>default-deny</em>, aplicar Pod Security Standards <code>restricted</code> y auditar un clúster con <code>kube-bench</code>.</li></ul></aside>
+<h2 id="cap-5-4-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>CIS Kubernetes Benchmark (Center for Internet Security):</strong> Controles exhaustivos de endurecimiento para <code>kube-apiserver</code>, <code>etcd</code>, <code>kubelet</code>, políticas RBAC y configuración de red.</li><li><strong>Kubernetes Official Documentation – Pod Security Standards &amp; RBAC:</strong> Especificación oficial de los perfiles <code>Privileged</code>, <code>Baseline</code> y <code>Restricted</code>, así como reglas de autorización.</li><li><strong>NSA / CISA Kubernetes Hardening Guidance:</strong> Guía conjunta de arquitectura segura enfocada en aislamiento de red, cifrado de secretos, motores de admisión y auditoría de registros.</li><li><strong>OWASP Kubernetes Security Cheat Sheet:</strong> Recomendaciones operativas para desarrolladores y administradores de clústeres productivos.</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="36-contenedores-docker-y-escapes.html">← 5.3 Seguridad de contenedores Docker: namespaces, socket, escapes y hardening</a></div><div><a href="38-devsecops-cicd-e-iac.html">5.5 DevSecOps, pipelines CI/CD, secretos en Git e Infraestructura como Código (IaC) →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

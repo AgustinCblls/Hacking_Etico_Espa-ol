@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 4.1 · Operaciones SOC, ciclo de respuesta a incidentes y MITRE ATT&amp;CK · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Ejecutar triage L1/L2, clasificar incidentes y mapear TTPs a MITRE ATT&amp;CK">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo4.html">Tomo IV</a><span aria-hidden="true">›</span><span>Cap. 4.1</span></nav>
+<h1 id="cap-4-1">Capítulo 4.1 · Operaciones SOC, ciclo de respuesta a incidentes y MITRE ATT&amp;CK</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Especialista Blue/SOC</span> <span class="nivel-badge defensivo">Defensivo</span> <span><strong>Tomo IV · Ruta 4 · Especialista Blue/SOC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="27-telemetria-windows-y-sysmon.html">4.2 Telemetría Windows, Event Logs críticos, Sysmon y auditd en Linux</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a comprender cómo opera un Centro de Operaciones de Seguridad (SOC) por niveles, cómo estructurar la respuesta a incidentes bajo NIST SP 800-61 y cómo aplicar modelos analíticos (Cyber Kill Chain, Diamond Model y MITRE ATT&amp;CK) para evaluar visibilidad y reducir tiempos de respuesta en tu laboratorio local.</p></aside>
+<p><strong>Prerrequisitos:</strong> Fundamentos de redes TCP/IP, administración básica de Windows y Linux, y conceptos elementales de seguridad ofensiva y defensiva. <strong>Duración sugerida:</strong> 2 a 3 horas de estudio y práctica en laboratorio aislado.</p>
+<h2 id="cap-4-1-1-arquitectura-de-un-soc-niveles-y-metricas-operativas">1. Arquitectura de un SOC, niveles y métricas operativas</h2>
+<p>Un Centro de Operaciones de Seguridad (SOC) centraliza el monitoreo continuo, el triage de alertas y la coordinación frente a incidentes. Su eficacia depende de separar responsabilidades por complejidad técnica para evitar la fatiga de alertas y garantizar tiempos de respuesta predecibles.</p>
+<h3 id="cap-4-1-niveles-operativos-l1-l2-y-l3">Niveles operativos: L1, L2 y L3</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Nivel</th>
+<th>Rol principal</th>
+<th>Responsabilidades clave</th>
+<th>Salida habitual</th>
+</tr></thead><tbody>
+<tr><td><strong>L1 (Triage)</strong></td><td>Monitoreo continuo y filtrado inicial</td><td>Validar alertas, descartar falsos positivos, recolectar contexto básico y escalar incidentes confirmados.</td><td>Cierre documentado o ticket escalado a L2.</td></tr>
+<tr><td><strong>L2 (Respuesta)</strong></td><td>Investigación profunda y contención</td><td>Correlacionar telemetría entre endpoints y red, aislar activos comprometidos, erradicar artefactos y redactar reportes.</td><td>Incidente contenido y plan de remediación.</td></tr>
+<tr><td><strong>L3 (Hunting / Ingeniería)</strong></td><td>Caza proactiva y mejora de detección</td><td>Buscar amenazas no alertadas, afinar reglas de detección y cerrar brechas de visibilidad en la arquitectura.</td><td>Nuevas detecciones y ajustes de plataforma.</td></tr>
+</tbody></table></div>
+<h3 id="cap-4-1-gestion-de-alertas-y-metricas-clave">Gestión de alertas y métricas clave</h3>
+<p>Cada alerta procesada en la cola del SOC debe recibir una clasificación consistente para medir la salud del monitoreo:</p>
+<ul><li><strong>True Positive (TP):</strong> Actividad maliciosa o no autorizada confirmada que requiere respuesta.</li><li><strong>False Positive (FP):</strong> Alerta disparada por una regla defectuosa o sin evento malicioso real; exige afinado (<em>tuning</em>).</li><li><strong>Benign Positive (BP):</strong> Actividad legítima esperada (por ejemplo, una tarea administrativa programada) que coincide con una firma de detección.</li></ul>
+<p>El rendimiento operativo se controla mediante acuerdos de nivel de servicio (<strong>SLA</strong>) y dos métricas centrales expresadas en tiempo:</p>
+<ul><li><code>MTTD = Promedio(t_detección − t_evento_inicial)</code>: tiempo medio hasta detectar un compromiso.</li><li><code>MTTR = Promedio(t_contención − t_detección)</code>: tiempo medio hasta contener y mitigar el incidente.</li></ul>
+<p>Reducir el <code>MTTD</code> mejora con telemetría bien configurada; reducir el <code>MTTR</code> depende de playbooks claros y automatización segura.</p>
+<h2 id="cap-4-1-2-ciclo-de-respuesta-a-incidentes-segun-nist-sp-800-61">2. Ciclo de respuesta a incidentes según NIST SP 800-61</h2>
+<p>El estándar <strong>NIST SP 800-61</strong> define cuatro fases iterativas que ordenan el trabajo del equipo desde antes de que ocurra un ataque hasta las lecciones aprendidas.</p>
+<ol><li><strong>Preparación:</strong> Definir políticas, canales de comunicación, respaldos inmutables, perfiles de referencia (<em>baselines</em>) y herramientas listas en un kit forense. Incluye controles preventivos como la validación de certificados mediante <strong>PKI</strong> (Infraestructura de Clave Pública) para verificar firmas de software confiable y prácticas de codificación segura (por ejemplo, validar tipos y límites en JavaScript para prevenir fallas lógicas de parámetros antes de producción).</li><li><strong>Detección y Análisis:</strong> Identificar anomalías, validar indicadores, clasificar la severidad y preservar evidencias volátiles sin alterar el sistema innecesariamente.</li><li><strong>Contención, Erradicación y Recuperación:</strong> Aislar hosts afectados en red, eliminar causas raíz (cuentas comprometidas, persistencia, binarios maliciosos), restaurar servicios desde copias verificadas y monitorear reapariciones.</li><li><strong>Actividad Post-Incidente:</strong> Documentar la línea de tiempo en un reporte formal de incidente, revisar métricas SLA y actualizar controles preventivos y reglas de detección.</li></ol>
+<h3 id="cap-4-1-triage-inicial-en-sistemas-windows-y-linux">Triage inicial en sistemas Windows y Linux</h3>
+<p>Durante la fase de detección y análisis en un laboratorio aislado, priorizá la recolección de estado volátil (procesos activos y conexiones de red) antes de reiniciar el equipo.</p>
+<pre><code class="lenguaje-powershell"># Triage rápido de solo lectura en Windows (PowerShell en laboratorio)
+Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, CommandLine | Format-Table -AutoSize
+Get-NetTCPConnection -State Established | Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, OwningProcess
+Get-AuthenticodeSignature "C:\Windows\System32\cmd.exe" | Select-Object Status, SignerCertificate</code></pre>
+<pre><code class="lenguaje-bash"># Triage rápido de solo lectura en Linux (entorno de laboratorio)
+ps -ef --forest | head -n 30
+ss -tunap | grep ESTAB
+sha256sum /tmp/artefacto_sospechoso.bin 2&gt;/dev/null || echo "Sin artefacto en /tmp"</code></pre>
+<h3 id="cap-4-1-identificacion-de-amenazas-documentos-sospechosos-y-prevencion-en-codigo">Identificación de amenazas, documentos sospechosos y prevención en código</h3>
+<p>Ante archivos adjuntos sospechosos (como documentos ofimáticos o PDF recibidos por correo), el análisis seguro se realiza exclusivamente en máquinas virtuales aisladas sin salida a Internet: se inspeccionan metadatos, flujos embebidos y presencia de macros o enlaces externos antes de ejecutar cualquier contenido.</p>
+<p>En paralelo, muchos incidentes web se originan en errores lógicos de parámetros (por ejemplo, confiar en montos, roles o identificadores enviados desde el cliente). En aplicaciones JavaScript, el endurecimiento exige validar estrictamente tipos y reglas de negocio en el servidor:</p>
+<pre><code class="lenguaje-javascript">// Validación defensiva de parámetros en servidor (Node.js / Express)
+function procesarTransferencia(req, res) {
+  const monto = Number(req.body.monto);
+  if (!Number.isFinite(monto) || monto &lt;= 0 || monto &gt; 10000) {
+    return res.status(400).json({ error: "Parámetro inválido" });
+  }
+  // El rol y el usuario se obtienen de la sesión autenticada, nunca del body
+  const usuarioId = req.session.userId;
+  return res.status(200).json({ estado: "validado", usuarioId, monto });
+}</code></pre>
+<h3 id="cap-4-1-estructura-de-un-reporte-de-incidente-de-seguridad">Estructura de un reporte de incidente de seguridad</h3>
+<p>Un buen reporte separa hechos verificables de hipótesis y permite que tanto dirección técnica como gestión comprendan el impacto:</p>
+<ul><li><strong>Resumen ejecutivo:</strong> Impacto en negocio, activos afectados y estado actual (contenido / resuelto).</li><li><strong>Línea de tiempo (UTC):</strong> Secuencia breve de hitos principales con marca horaria normalizada.</li><li><strong>Causa raíz y alcance:</strong> Vector inicial identificado, sistemas tocados y datos expuestos.</li><li><strong>Acciones correctivas:</strong> Contención aplicada, parches, rotaciones de credenciales y mejoras de monitoreo.</li></ul>
+<h2 id="cap-4-1-3-modelos-analiticos-y-uso-operativo-de-mitre-att-ck">3. Modelos analíticos y uso operativo de MITRE ATT&amp;CK</h2>
+<p>Los modelos analíticos permiten estructurar observaciones dispersas y detectar brechas de cobertura defensiva.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Modelo</th>
+<th>Enfoque principal</th>
+<th>Utilidad práctica en el SOC</th>
+</tr></thead><tbody>
+<tr><td><strong>Cyber Kill Chain</strong></td><td>Secuencia lineal de fases de una intrusión externa</td><td>Visualizar en qué etapa se puede interrumpir el ataque antes del objetivo final.</td></tr>
+<tr><td><strong>Diamond Model</strong></td><td>Relación entre cuatro vértices: Adversario, Capacidad, Infraestructura y Víctima</td><td>Agrupar incidentes relacionados y pivotar investigaciones a partir de un único indicador.</td></tr>
+<tr><td><strong>MITRE ATT&amp;CK</strong></td><td>Base de conocimiento de tácticas y comportamientos observables</td><td>Mapear visibilidad real de sensores y priorizar reglas de detección por táctica.</td></tr>
+</tbody></table></div>
+<h3 id="cap-4-1-mapeo-operativo-de-brechas-con-mitre-att-ck">Mapeo operativo de brechas con MITRE ATT&amp;CK</h3>
+<p>En lugar de intentar cubrir toda la matriz en un día, un SOC maduro agrupa sus prioridades en pocas tácticas padre de alto impacto y mide si posee telemetría suficiente en cada una:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Táctica padre (MITRE ATT&amp;CK)</th>
+<th>Comportamiento de alto nivel a vigilar</th>
+<th>Fuente de visibilidad principal</th>
+</tr></thead><tbody>
+<tr><td><strong>Acceso Inicial</strong></td><td>Ingreso por credenciales expuestas, servicios públicos o adjuntos maliciosos</td><td>Logs de autenticación, proxy/correo y firewall perimetral</td></tr>
+<tr><td><strong>Ejecución</strong></td><td>Lanzamiento de intérpretes de comandos o scripts no autorizados</td><td>Auditoría de procesos en endpoints (Windows/Linux)</td></tr>
+<tr><td><strong>Movimiento Lateral</strong></td><td>Uso de sesiones remotas administrativas entre equipos internos</td><td>Telemetría de red interna y logs de inicio de sesión</td></tr>
+</tbody></table></div>
+<p>Este mapeo evidencia rápido dónde hay puntos ciegos (por ejemplo, tener registros de red perimetral pero ninguna visibilidad sobre la táctica de Ejecución en estaciones de trabajo).</p>
+<h2 id="cap-4-1-4-triage-con-virustotal-analisis-de-servidores-web-comprometidos-asm-y-seguridad-en-asistentes-ia">4. Triage con VirusTotal, análisis de servidores web comprometidos, ASM y seguridad en asistentes IA</h2>
+<p>En la operación diaria de un SOC L1/L2 intervienen cuatro flujos prácticos adicionales:</p>
+<ol><li><strong>Uso seguro de VirusTotal y reputación de IOCs:</strong> consultá siempre <strong>el hash SHA-256</strong>, la IP o el dominio en VirusTotal antes de compartir archivos. <strong>Regla estricta de confidencialidad:</strong> nunca subas documentos corporativos internos, correos confidenciales ni ejecutables propietarios desarrollados por tu organización a sandboxes públicos.</li><li><strong>Investigación de servidores web comprometidos (<em>Hacked Web Server Analysis</em>):</strong> cuando un servidor web presenta actividad anómala, inspeccioná los logs de acceso (<code>POST</code> inusuales hacia rutas nuevas como <code>/uploads/cmd.php</code> seguidos de códigos <code>200</code>), buscá modificaciones recientes de archivos en el <em>webroot</em> (<code>find /var/www -mtime -2</code>) y verificá con Sysmon/<code>auditd</code> si el worker web (<code>w3wp.exe</code>, <code>www-data</code>) generó shells hijas.</li><li><strong>Gestión continua de Superficie de Ataque (<em>ASM — Attack Surface Management</em>) y Ciclo SDLC:</strong> inventariá periódicamente subdominios olvidados, servicios expuestos y certificados próximos a vencer antes de que aparezcan en un incidente, e integrá validaciones tempranas de seguridad en cada fase del <strong>SDLC</strong> (<em>Software Development Life Cycle</em> / DevSecOps).</li><li><strong>Riesgos emergentes en agentes de código e integraciones MCP:</strong> los asistentes de desarrollo conectados mediante <em>Model Context Protocol (MCP)</em> leen archivos locales, <em>issues</em> y repositorios con permisos del desarrollador; aplicá siempre controles deterministas en el host (principio de mínimo privilegio, revisión de comandos y restricciones de red saliente) frente a texto malicioso sembrado en repositorios externos.</li></ol>
+<h2 id="cap-4-1-ejemplo-paso-a-paso-triage-l1-l2-y-registro-de-incidente-en-laboratorio">Ejemplo paso a paso: Triage L1/L2 y registro de incidente en laboratorio</h2>
+<p>En este escenario simulado en tu red local Host-Only, una alerta señala una conexión saliente inusual desde un servidor Linux de pruebas hacia un puerto no estándar.</p>
+<p><strong>Paso 1:</strong> Verificar el proceso propietario de la conexión y su binario en disco sin matar el proceso todavía.</p>
+<pre><code class="lenguaje-bash"># Identificar proceso y ruta real del ejecutable
+ss -tunap | grep 4444
+ls -l /proc/1842/exe</code></pre>
+<pre><code class="lenguaje-text"># Salida comentada en laboratorio
+tcp   ESTAB 0 0 192.168.56.20:51922 192.168.56.10:4444 users:(("python3",pid=1842,fd=3))
+# El socket pertenece a python3 (PID 1842) conectado al host de laboratorio 192.168.56.10
+lrwxrwxrwx 1 labuser labuser 0 Nov 22 14:10 /proc/1842/exe -&gt; /usr/bin/python3.11</code></pre>
+<p><strong>Paso 2:</strong> Documentar el caso con formato estructurado antes de aislar la interfaz de red de la VM afectada.</p>
+<pre><code class="lenguaje-yaml">incidente_id: INC-2026-0042
+severidad: Alta
+clasificacion: True Positive
+fase_nist: Contención
+tacticas_observadas:
+  - Ejecución
+  - Movimiento Lateral
+activo_afectado:
+  hostname: srv-lab-linux01
+  ip: 192.168.56.20
+resumen: "Proceso python3 (PID 1842) estableció sesión TCP saliente no autorizada hacia 192.168.56.10:4444."
+accion_contencion: "Aislamiento de red Host-Only y captura de metadatos de proceso."</code></pre>
+<p><strong>Paso 3:</strong> Aplicar contención lógica en la VM de laboratorio bloqueando tráfico no esencial y preservando la evidencia para análisis posterior.</p>
+<pre><code class="lenguaje-bash"># Contención temporal en laboratorio mediante firewall local
+sudo ufw default deny outgoing
+sudo ufw default deny incoming
+sudo ufw status verbose</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>La respuesta eficaz combina prevención y visibilidad previa al incidente:</p>
+<ul><li><strong>Contención segura:</strong> Aislá el host a nivel de red (segmentación VLAN o reglas de firewall) en lugar de apagarlo bruscamente, para no destruir memoria volátil ni sesiones abiertas.</li><li><strong>Integridad y confianza:</strong> Verificá firmas digitales respaldadas por PKI en binarios críticos y restringí la ejecución de intérpretes a usuarios autorizados.</li><li><strong>Ciclo de mejora:</strong> Cada incidente confirmado debe cerrar su fase post-incidente con al menos una nueva regla de detección o un endurecimiento medible que reduzca <code>MTTD</code> y <code>MTTR</code>.</li></ul></aside>
+<h2 id="cap-4-1-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>Desplegá dos VMs en una red local aislada (Host-Only): una estación analista y un equipo objetivo (Linux o Windows). Generá una actividad controlada y benigna (por ejemplo, una conexión TCP de prueba con <code>nc</code> o un script Python de eco local), recolectá evidencia volátil con los comandos de triage y documentá todo el ciclo NIST SP 800-61.</p>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Creá un archivo <code>reporte_incidente_lab.md</code> en tu carpeta de prácticas que contenga:</p>
+<ol><li>Clasificación de la alerta (TP/FP/BP) con justificación breve.</li><li>Tabla de línea de tiempo en UTC con marcas de detección y contención, incluyendo el cálculo de <code>MTTD</code> y <code>MTTR</code>.</li><li>Mapeo del ejercicio a 2 o 3 tácticas padre de MITRE ATT&amp;CK y los 4 vértices del Diamond Model.</li><li>Captura de la salida de triage de procesos y conexiones de red de tu VM aislada.</li></ol></aside>
+<h2 id="cap-4-1-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Cuál es la diferencia funcional entre un analista SOC L1 y un analista L2?</strong> El analista L1 realiza monitoreo continuo, valida alertas y filtra falsos positivos bajo tiempos de SLA estrictos, mientras que L2 ejecuta investigaciones profundas, correlaciona múltiples fuentes y coordina la contención y erradicación del incidente.</p>
+<p><strong>2. ¿Qué diferencia a un False Positive de un Benign Positive y cómo impacta cada uno en el SOC?</strong> Un False Positive ocurre cuando no existe el comportamiento buscado y señala un fallo en la lógica de detección; un Benign Positive refleja actividad legítima que coincide con la regla y requiere excepciones controladas para evitar ruido operativo.</p>
+<p><strong>3. ¿Por qué NIST SP 800-61 ubica la Preparación como fase inicial y la conecta con Post-Incidente?</strong> Porque sin respaldos, telemetría previa ni procedimientos claros no es posible detectar ni contener a tiempo; a su vez, las lecciones aprendidas post-incidente retroalimentan directamente la preparación futura.</p>
+<p><strong>4. ¿Qué aporta el Diamond Model que no cubre por sí sola la Cyber Kill Chain?</strong> Mientras la Cyber Kill Chain ordena fases secuenciales de un ataque, el Diamond Model vincula relaciones entre adversario, capacidad, infraestructura y víctima, permitiendo agrupar campañas y pivotar evidencia.</p>
+<p><strong>5. ¿Cómo ayuda MITRE ATT&amp;CK a priorizar inversiones defensivas en un SOC?</strong> Permite mapear qué tácticas de alto nivel tienen cobertura real de sensores y detecciones y cuáles presentan puntos ciegos, orientando el esfuerzo de ingeniería hacia brechas concretas.</p>
+<h2 id="cap-4-1-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Diferenciás con claridad las responsabilidades de L1, L2 y L3 y el cálculo de <code>MTTD</code>/<code>MTTR</code>.</li><li>☐ Sabés aplicar las cuatro fases de NIST SP 800-61 y estructurar un reporte de incidente claro.</li><li>☐ Ejecutaste comandos de triage volátil en Windows o Linux dentro de una VM aislada.</li><li>☐ Mapeaste un escenario de laboratorio al Diamond Model y a tácticas padre de MITRE ATT&amp;CK.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con los procesos del SOC y el marco de respuesta establecidos, el siguiente paso es construir la materia prima de toda detección: configurar la telemetría de endpoints en Windows (Event Logs y Sysmon) y Linux (<code>auditd</code> y <code>journald</code>).</p></aside>
+<h2 id="cap-4-1-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>NIST Special Publication 800-61 Rev. 2 / Rev. 3 — <em>Computer Security Incident Handling Guide</em>: https://csrc.nist.gov/publications/sp800</li><li>MITRE ATT&amp;CK Framework (Enterprise Matrix): https://attack.mitre.org/</li><li>Caltagirone, Pendergast &amp; Betz — <em>The Diamond Model of Intrusion Analysis</em>: https://www.activeresponse.org/wp-content/uploads/2013/07/diamond.pdf</li><li>CIS Critical Security Controls v8 (Incident Response Management): https://www.cisecurity.org/controls</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 35 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Incident Handling Process</td><td>Easy</td><td>General</td><td>11</td></tr><tr><td>Security Incident Reporting</td><td>Easy</td><td>General</td><td>5</td></tr><tr><td>Cyber Kill Chain</td><td>Easy</td><td>Defensive</td><td>10</td></tr><tr><td>MITRE ATT&amp;CK Framework</td><td>Easy</td><td>Defensive</td><td>9</td></tr><tr><td>Identifying Threats and Malicious Software</td><td>Easy</td><td>Defensive</td><td>9</td></tr><tr><td>Incident Response on Windows</td><td>Medium</td><td>Defensive</td><td>13</td></tr><tr><td>Incident Response on Linux</td><td>Medium</td><td>Defensive</td><td>13</td></tr><tr><td>SOC Fundamentals</td><td>Fundamental</td><td>Defensive</td><td>10</td></tr><tr><td>Incident Management 101</td><td>Medium</td><td>Defensive</td><td>7</td></tr><tr><td>How to Prepare a Cyber Crisis Management Plan</td><td>Medium</td><td>Defensive</td><td>7</td></tr><tr><td>VirusTotal for SOC Analysts</td><td>Medium</td><td>Defensive</td><td>6</td></tr><tr><td>Writing Reports on Security Incidents</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>Hacked Web Server Analysis</td><td>Hard</td><td>Defensive</td><td>9</td></tr><tr><td>IT Security Basis for Corporates</td><td>Medium</td><td>Defensive</td><td>11</td></tr><tr><td>Hardening Strategies for Security+</td><td>Easy</td><td>Defensive</td><td>7</td></tr><tr><td>Building a SOC Lab at Home</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>Security Solutions</td><td>Easy</td><td>Defensive</td><td>14</td></tr><tr><td>Software Development Basics And SDLC</td><td>Easy</td><td>Defensive</td><td>9</td></tr><tr><td>Cybersecurity Incident Handling Guide</td><td>Medium</td><td>Defensive</td><td>6</td></tr><tr><td>Understanding Types of Attacks</td><td>Easy</td><td>Defensive</td><td>8</td></tr><tr><td>Data Management</td><td>Fundamental</td><td>Defensive</td><td>7</td></tr><tr><td>Introduction to System Security</td><td>Medium</td><td>Defensive</td><td>7</td></tr><tr><td>Introduction to System Security - 2</td><td>Medium</td><td>Defensive</td><td>8</td></tr><tr><td>XDR/EDR Basics</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>XDR/EDR Threat Analysis &amp; Custom Rule</td><td>Medium</td><td>Defensive</td><td>6</td></tr><tr><td>Attack Surface Management</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>Vulnerability Management</td><td>Hard</td><td>Defensive</td><td>7</td></tr><tr><td>Organizational Structure and Human Resource Security</td><td>Medium</td><td>Defensive</td><td>10</td></tr><tr><td>Risk Management</td><td>Medium</td><td>Defensive</td><td>7</td></tr><tr><td>Security Audit and Testing</td><td>Easy</td><td>Defensive</td><td>6</td></tr><tr><td>System Architecture and Hardware Security</td><td>Medium</td><td>Defensive</td><td>7</td></tr><tr><td>Physical Security</td><td>Easy</td><td>Defensive</td><td>7</td></tr><tr><td>Information Security Guidelines</td><td>Medium</td><td>Defensive</td><td>10</td></tr><tr><td>Business Continuity Management</td><td>Easy</td><td>Defensive</td><td>8</td></tr><tr><td>Asset Management and Data Classification</td><td>Medium</td><td>Defensive</td><td>9</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="25-adcs-trusts-y-hardening-ad.html">← 3.8 ADCS (ESC1–ESC8), trusts entre dominios y plan maestro de hardening AD</a></div><div><a href="27-telemetria-windows-y-sysmon.html">4.2 Telemetría Windows, Event Logs críticos, Sysmon y auditd en Linux →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

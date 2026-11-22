@@ -1,0 +1,28 @@
+# Dockerfile de referencia endurecido para prácticas de Contenedores y DevSecOps (Cap. 5.3 y 5.5)
+# Comparación educativa: aplica compilación multi-etapa, versión fijada, usuario no root y exposición mínima.
+
+# --- Etapa 1: Construcción ---
+FROM python:3.12-slim-bookworm AS builder
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# --- Etapa 2: Ejecución mínima ---
+FROM python:3.12-slim-bookworm
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Crear usuario y grupo sin privilegios (evitar UID 0 dentro del contenedor)
+RUN groupadd --system appgrp && useradd --system --gid appgrp --create-home appusr
+
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY --chown=appusr:appgrp app_lab_educativa.py /app/app_lab_educativa.py
+
+# Evitar exponer secretos en ENV o ARG durante la construcción
+USER appusr
+EXPOSE 5050
+
+# En ejecución local (Cap. 5.3), combinar con:
+# docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges:true -p 127.0.0.1:5050:5050 imagen_segura
+CMD ["python", "app_lab_educativa.py"]

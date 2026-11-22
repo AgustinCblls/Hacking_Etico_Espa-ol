@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hojas de referencia rápida · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Cheat Sheets de Redes, Linux, Windows, Web, AD y SOC.">
+<link rel="stylesheet" href="guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="guia/index.html">Curso</a>
+    <a href="catalogo_completo.html">Catálogo 358</a>
+    <a href="laboratorios.html">Laboratorios</a>
+    <a href="hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="glosario.html">Glosario</a>
+    <a href="preguntas_y_respuestas.html">Repaso</a>
+    <a href="buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+
+<h1 id="hojas-de-referencia-rapida">Hojas de referencia rápida (Cheat Sheets)</h1>
+<p>Resumen operativo de escritorio para consultar durante tus prácticas en laboratorio local. Está incluido íntegro en la <strong>Separata de Escritorio PDF</strong> para imprimir aparte y tener a mano.</p>
+
+<h2 id="cs-redes">1. Redes TCP/IP, CIDR y Nmap (Tomo I y II)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Máscara CIDR</th><th>Máscara decimal</th><th>IPs totales</th><th>Hosts utilizables</th><th>Uso típico en laboratorio</th></tr></thead>
+<tbody>
+<tr><td><code>/24</code></td><td><code>255.255.255.0</code></td><td>256</td><td>254</td><td>Red LAN / Host-Only estándar</td></tr>
+<tr><td><code>/25</code></td><td><code>255.255.255.128</code></td><td>128</td><td>126</td><td>Segmento mediano (DMZ / Lab)</td></tr>
+<tr><td><code>/26</code></td><td><code>255.255.255.192</code></td><td>64</td><td>62</td><td>Subred departamental</td></tr>
+<tr><td><code>/28</code></td><td><code>255.255.255.240</code></td><td>16</td><td>14</td><td>Subred pequeña de servidores</td></tr>
+<tr><td><code>/30</code></td><td><code>255.255.255.252</code></td><td>4</td><td>2</td><td>Enlace punto a punto entre routers</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Descubrimiento de hosts en subred de laboratorio (sin escaneo de puertos)
+nmap -sn 192.168.56.0/24
+
+# Escaneo TCP SYN rápido de los 1000 puertos más comunes + guardado en 3 formatos
+nmap -sS -T4 --open -oA escaneo_inicial 192.168.56.10
+
+# Escaneo completo de puertos TCP + detección de versiones y scripts seguros por defecto
+nmap -p- --min-rate 1500 -sV -sC -oA escaneo_completo 192.168.56.10
+
+# Top 50 puertos UDP críticos (DNS 53, SNMP 161, NTP 123, DHCP 67/68)
+sudo nmap -sU --top-ports 50 --open 192.168.56.10
+
+# Captura local con tcpdump (filtro BPF por host y puerto)
+sudo tcpdump -i eth0 host 192.168.56.10 and port 80 -w captura_lab.pcap</code></pre>
+
+<h2 id="cs-linux-win">2. Auditoría rápida Linux y Windows (Tomo I y III)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Objetivo de auditoría</th><th>Linux (Bash)</th><th>Windows (PowerShell / CMD)</th></tr></thead>
+<tbody>
+<tr><td>Identidad y privilegios</td><td><code>id; groups; sudo -l</code></td><td><code>whoami /all</code></td></tr>
+<tr><td>Versión del SO / kernel</td><td><code>uname -a; cat /etc/os-release</code></td><td><code>systeminfo | findstr /B /C:"OS"</code></td></tr>
+<tr><td>Puertos en escucha local</td><td><code>ss -tulnp</code></td><td><code>netstat -ano</code> / <code>Get-NetTCPConnection</code></td></tr>
+<tr><td>Procesos en ejecución</td><td><code>ps auxf</code></td><td><code>Get-Process</code> / <code>tasklist /v</code></td></tr>
+<tr><td>Servicios activos</td><td><code>systemctl list-units --type=service --state=running</code></td><td><code>Get-Service | Where Status -eq Running</code></td></tr>
+<tr><td>Tareas programadas</td><td><code>crontab -l; ls -la /etc/cron*</code></td><td><code>schtasks /query /fo LIST /v</code></td></tr>
+<tr><td>Binarios SUID / Permisos</td><td><code>find / -perm -4000 2&gt;/dev/null</code></td><td><code>icacls "C:\Ruta\Servicio"</code></td></tr>
+<tr><td>Logs recientes del sistema</td><td><code>journalctl -u ssh -n 50 --no-pager</code></td><td><code>Get-WinEvent -LogName Security -MaxEvents 20</code></td></tr>
+</tbody></table></div>
+
+<h2 id="cs-web">3. Seguridad Web, OWASP y Remediación (Tomo II)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Clase de vulnerabilidad</th><th>Causa raíz típica</th><th>Remediación definitiva (Estándar OWASP)</th></tr></thead>
+<tbody>
+<tr><td><strong>SQL Injection (SQLi)</strong></td><td>Concatenar entrada del usuario en la cadena SQL.</td><td>Consultas parametrizadas (<em>Prepared Statements</em>) en el 100 % de las queries + mínimo privilegio en BD.</td></tr>
+<tr><td><strong>Cross-Site Scripting (XSS)</strong></td><td>Reflejar o almacenar datos no confiables en HTML/JS sin escape contextual.</td><td>Escape automático contextual (Jinja2/React) + cabecera <code>Content-Security-Policy</code> con nonces + cookie <code>HttpOnly</code>.</td></tr>
+<tr><td><strong>CSRF</strong></td><td>Confiar únicamente en cookies enviadas automáticamente en peticiones de cambio de estado.</td><td>Cookies con <code>SameSite=Lax</code> o <code>Strict</code> + token anti-CSRF sincronizado por sesión.</td></tr>
+<tr><td><strong>IDOR / BOLA</strong></td><td>Usar un ID directo (<code>/ticket/42</code>) sin verificar si pertenece al usuario autenticado.</td><td>Comprobar propiedad en el servidor en cada consulta (<code>WHERE id = ? AND owner_id = ?</code>) + pruebas unitarias de autorización.</td></tr>
+<tr><td><strong>SSRF</strong></td><td>Hacer peticiones HTTP desde el backend a URLs arbitrarias provistas por el cliente.</td><td>Lista blanca estricta de esquemas/dominios + bloqueo de rangos privados (<code>127.0.0.0/8</code>, <code>169.254.169.254</code>, RFC 1918).</td></tr>
+<tr><td><strong>JWT inseguro</strong></td><td>Aceptar <code>alg: none</code>, claves HMAC débiles o no validar <code>exp</code>/<code>iss</code>/<code>aud</code>.</td><td>Fijar algoritmo explícito en el servidor, rotación de claves largas y expiraciones cortas.</td></tr>
+<tr><td><strong>Path Traversal / Upload</strong></td><td>Construir rutas de archivo desde el nombre subido o servir uploads desde webroot.</td><td>Renombrar con UUID, validar tipo MIME real (<em>magic bytes</em>), guardar fuera de webroot y resolver <code>realpath</code> dentro del directorio base.</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Enumeración controlada de rutas en laboratorio local con ffuf
+ffuf -u http://127.0.0.1:5050/FUZZ -w wordlist_comun.txt -fc 404 -t 20
+
+# Inspección de cabeceras de seguridad HTTP con curl
+curl -sI http://127.0.0.1:5050/saludo-seguro</code></pre>
+
+<h2 id="cs-ad">4. Active Directory: Enumeración, Vectores y Hardening (Tomo III)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Vector / Riesgo en AD</th><th>Condición vulnerable</th><th>Telemetría clave (Event IDs)</th><th>Hardening obligatorio</th></tr></thead>
+<tbody>
+<tr><td><strong>AS-REP Roasting</strong></td><td>Cuentas con <code>DONT_REQ_PREAUTH</code> activado.</td><td><code>4768</code> (TGT sin pre-auth, cifrado <code>0x17</code> RC4).</td><td>Deshabilitar <code>Do not require Kerberos preauthentication</code> en todos los usuarios.</td></tr>
+<tr><td><strong>Kerberoasting</strong></td><td>Cuentas de servicio humanas con SPN y contraseña débil/RC4.</td><td><code>4769</code> (TGS con Ticket Encryption Type <code>0x17</code>).</td><td>Migrar a <strong>gMSA</strong> (contraseñas rotadas automáticamente de 120 bytes) y forzar AES256.</td></tr>
+<tr><td><strong>NTLM Relay</strong></td><td>SMB Signing deshabilitado o LDAP/HTTP ADCS sin EPA/Channel Binding.</td><td><code>4624</code>/<code>4776</code> NTLM anómalos entre hosts.</td><td>Habilitar <strong>SMB Signing</strong>, <strong>LDAP Signing + Channel Binding</strong> y <strong>EPA</strong>; deshabilitar NTLMv1.</td></tr>
+<tr><td><strong>Abuso de DACL / ACL</strong></td><td>Permisos <code>GenericAll</code>, <code>WriteDacl</code>, <code>WriteOwner</code> delegados a grupos amplios.</td><td><code>5136</code> (modificación de objeto AD) / <code>4662</code>.</td><td>Auditar grafos de privilegio (BloodHound/PingCastle) y aplicar modelo <strong>Tier 0/1/2</strong>.</td></tr>
+<tr><td><strong>DCSync</strong></td><td>Cuentas no-DC con <code>DS-Replication-Get-Changes-All</code>.</td><td><code>4662</code> sobre el objeto dominio desde IP no-DC.</td><td>Restringir replicación estrictamente a Controladores de Dominio y monitorear cambios en ACLs del dominio.</td></tr>
+<tr><td><strong>ADCS (ESC1 / ESC8)</strong></td><td>Plantillas con <code>ENROLLEE_SUPPLIES_SUBJECT</code> + enrolamiento abierto, o Web Enrollment HTTP sin EPA.</td><td><code>4886</code> / <code>4887</code> (emisión de certificados).</td><td>Desactivar SAN arbitrario, exigir aprobación de CA Manager y deshabilitar HTTP Web Enrollment o forzar HTTPS+EPA.</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Búsqueda e inspección segura de PoCs públicos + compilación cruzada en laboratorio (Cap. 3.1)
+searchsploit -t "Apache 2.4"
+searchsploit -x 12345
+x86_64-w64-mingw32-gcc poc_lab.c -o poc_win64.exe -lws2_32
+
+# Movimiento lateral y auditoría de secretos en laboratorio AD (Cap. 3.5 y 3.7)
+impacket-wmiexec DOMINIO/admin_lab@10.10.20.30 -hashes :31d6cfe0d16ae931b73c59d7e0c089c0
+impacket-secretsdump DOMINIO/admin_local:PasswordLab@10.10.20.30
+pypykatz lsa minidump /ruta/lab/lsass_dump.dmp</code></pre>
+
+<h2 id="cs-soc">5. SOC, Sysmon, SPL/KQL, Suricata, Sigma y YARA (Tomo IV)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Fuente / Event ID</th><th>Qué registra</th><th>Señal típica de investigación en SOC</th></tr></thead>
+<tbody>
+<tr><td><strong>Security 4624 / 4625</strong></td><td>Inicio de sesión exitoso / fallido (Logon Types: 2 Interactivo, 3 Red, 10 RDP).</td><td>Picos de <code>4625</code> seguidos de <code>4624</code> desde la misma IP (password spraying / fuerza bruta).</td></tr>
+<tr><td><strong>Security 4688 / Sysmon 1</strong></td><td>Creación de proceso (incluyendo <code>ParentImage</code> y <code>CommandLine</code>).</td><td><code>winword.exe</code> o <code>w3wp.exe</code> lanzando <code>cmd.exe</code> / <code>powershell.exe</code>.</td></tr>
+<tr><td><strong>PowerShell 4104</strong></td><td>Script Block Logging (código completo ya desofuscado en memoria).</td><td><code>FromBase64String</code>, <code>IEX</code>, descargas remotas o desactivación de defensas.</td></tr>
+<tr><td><strong>Sysmon 3 / 22</strong></td><td>Conexión de red saliente / Consulta DNS asociada al proceso exacto.</td><td>LOLBins (<code>certutil</code>, <code>mshta</code>, <code>rundll32</code>) iniciando conexiones externas.</td></tr>
+<tr><td><strong>Sysmon 8 / 10</strong></td><td><code>CreateRemoteThread</code> / <code>ProcessAccess</code> entre procesos.</td><td>Acceso de lectura de memoria hacia <code>lsass.exe</code> desde un binario no autorizado.</td></tr>
+<tr><td><strong>Security 7045 / Sysmon 13</strong></td><td>Instalación de nuevo servicio / Modificación de claves de Registro.</td><td>Nuevos servicios con rutas en <code>C:\Users\Public</code> o cambios en claves <code>Run</code>.</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-text"># Consulta rápida Splunk (SPL) — Top IPs con más de 10 fallos 4625 en 15 min
+index=windows EventCode=4625 | stats count dc(TargetUserName) as usuarios by IpAddress | where count &gt; 10 | sort - count
+
+# Consulta rápida Elastic (KQL) — PowerShell codificado lanzado por aplicaciones de Office
+event.code: "1" and process.name: ("powershell.exe" or "pwsh.exe") and process.parent.name: ("winword.exe" or "excel.exe")
+
+# Regla Suricata didáctica — Detectar User-Agent de prueba en HTTP interno
+alert http $HOME_NET any -&gt; any any (msg:"LAB SEC User-Agent de Auditoria Detectado"; flow:to_server,established; http.user_agent; content:"Lab-Audit-Probe"; sid:9000001; rev:1;)</code></pre>
+
+<h2 id="cs-cripto">6. Criptografía Aplicada, Certificados X.509 y OpenSSL (Cap. 1.9)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Necesidad de seguridad</th><th>Algoritmo / Estándar recomendado</th><th>Qué evitar siempre</th></tr></thead>
+<tbody>
+<tr><td><strong>Cifrado simétrico</strong></td><td><code>AES-256-GCM</code> o <code>ChaCha20-Poly1305</code> (AEAD)</td><td><code>AES-ECB</code>, <code>DES/3DES</code>, <code>RC4</code> o <code>CBC</code> sin MAC</td></tr>
+<tr><td><strong>Integridad y autenticidad</strong></td><td><code>HMAC-SHA256</code> (comparar con <code>hmac.compare_digest</code>)</td><td>Hash plano sin clave secreta o comparación con <code>==</code></td></tr>
+<tr><td><strong>Hashing de contraseñas</strong></td><td><code>Argon2id</code> (o <code>bcrypt</code>/<code>scrypt</code> con salt único)</td><td><code>MD5</code>, <code>SHA-1</code>, <code>SHA-256</code> directo sin factor de costo</td></tr>
+<tr><td><strong>Firmas digitales e intercambio</strong></td><td><code>Ed25519</code>, <code>ECDSA P-256</code>, <code>RSA-PSS ≥ 2048</code>, <code>ECDHE</code></td><td>Claves RSA &lt; 2048 bits, curvas débiles, TLS sin PFS</td></tr>
+<tr><td><strong>Protocolo TLS</strong></td><td><strong>TLS 1.3</strong> y <strong>TLS 1.2</strong> con suites AEAD + <code>ECDHE</code></td><td><code>SSLv2</code>, <code>SSLv3</code>, <code>TLS 1.0</code>, <code>TLS 1.1</code></td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Inspeccionar campos críticos (Emisor, Validez, SAN) de un certificado PEM local
+openssl x509 -in cert.pem -noout -subject -issuer -dates -ext subjectAltName
+
+# Verificar conexión TLS 1.3 y cadena de certificados contra un servicio local
+openssl s_client -connect 127.0.0.1:8443 -tls1_3 -showcerts &lt;/dev/null
+
+# Calcular hash SHA-256 de integridad sobre un artefacto o evidencia DFIR
+sha256sum evidencia.raw</code></pre>
+
+<h2 id="cs-cloud">7. Cloud, Contenedores, Kubernetes y DevSecOps (Tomo V)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Área Cloud / Contenedores</th><th>Control o comando clave de auditoría / hardening</th><th>Qué previene</th></tr></thead>
+<tbody>
+<tr><td><strong>IMDSv2 en AWS EC2</strong></td><td>Exigir <code>HttpTokens: required</code> y <code>HttpPutResponseHopLimit: 1</code></td><td>Robo de credenciales de rol IAM mediante SSRF o desde contenedores internos.</td></tr>
+<tr><td><strong>Docker rootless y mínimo</strong></td><td><code>docker run --read-only --cap-drop=ALL --security-opt=no-new-privileges:true</code></td><td>Escalada local y persistencia en contenedor tras vulnerabilidad en la aplicación.</td></tr>
+<tr><td><strong>Kubernetes Pod Security</strong></td><td>Perfil <code>restricted</code>, <code>runAsNonRoot: true</code>, <code>automountServiceAccountToken: false</code></td><td>Abuso de tokens de API, montaje <code>hostPath</code> y escapes hacia el nodo.</td></tr>
+<tr><td><strong>CI/CD y Secretos</strong></td><td><code>gitleaks detect</code>, <code>trivy config .</code>, <code>semgrep --config auto</code>, OIDC sin llaves</td><td>Fuga de secretos en Git, misconfigurations IaC e inyección en workflows.</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Auditar configuraciones IaC (Terraform/Dockerfile/YAML K8s) localmente con Trivy
+trivy config ./laboratorios/
+
+# Revisar permisos efectivos actuales en Kubernetes antes de desplegar un Pod
+kubectl auth can-i --list -n laboratorio-seguro
+
+# Verificar si el socket de Docker está montado indebidamente dentro de un contenedor
+ls -la /var/run/docker.sock 2&gt;/dev/null</code></pre>
+
+<h2 id="cs-ofensiva-av">8. Web Avanzado, Code Review, Threat Modeling y OPSEC (Tomo VI)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Disciplina</th><th>Vector o patrón de evaluación</th><th>Contramedida estructural / Detección</th></tr></thead>
+<tbody>
+<tr><td><strong>Race Conditions HTTP/2</strong></td><td>Sincronización <em>single-packet</em> sobre operaciones con saldo o cupones.</td><td>Bloqueo transaccional atómico (<code>SELECT ... FOR UPDATE</code>) o llaves de idempotencia.</td></tr>
+<tr><td><strong>Web Cache Poisoning / Deception</strong></td><td>Cabeceras no indexadas (<code>X-Forwarded-Host</code>) o sufijos estáticos (<code>/cuenta/x.css</code>).</td><td>Separar respuestas privadas con <code>Cache-Control: private, no-store</code> y validar encabezados.</td></tr>
+<tr><td><strong>Threat Modeling (STRIDE)</strong></td><td>Mapear entidades, flujos y fronteras de confianza en DFD.</td><td>Traducir cada amenaza a un control verificable <strong>OWASP ASVS</strong> antes del desarrollo.</td></tr>
+<tr><td><strong>White-Box (Source → Sink)</strong></td><td>Seguir entradas HTTP hasta <code>eval</code>, SQL, deserialización o shell.</td><td>Validación por esquema + APIs seguras + reglas SAST continuas en CI.</td></tr>
+<tr><td><strong>OPSEC / AMSI / ETW</strong></td><td>Comandos ruidosos LOLBAS, <em>PPID Spoofing</em>, anomalías <em>Call Stack</em>.</td><td>Sysmon (IDs 1, 8, 10, 25), ETW-TI desde kernel y bloqueo ASR/WDAC.</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Auditoría estática White-Box AST en laboratorio Python (Cap. 2.7 y 6.4)
+python laboratorios/auditor_whitebox_codereview.py ./laboratorios/
+
+# Escaneo SAST multiproyecto con Semgrep usando reglas comunitarias
+semgrep --config auto ./mi_proyecto_lab/</code></pre>
+
+<h2 id="cs-mobile-wifi-grc">9. Mobile, Wi-Fi, Hardware/OT y GRC (Tomo VII)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Dominio</th><th>Herramienta / Marco de referencia</th><th>Control o verificación esencial</th></tr></thead>
+<tbody>
+<tr><td><strong>Android (OWASP MASTG)</strong></td><td><code>jadx</code>, <code>apktool</code>, <code>adb</code>, <code>Frida</code>, MobSF</td><td>Revisar <code>android:exported="true"</code>, <code>allowBackup</code>, WebViews y pinning TLS.</td></tr>
+<tr><td><strong>Wi-Fi (802.11 / WPA3)</strong></td><td><code>airodump-ng</code>, <code>hcxdumptool</code>, <code>hashcat -m 22000</code></td><td>Desactivar WEP/WPS, habilitar WPA3-SAE o <code>EAP-TLS</code> con validación RADIUS y PMF (<code>802.11w</code>).</td></tr>
+<tr><td><strong>Física / Hardware / IoT</strong></td><td>BitLocker+PIN / LUKS2, IOMMU, <code>binwalk</code></td><td>Bloquear DMA Thunderbolt, deshabilitar UART/JTAG en producción y auditar firmware.</td></tr>
+<tr><td><strong>OT / ICS / SCADA</strong></td><td>Modelo Purdue (IEC 62443), Modbus TCP (502), OPC UA</td><td>Aislar con DMZ (Nivel 3.5), monitoreo pasivo sin escaneo activo y <em>Data Diodes</em>.</td></tr>
+<tr><td><strong>GRC y Cumplimiento</strong></td><td>RoE, ISO/IEC 27001, NIST CSF 2.0, PCI-DSS v4, GDPR</td><td>Autorización escrita previa, matriz ALE/SLE, notificación de brechas (72 h GDPR).</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Descompilar un APK de prueba en laboratorio e inspeccionar firmware embebido
+jadx -d ./salida_apk/ muestra_lab.apk
+binwalk -e firmware_lab.bin</code></pre>
+
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="00_EMPEZAR_AQUI.html">Inicio</a> · <a href="guia/index.html">Mapa del curso</a> · <a href="catalogo_completo.html">Catálogo 358</a> · <a href="orden_impresion.html">Imprenta y PDFs</a> · <a href="fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

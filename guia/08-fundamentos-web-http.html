@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 1.8 · Fundamentos de aplicaciones web, HTTP y proxies locales · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Interceptar y analizar peticiones HTTP, cookies y cabeceras en lab local">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo1.html">Tomo I</a><span aria-hidden="true">›</span><span>Cap. 1.8</span></nav>
+<h1 id="cap-1-8">Capítulo 1.8 · Fundamentos de aplicaciones web, HTTP y proxies locales</h1>
+<div class="meta-nivel"><span class="nivel-badge principiante">Principiante</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo I · Ruta 1 · Principiante</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="09-criptografia-tls-y-pki.html">1.9 Criptografía aplicada, certificados X.509, PKI y seguridad TLS</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender en profundidad la arquitectura del protocolo HTTP (versiones 1.1, 2 y 3), el ciclo completo de una petición y respuesta web, la negociación criptográfica en TLS 1.3, la gestión del estado mediante cookies y sesiones, las políticas de aislamiento del navegador (Same-Origin Policy y CORS) y el uso de un proxy de inspección local para auditar el tráfico de aplicaciones propias en <code>127.0.0.1:5050</code>.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 1.2 (Redes TCP/IP y DNS) y Capítulo 1.6 (Python 3 aplicado a seguridad). <strong>Duración sugerida:</strong> 5 a 7 horas (teoría y laboratorio local con Docker).</p>
+<h2 id="cap-1-8-1-arquitectura-de-las-aplicaciones-web-modernas">1. Arquitectura de las aplicaciones web modernas</h2>
+<p>Una aplicación web no es un bloque monolítico: es un sistema distribuido donde intervienen al menos cuatro componentes que conversan mediante protocolos estandarizados (RFC 9110 y RFC 9112):</p>
+<ol><li><strong>Agente de usuario (Navegador o cliente HTTP):</strong> interpreta HTML, aplica hojas de estilo CSS, ejecuta JavaScript en un entorno aislado (<em>sandbox</em>), almacena cookies según directivas estrictas y aplica la política del mismo origen (<em>Same-Origin Policy</em>, SOP).</li><li><strong>Proxy inverso o balanceador (Nginx, Envoy, HAProxy):</strong> recibe la conexión TLS externa, normaliza rutas, aplica límites de tasa (<em>rate limiting</em>), añade cabeceras de seguridad y reenvía la petición al servidor de aplicaciones interno.</li><li><strong>Servidor de aplicaciones (Backend en Python/Flask, Node.js, Go, .NET o Java):</strong> ejecuta la lógica de negocio, valida la identidad del usuario, verifica permisos de autorización por recurso y serializa la respuesta en HTML o JSON.</li><li><strong>Capa de persistencia y servicios internos:</strong> bases de datos relacionales (PostgreSQL, MySQL, SQLite), almacenes clave-valor para sesiones (Redis) y colas de mensajería.</li></ol>
+<pre><code class="lenguaje-text">[Navegador / curl]
+       │  HTTPS (TLS 1.3 sobre TCP/443)
+       ▼
+[Proxy Inverso: Nginx (127.0.0.1:8080)]
+       │  HTTP interno
+       ▼
+[Backend: Flask app_lab_educativa.py (127.0.0.1:5050)]
+       │  Consultas parametrizadas
+       ▼
+[Base de Datos SQLite / PostgreSQL]</code></pre>
+<p>Comprender qué valida cada capa es la base de toda auditoría web. Un error habitual de diseño consiste en delegar validaciones de seguridad al JavaScript del navegador olvidando que cualquier cliente HTTP (como <code>curl</code>, un script de Python o un proxy local) puede hablar directamente con el servidor enviando cabeceras y parámetros arbitrarios.</p>
+<h2 id="cap-1-8-2-anatomia-de-una-peticion-y-respuesta-http">2. Anatomía de una petición y respuesta HTTP</h2>
+<p>HTTP es un protocolo de capa de aplicación <strong>sin estado inherente</strong> (<em>stateless</em>): cada par petición/respuesta es independiente del anterior a menos que el servidor y el cliente intercambien un identificador explícito (cookie o token).</p>
+<h3 id="cap-1-8-estructura-de-la-peticion-request">Estructura de la petición (Request)</h3>
+<p>Una petición HTTP/1.1 se compone de cuatro partes separadas por saltos de línea <code>CRLF</code> (<code>\r\n</code>):</p>
+<ol><li><strong>Línea de petición:</strong> método (<code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>DELETE</code>, <code>PATCH</code>, <code>HEAD</code>, <code>OPTIONS</code>), ruta del recurso (incluyendo <em>query string</em>) y versión del protocolo.</li><li><strong>Cabeceras (<em>Headers</em>):</strong> pares <code>Nombre: Valor</code> con metadatos de host, tipo de contenido, autenticación y preferencias del cliente.</li><li><strong>Línea en blanco (<code>\r\n\r\n</code>):</strong> delimita el fin de las cabeceras.</li><li><strong>Cuerpo (<em>Body</em>):</strong> opcional; presente en peticiones <code>POST</code>, <code>PUT</code> o <code>PATCH</code> para transportar formularios, JSON o archivos.</li></ol>
+<pre><code class="lenguaje-http">GET /buscar-seguro?q=redes HTTP/1.1
+Host: 127.0.0.1:5050
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+Accept: application/json
+Connection: close
+</code></pre>
+<h3 id="cap-1-8-semantica-de-los-metodos-y-codigos-de-estado">Semántica de los métodos y códigos de estado</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Método HTTP</th>
+<th>Propósito arquitectónico</th>
+<th>¿Idempotente?</th>
+<th>¿Seguro (sin efectos secundarios)?</th>
+</tr></thead><tbody>
+<tr><td><code>GET</code></td><td>Obtener la representación de un recurso sin modificar estado en servidor</td><td>Sí</td><td>Sí</td></tr>
+<tr><td><code>HEAD</code></td><td>Igual que <code>GET</code>, pero el servidor devuelve solo las cabeceras sin cuerpo</td><td>Sí</td><td>Sí</td></tr>
+<tr><td><code>POST</code></td><td>Procesar datos, crear un recurso subordinado o ejecutar una acción de negocio</td><td>No</td><td>No</td></tr>
+<tr><td><code>PUT</code></td><td>Reemplazar de forma completa la representación de un recurso conocido</td><td>Sí</td><td>No</td></tr>
+<tr><td><code>PATCH</code></td><td>Aplicar una modificación parcial sobre un recurso existente</td><td>No</td><td>No</td></tr>
+<tr><td><code>DELETE</code></td><td>Eliminar un recurso específico previa verificación de permisos</td><td>Sí</td><td>No</td></tr>
+<tr><td><code>OPTIONS</code></td><td>Consultar capacidades del servidor o realizar verificación previa (<em>preflight</em>) CORS</td><td>Sí</td><td>Sí</td></tr>
+</tbody></table></div>
+<p>Los <strong>códigos de estado</strong> en la respuesta se agrupan en cinco familias:</p>
+<ul><li><strong><code>1xx</code> (Informativos):</strong> <code>101 Switching Protocols</code> (usado al actualizar una conexión HTTP a WebSockets).</li><li><strong><code>2xx</code> (Éxito):</strong> <code>200 OK</code> (operación correcta), <code>201 Created</code> (recurso creado), <code>204 No Content</code> (éxito sin cuerpo).</li><li><strong><code>3xx</code> (Redirección):</strong> <code>301 Moved Permanently</code>, <code>302 Found</code> (redirección temporal, frecuente tras iniciar sesión), <code>304 Not Modified</code> (uso de caché).</li><li><strong><code>4xx</code> (Error del cliente):</strong> <code>400 Bad Request</code> (sintaxis inválida), <code>401 Unauthorized</code> (falta autenticación válida), <code>403 Forbidden</code> (autenticado pero sin permisos sobre el recurso), <code>404 Not Found</code>, <code>405 Method Not Allowed</code>, <code>429 Too Many Requests</code> (control de tasa activo).</li><li><strong><code>5xx</code> (Error del servidor):</strong> <code>500 Internal Server Error</code> (excepción no controlada en el backend), <code>502 Bad Gateway</code>, <code>503 Service Unavailable</code>.</li></ul>
+<h3 id="cap-1-8-evolucion-http-1-1-vs-http-2-vs-http-3">Evolución: HTTP/1.1 vs. HTTP/2 vs. HTTP/3</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Característica</th>
+<th>HTTP/1.1 (RFC 9112)</th>
+<th>HTTP/2 (RFC 9113)</th>
+<th>HTTP/3 (RFC 9114)</th>
+</tr></thead><tbody>
+<tr><td><strong>Formato en cable</strong></td><td>Texto plano delimitado por <code>CRLF</code></td><td>Binario dividido en tramas (<em>frames</em>)</td><td>Binario sobre tramas QUIC</td></tr>
+<tr><td><strong>Transporte subyacente</strong></td><td>TCP (1 petición activa por conexión o pipelining limitado)</td><td>TCP con multiplexación de múltiples <em>streams</em> en 1 conexión</td><td>UDP + QUIC con multiplexación sin bloqueo TCP</td></tr>
+<tr><td><strong>Cabeceras</strong></td><td>Texto repetido en cada petición</td><td>Comprimidas con HPACK</td><td>Comprimidas con QPACK</td></tr>
+</tbody></table></div>
+<p>Aunque HTTP/2 y HTTP/3 viajen en binario, los proxies de diagnóstico y las herramientas de desarrollador reconstruyen la vista semántica (<code>:method</code>, <code>:path</code>, <code>:authority</code>, cabeceras y cuerpo) para que puedas auditarlos con la misma claridad que HTTP/1.1.</p>
+<h2 id="cap-1-8-3-estado-cookies-y-cabeceras-de-seguridad">3. Estado, cookies y cabeceras de seguridad</h2>
+<p>Como HTTP no guarda memoria entre peticiones, las aplicaciones mantienen sesiones emitiendo una cookie mediante la cabecera <code>Set-Cookie</code>. La seguridad de esa cookie depende de tres atributos críticos que siempre debés auditar:</p>
+<pre><code class="lenguaje-http">Set-Cookie: id_sesion=9f8e7d6c5b4a3210...; Path=/; Secure; HttpOnly; SameSite=Lax</code></pre>
+<div class="tabla"><table>
+<thead><tr>
+<th>Atributo de Cookie</th>
+<th>Qué protege</th>
+<th>Riesgo si falta</th>
+</tr></thead><tbody>
+<tr><td><code>HttpOnly</code></td><td>Impide que el motor JavaScript del navegador lea la cookie mediante <code>document.cookie</code>.</td><td>Si ocurre un fallo de inyección de scripts en el cliente, el script podría leer el identificador de sesión.</td></tr>
+<tr><td><code>Secure</code></td><td>Obliga al navegador a transmitir la cookie únicamente sobre canales cifrados HTTPS (salvo <code>localhost</code> de desarrollo).</td><td>Exposición de la cookie si el usuario realiza una petición en texto claro HTTP.</td></tr>
+<tr><td><code>SameSite=Lax</code> o <code>Strict</code></td><td>Controla si la cookie se adjunta en peticiones originadas desde otros sitios web.</td><td>Peticiones cruzadas no deseadas desde páginas externas (CSRF).</td></tr>
+</tbody></table></div>
+<h3 id="cap-1-8-cabeceras-http-de-endurecimiento-defensivo">Cabeceras HTTP de endurecimiento defensivo</h3>
+<p>Todo servicio web moderno debe responder con un conjunto base de cabeceras defensivas verificables con <code>curl -I</code>:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Cabecera HTTP</th>
+<th>Valor recomendado de referencia</th>
+<th>Función defensiva</th>
+</tr></thead><tbody>
+<tr><td><code>Content-Security-Policy</code></td><td><code>default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'</code></td><td>Restringe desde qué orígenes el navegador puede cargar scripts, objetos o incrustar la página.</td></tr>
+<tr><td><code>Strict-Transport-Security</code></td><td><code>max-age=63072000; includeSubDomains; preload</code></td><td>Ordena al navegador conectarse exclusivamente por HTTPS durante los próximos 2 años.</td></tr>
+<tr><td><code>X-Content-Type-Options</code></td><td><code>nosniff</code></td><td>Impide que el navegador adivine (<em>MIME sniffing</em>) el tipo de un archivo ignorando el <code>Content-Type</code> declarado.</td></tr>
+<tr><td><code>X-Frame-Options</code></td><td><code>DENY</code> (o <code>SAMEORIGIN</code>)</td><td>Bloquea la carga de la página dentro de un <code>&lt;iframe&gt;</code> externo (defensa contra <em>Clickjacking</em>).</td></tr>
+<tr><td><code>Referrer-Policy</code></td><td><code>strict-origin-when-cross-origin</code></td><td>Evita filtrar rutas o parámetros sensibles en la cabecera <code>Referer</code> al navegar hacia otros dominios.</td></tr>
+</tbody></table></div>
+<h2 id="cap-1-8-4-same-origin-policy-sop-cors-y-tls-1-3">4. Same-Origin Policy (SOP), CORS y TLS 1.3</h2>
+<p>La <strong>Política del Mismo Origen (SOP)</strong> es el pilar de aislamiento de los navegadores web. Dos URLs comparten el mismo origen <strong>solo si coinciden exactamente en tres elementos</strong>: esquema (<code>https</code>), host (<code>app.ejemplo.local</code>) y puerto (<code>443</code>).</p>
+<p>Si un script cargado desde <code>https://sitio-a.local</code> intenta leer mediante <code>fetch()</code> una respuesta de <code>https://api.sitio-b.local</code>, el navegador bloquea la lectura a menos que <code>api.sitio-b.local</code> autorice explícitamente a ese origen mediante cabeceras <strong>CORS (Cross-Origin Resource Sharing)</strong>:</p>
+<ul><li><code>Access-Control-Allow-Origin: https://sitio-a.local</code> (lista blanca explícita del origen confiable).</li><li><code>Access-Control-Allow-Credentials: true</code> (si se requiere envío de cookies o cabeceras de autorización; <strong>nunca</strong> debe combinarse con orígenes comodín o reflejados sin validación).</li></ul>
+<p>Por debajo de HTTP, <strong>TLS 1.3 (RFC 8446)</strong> protege la confidencialidad e integridad del canal en un solo viaje de ida y vuelta (<em>1-RTT handshake</em>), eliminando algoritmos antiguos (como RC4, DES, 3DES, MD5, SHA-1 e intercambio RSA estático) y garantizando <strong>Secreto Perfecto hacia Adelante (<em>Forward Secrecy</em>)</strong> mediante Diffie-Hellman efímero sobre curvas elípticas (<code>ECDHE</code>).</p>
+<h2 id="cap-1-8-5-ejemplo-paso-a-paso-inspeccion-del-laboratorio-local-con-curl-y-python">5. Ejemplo paso a paso: inspección del laboratorio local con <code>curl</code> y Python</h2>
+<p>Vamos a levantar nuestra aplicación educativa de <code>laboratorios/</code> y verificar sus cabeceras y comportamiento HTTP sobre <code>127.0.0.1:5050</code>.</p>
+<pre><code class="lenguaje-bash"># 1. Iniciar la aplicación educativa local (o con docker compose up -d)
+python laboratorios/app_lab_educativa.py &amp;
+
+# 2. Consultar cabeceras y cuerpo del endpoint /saludo-seguro
+curl -i "http://127.0.0.1:5050/saludo-seguro?nombre=Agustin"</code></pre>
+<p>Salida real esperada:</p>
+<pre><code class="lenguaje-http">HTTP/1.1 200 OK
+Server: Werkzeug/3.0.3 Python/3.12
+Date: Sun, 22 Nov 2026 20:15:00 GMT
+Content-Type: text/html; charset=utf-8
+Content-Length: 88
+Content-Security-Policy: default-src 'self'; script-src 'none'
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Connection: close
+
+&lt;h1&gt;Hola, Agustin&lt;/h1&gt;&lt;p&gt;Salida codificada con escape HTML y CSP activa.&lt;/p&gt;</code></pre>
+<p>Observá cómo el servidor declara explícitamente <code>Content-Security-Policy</code>, <code>X-Content-Type-Options: nosniff</code> y <code>X-Frame-Options: DENY</code>. Si ahora consultamos el endpoint JSON parametrizado:</p>
+<pre><code class="lenguaje-bash">curl -s "http://127.0.0.1:5050/buscar-seguro?q=redes" | python -m json.tool</code></pre>
+<pre><code class="lenguaje-json">{
+  "consulta": "redes",
+  "modo": "seguro_parametrizado",
+  "resultados": [
+    {
+      "categoria": "redes",
+      "id": 1,
+      "nombre": "Router Lab A1",
+      "precio": 120.0
+    },
+    {
+      "categoria": "redes",
+      "id": 2,
+      "nombre": "Switch L2 Educativo",
+      "precio": 240.0
+    }
+  ]
+}</code></pre>
+<h3 id="cap-1-8-configuracion-de-un-proxy-de-inspeccion-local-owasp-zap-burp-suite-community">Configuración de un proxy de inspección local (OWASP ZAP / Burp Suite Community)</h3>
+<p>Un proxy de inspección HTTP se sitúa en tu propia máquina (por ejemplo en <code>127.0.0.1:8080</code>) entre el navegador de pruebas y la aplicación local (<code>127.0.0.1:5050</code>):</p>
+<ol><li>En el proxy local, verificá que el listener escuche <strong>únicamente en <code>127.0.0.1</code></strong> (nunca en <code>0.0.0.0</code>) para evitar que otros equipos de la red usen tu proxy.</li><li>Usá el navegador integrado del proxy (o un perfil de Firefox exclusivo de laboratorio con la extensión FoxyProxy apuntando a <code>127.0.0.1:8080</code>).</li><li>En la pestaña <strong>HTTP History</strong>, revisá cada petición y respuesta sin necesidad de pausar el tráfico; cuando quieras probar cómo reacciona el backend ante distintos encabezados o métodos HTTP, enviá la petición al módulo <strong>Repeater / Manual Request Editor</strong>.</li></ol>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><ol><li><strong>Validación en el servidor como única fuente de verdad:</strong> toda regla de longitud, tipo de dato, autenticación y autorización debe ejecutarse en el backend; el código en el navegador solo mejora la experiencia de usuario.</li><li><strong>Plantilla de cabeceras en el proxy inverso:</strong> centralizá <code>Strict-Transport-Security</code>, <code>X-Content-Type-Options: nosniff</code>, <code>Referrer-Policy</code> y <code>Content-Security-Policy</code> en la configuración de Nginx o del framework web para que ningún endpoint quede desprotegido por olvido.</li><li><strong>Cookies endurecidas por defecto:</strong> configurá el motor de sesiones del framework con <code>SESSION_COOKIE_HTTPONLY = True</code>, <code>SESSION_COOKIE_SECURE = True</code> y <code>SESSION_COOKIE_SAMESITE = 'Lax'</code>.</li></ol></aside>
+<h2 id="cap-1-8-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Levantá el entorno local ejecutando <code>python laboratorios/app_lab_educativa.py</code> (o <code>docker compose up -d</code> dentro de <code>laboratorios/</code>).</li><li>Ejecutá <code>curl -i</code> contra los tres endpoints (<code>/</code>, <code>/buscar-seguro?q=defensa</code> y <code>/saludo-seguro?nombre=Prueba</code>) y guardá las respuestas completas.</li><li>Probá el endpoint <code>/ticket-seguro/1?user=ana</code> y luego <code>/ticket-seguro/1?user=carlos</code>. Observá el cambio de código de estado HTTP (<code>200 OK</code> frente a <code>403 Forbidden</code>) y registrá por qué ocurre al leer el código fuente de <code>laboratorios/app_lab_educativa.py</code>.</li><li>Escribí un pequeño script en Python 3 con <code>urllib.request</code> o <code>requests</code> que consulte <code>http://127.0.0.1:5050/saludo-seguro</code> y verifique automáticamente si están presentes las tres cabeceras <code>Content-Security-Policy</code>, <code>X-Content-Type-Options</code> y <code>X-Frame-Options</code>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un archivo <code>bitacora_cap1_8.md</code> con las salidas HTTP capturadas de los tres endpoints, la comparación entre el código <code>200</code> y <code>403</code> de <code>/ticket-seguro/1</code>, y el script en Python de auditoría de cabeceras de seguridad.</p></aside>
+<h2 id="cap-1-8-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué decimos que una validación escrita solo en el JavaScript del navegador o en un atributo HTML <code>maxlength</code> no constituye un control de seguridad?</strong> Porque el cliente está bajo control total del usuario. Cualquier herramienta como <code>curl</code>, un script en Python o un proxy local envía peticiones HTTP directamente al servidor sin pasar por el DOM ni ejecutar el JavaScript del navegador; por lo tanto, toda validación de seguridad debe aplicarse obligatoriamente en el servidor.</p>
+<p><strong>2. ¿Cuál es la diferencia técnica entre los códigos de estado HTTP <code>401 Unauthorized</code> y <code>403 Forbidden</code>?</strong> El código <code>401</code> indica que la petición carece de credenciales de autenticación válidas (el servidor no sabe quién sos o tu token expiró). El código <code>403</code> indica que el servidor comprendió la petición y conoce tu identidad, pero tu cuenta no tiene permisos de autorización para acceder a ese recurso específico.</p>
+<p><strong>3. ¿Qué función cumple cada uno de los tres atributos <code>HttpOnly</code>, <code>Secure</code> y <code>SameSite=Lax</code> en una cookie de sesión?</strong> <code>HttpOnly</code> prohíbe el acceso a la cookie desde JavaScript (<code>document.cookie</code>), protegiéndola frente a robo mediante scripts en el cliente. <code>Secure</code> garantiza que la cookie solo viaje sobre conexiones cifradas HTTPS. <code>SameSite=Lax</code> impide que la cookie se envíe automáticamente en peticiones subyacentes originadas desde sitios externos (como formularios <code>POST</code> o llamadas <code>fetch</code> cruzadas), mitigando ataques CSRF.</p>
+<p><strong>4. ¿Qué tres componentes definen un "origen" en la política Same-Origin Policy (SOP)?</strong> El esquema o protocolo (por ejemplo <code>https</code>), el nombre de host completo (<code>app.ejemplo.local</code>) y el puerto TCP (<code>443</code>). Si cualquiera de los tres cambia, el navegador los considera orígenes distintos y aísla el acceso al DOM y a las lecturas de red entre ambos.</p>
+<p><strong>5. ¿Por qué un proxy de inspección local como Burp Suite o OWASP ZAP debe configurarse para escuchar únicamente en <code>127.0.0.1</code> y no en <code>0.0.0.0</code>?</strong> Porque escuchar en <code>0.0.0.0</code> expone el puerto del proxy en todas las interfaces de red de la máquina, permitiendo que otros dispositivos de la red local enruten tráfico a través de tu estación de trabajo o inspeccionen sesiones activas del proxy.</p>
+<h2 id="cap-1-8-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Leer una petición y una respuesta HTTP cruda identificando método, código de estado, cabeceras y cuerpo.</li><li>Explicar para qué sirven <code>CSP</code>, <code>HSTS</code>, <code>X-Content-Type-Options</code>, <code>X-Frame-Options</code> y los atributos de cookies.</li><li>Auditar localmente <code>laboratorios/app_lab_educativa.py</code> con <code>curl</code> y con un script en Python.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Si ya inspeccionaste peticiones y cabeceras HTTP en <code>127.0.0.1:5050</code> y comprendés cómo operan cookies, SOP y CORS, estás listo para cerrar el <strong>Tomo I</strong> estudiando la base criptográfica que protege HTTPS/TLS y los certificados digitales: avanzá al <strong>Capítulo 1.9 · Criptografía aplicada, certificados X.509, PKI y seguridad TLS</strong>.</p></aside>
+<h2 id="cap-1-8-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>RFC 9110 (HTTP Semantics) y RFC 9112 (HTTP/1.1):</strong> especificaciones oficiales del IETF sobre métodos, cabeceras y códigos de estado.</li><li><strong>RFC 8446 (The Transport Layer Security Protocol Version 1.3):</strong> arquitectura del handshake TLS 1.3 y suites criptográficas con Forward Secrecy.</li><li><strong>OWASP Secure Headers Project:</strong> guía abierta de configuración y verificación de cabeceras HTTP defensivas.</li><li><strong>MDN Web Docs — Same-Origin Policy &amp; HTTP Cookies:</strong> documentación técnica sobre aislamiento de orígenes y ciclo de vida de cookies en navegadores modernos.</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 2 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Web Requests</td><td>Fundamental</td><td>General</td><td>8</td></tr><tr><td>Introduction to Web Applications</td><td>Fundamental</td><td>General</td><td>17</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="07-protocolos-y-servicios.html">← 1.7 Protocolos y servicios de red: SSH, SMB, DNS, LDAP, RDP y bases de datos</a></div><div><a href="09-criptografia-tls-y-pki.html">1.9 Criptografía aplicada, certificados X.509, PKI y seguridad TLS →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

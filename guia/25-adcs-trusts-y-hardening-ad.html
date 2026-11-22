@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 3.8 · ADCS (ESC1–ESC8), trusts entre dominios y plan maestro de hardening AD · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar plantillas ADCS/trusts y diseñar arquitectura Tier 0 + Protected Users">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo3.html">Tomo III</a><span aria-hidden="true">›</span><span>Cap. 3.8</span></nav>
+<h1 id="cap-3-8">Capítulo 3.8 · ADCS (ESC1–ESC8), trusts entre dominios y plan maestro de hardening AD</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Avanzado</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo III · Ruta 3 · Avanzado</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="26-operaciones-soc-y-respuesta-incidentes.html">4.1 Operaciones SOC, ciclo de respuesta a incidentes y MITRE ATT&amp;CK</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender la arquitectura de <strong>Active Directory Certificate Services (ADCS)</strong> y su integración con la autenticación del dominio (<code>PKINIT</code> y SChannel), identificar y remediar las malas configuraciones clásicas en plantillas de certificados y servicios de inscripción (<strong>ESC1 a ESC8</strong>), auditar relaciones de confianza entre dominios y bosques (<em>Domain &amp; Forest Trusts</em>, <code>SID Filtering</code> y <em>Selective Authentication</em>), asegurar servicios corporativos integrados (MSSQL y SCCM/MECM) y aplicar un <strong>Plan Maestro de Hardening de Active Directory</strong>.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 3.6 (Arquitectura de AD y Tiering) y Capítulo 3.7 (Kerberos, NTLM y DACLs). <strong>Duración sugerida:</strong> 9 a 11 horas.</p>
+<h2 id="cap-3-8-1-arquitectura-de-active-directory-certificate-services-adcs">1. Arquitectura de Active Directory Certificate Services (ADCS)</h2>
+<p><strong>Active Directory Certificate Services (ADCS)</strong> es la implementación de Infraestructura de Clave Pública (PKI) de Microsoft integrada nativamente en Active Directory. En una red empresarial, la Autoridad de Certificación (<strong>Enterprise CA</strong>) emite certificados X.509 para múltiples fines: cifrar tráfico TLS interno, firmar código, autenticar conexiones VPN/Wi-Fi (<code>802.1X</code>), usar tarjetas inteligentes y <strong>autenticar usuarios y máquinas directamente contra el KDC Kerberos mediante el estándar <code>PKINIT</code> (RFC 4556)</strong>.</p>
+<pre><code class="lenguaje-text">[Usuario / Máquina del Dominio]
+       │
+       │ 1. Solicita certificado (CSR) basado en una Plantilla de Certificado publicada en AD
+       ▼
+[Servidor Enterprise CA (ADCS)] ──(Verifica permisos de Enrollment en la plantilla y EKUs)
+       │
+       │ 2. Emite Certificado X.509 firmado por la CA del dominio
+       ▼
+[KDC Kerberos (Controlador de Dominio)]
+  • Si el certificado tiene EKU "Client Authentication" y un UPN/DNS válido en el SAN,
+    el KDC valida la firma de la CA mediante PKINIT y emite un TGT (Event ID 4768) para esa identidad.</code></pre>
+<p>Observá la implicación arquitectónica: <strong>en un dominio con ADCS habilitado, la Autoridad de Certificación (CA) es un activo de Tier 0 exactamente igual de crítico que un Controlador de Dominio</strong>, porque cualquier certificado que la CA firme con capacidad de autenticación de cliente permite obtener un TGT Kerberos válido para la identidad inscrita en el certificado.</p>
+<h3 id="cap-3-8-conceptos-clave-de-una-plantilla-de-certificado-certificate-template">Conceptos clave de una Plantilla de Certificado (<em>Certificate Template</em>)</h3>
+<p>Las plantillas de certificados son objetos almacenados en la partición de Configuración de Active Directory (<code>CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=...</code>). Su seguridad depende de cinco propiedades:</p>
+<ol><li><strong>DACL de la plantilla:</strong> quién tiene permiso de <strong><code>Enroll</code></strong> (inscribirse) o <strong><code>Autoenroll</code></strong> y quién tiene permisos de escritura (<code>WriteProperty</code> / <code>WriteDacl</code>) para editar la plantilla.</li><li><strong>EKU (<em>Extended Key Usage</em>):</strong> define para qué sirve el certificado. Los EKUs que permiten autenticarse en el dominio son <code>Client Authentication</code> (<code>1.3.6.1.5.5.7.3.2</code>), <code>Smart Card Logon</code> (<code>1.3.6.1.4.1.311.20.2.2</code>), <code>PKINIT Client Authentication</code> o <code>Any Purpose</code>.</li><li><strong>Nombre del Sujeto (<em>Subject Name</em> / <em>Subject Alternative Name</em>, SAN):</strong> por defecto y de forma segura, la CA ignora lo que pida el cliente y construye el nombre del certificado leyendo la identidad real del solicitante desde Active Directory. Sin embargo, si se activa el flag <strong><code>CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT</code> (<em>Supply in the request</em>)</strong>, la plantilla permite que el solicitante escriba cualquier <code>Subject Alternative Name (SAN)</code> dentro de su solicitud CSR.</li><li><strong>Requisitos de emisión (<em>Issuance Requirements</em>):</strong></li></ol>
+<ul><li><strong>Aprobación del administrador de CA (<em>CA certificate manager approval</em>):</strong> deja la solicitud en estado <em>Pending</em> hasta que un oficial de PKI la apruebe manualmente.</li><li><strong>Firmas autorizadas (<em>Authorized Signatures Required</em>):</strong> exige que la solicitud venga cofirmada por un Agente de Inscripción.</li></ul>
+<h2 id="cap-3-8-2-configuraciones-vulnerables-en-adcs-esc1esc8-y-su-remediacion">2. Configuraciones vulnerables en ADCS (ESC1–ESC8) y su remediación</h2>
+<p>La investigación publicada por SpecterOps sistematizó las principales configuraciones riesgosas de ADCS bajo los códigos <strong>ESC1 a ESC8</strong>. Esta tabla resume las condiciones exactas que debe buscar un auditor y cómo corregir cada una:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Código</th>
+<th>Condición de mala configuración en ADCS</th>
+<th>Por qué representa un riesgo crítico</th>
+<th>Remediación de ingeniería obligatoria</th>
+</tr></thead><tbody>
+<tr><td><strong>ESC1</strong></td><td>Plantilla con EKU de autenticación + permiso <code>Enroll</code> para grupos amplios (<code>Domain Users</code>) + <strong><code>ENROLLEE_SUPPLIES_SUBJECT</code> activo</strong> + sin aprobación de CA Manager.</td><td>Cualquier usuario autorizado a inscribirse puede solicitar un certificado especificando en el campo <code>SAN</code> el UPN de otro usuario del dominio.</td><td>Desactivar <code>Supply in the request</code> (hacer que la CA construya el sujeto desde AD). Si una plantilla de servidores requiere SAN manual, restringir <code>Enroll</code> exclusivamente al grupo de servidores necesarios y exigir aprobación de CA Manager.</td></tr>
+<tr><td><strong>ESC2 / ESC3</strong></td><td>Plantilla con EKU <code>Any Purpose</code>, sin EKU (<em>SubCA</em>) o con EKU <code>Certificate Request Agent</code> otorgada a usuarios no privilegiados.</td><td>Permite emitir certificados comodín o actuar como Agente de Inscripción (<code>Enrollment Agent</code>) para solicitar certificados en nombre de terceros.</td><td>Restringir plantillas <code>Enrollment Agent</code> y <code>SubCA</code> exclusivamente a oficiales de PKI de Tier 0 y configurar restricciones de ámbito de agente en la CA.</td></tr>
+<tr><td><strong>ESC4</strong></td><td>Permisos de escritura (<code>WriteOwner</code>, <code>WriteDacl</code>, <code>WriteProperty</code>) sobre el objeto de una plantilla de certificado otorgados a usuarios no-Tier 0.</td><td>Quien tiene permiso de escritura sobre la plantilla puede modificar sus atributos en LDAP para convertirla temporalmente en una plantilla tipo ESC1.</td><td>Auditar las DACLs de <code>CN=Certificate Templates</code> y dejar permisos de modificación únicamente a <code>Domain Admins</code> / <code>Enterprise Admins</code> (Tier 0).</td></tr>
+<tr><td><strong>ESC5 / ESC7</strong></td><td>Permisos débiles sobre el servidor de la CA, sus claves privadas o el permiso administrativo <code>ManageCA</code> / <code>ManageCertificates</code>.</td><td>Un administrador del servidor donde reside la CA controla toda la PKI del Bosque.</td><td>Tratar todo servidor ADCS como <strong>activo estricto de Tier 0</strong>: ningún administrador de Tier 1 o Tier 2 debe tener acceso local ni permisos <code>ManageCA</code>.</td></tr>
+<tr><td><strong>ESC6</strong></td><td>El servidor CA tiene activado el flag global <strong><code>EDITF_ATTRIBUTESUBJECTALTNAME2</code></strong>.</td><td>Ese flag global peligroso hace que <strong>todas</strong> las plantillas de la CA acepten un SAN arbitrario enviado por el cliente, aunque la plantilla individual no tenga <code>ENROLLEE_SUPPLIES_SUBJECT</code>.</td><td>Desactivarlo inmediatamente en la CA: <code>certutil -setreg policy\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2</code> y reiniciar el servicio <code>certsvc</code>.</td></tr>
+<tr><td><strong>ESC8</strong></td><td>Servicio web <strong>ADCS HTTP Web Enrollment</strong> (<code>/certsrv/</code>) habilitado por HTTP sin HTTPS ni <strong>Extended Protection for Authentication (EPA)</strong>.</td><td>Permite que una autenticación NTLM reenviada (<em>NTLM Relay</em>, Cap. 3.7) solicite un certificado a través de la interfaz web.</td><td>Desinstalar el rol obsoleto <code>CA Web Enrollment</code> si no se utiliza; si es indispensable, forzar <strong>HTTPS únicamente</strong>, activar <strong>EPA = Required</strong> y deshabilitar NTLM en el sitio IIS <code>/certsrv</code>.</td></tr>
+</tbody></table></div>
+<h3 id="cap-3-8-telemetria-de-deteccion-de-adcs-en-el-siem">Telemetría de detección de ADCS en el SIEM</h3>
+<p>Para que el SOC tenga visibilidad completa sobre la emisión de certificados:</p>
+<ol><li>En las propiedades de la Autoridad de Certificación (pestaña <em>Auditing</em>), activar la casilla <strong><code>Issue and manage certificate requests</code></strong>.</li><li>Monitorear en el registro <code>Security</code> de la CA los eventos:</li></ol>
+<ul><li><strong>Event ID <code>4886</code>:</strong> <em>Certificate Services received a certificate request</em>.</li><li><strong>Event ID <code>4887</code>:</strong> <em>Certificate Services approved a certificate request and issued a certificate</em> (inspeccionar que el <code>Subject</code> y el <code>Subject Alternative Name</code> coincidan con la cuenta <code>Requester</code>).</li></ul>
+<ol start="3"><li>Monitorear en los Controladores de Dominio el <strong>Event ID <code>4768</code></strong> cuando el certificado utilizado para <code>PKINIT</code> difiera de la cuenta que solicitó el certificado minutos antes, y verificar que esté aplicado el parche de mapeo fuerte de certificados de Microsoft (<strong><code>StrongCertificateBindingEnforcement</code></strong> en <code>HKLM\SYSTEM\CurrentControlSet\Services\Kdc</code>).</li></ol>
+<h2 id="cap-3-8-3-relaciones-de-confianza-entre-dominios-y-bosques-domain-forest-trusts">3. Relaciones de confianza entre dominios y bosques (Domain &amp; Forest Trusts)</h2>
+<p>En grandes corporaciones (o tras fusiones y adquisiciones de empresas) suelen coexistir múltiples dominios dentro de un mismo bosque o <strong>múltiples bosques separados</strong> vinculados mediante <strong>Relaciones de Confianza (<em>Trusts</em>)</strong>:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Propiedad de un Trust</th>
+<th>Opciones</th>
+<th>Implicación de seguridad</th>
+</tr></thead><tbody>
+<tr><td><strong>Dirección</strong></td><td>Unidireccional (<em>One-way</em>) o Bidireccional (<em>Two-way</em>)</td><td>Atención a la regla fundamental: <strong>el acceso fluye en sentido opuesto a la confianza</strong>. Si el Dominio A <em>confía</em> en el Dominio B (<code>A ──confía──► B</code>), entonces los usuarios del Dominio B pueden acceder a recursos a los que se les dé permiso en el Dominio A.</td></tr>
+<tr><td><strong>Transitividad</strong></td><td>Transitivo o No transitivo</td><td>En un trust transitivo, si A confía en B y B confía en C, entonces A confía implícitamente en C. Todos los dominios de un mismo bosque tienen trusts bidireccionales y transitivos automáticos.</td></tr>
+<tr><td><strong>Tipo de relación</strong></td><td><em>Parent-Child</em> / <em>Tree-Root</em> (mismo bosque), <em>External Trust</em> o <em>Forest Trust</em> (entre bosques distintos)</td><td>Los <em>Intra-Forest Trusts</em> comparten la frontera de seguridad del bosque. Los <em>External</em> y <em>Forest Trusts</em> conectan fronteras de seguridad distintas y deben tener activados <strong>SID Filtering</strong> y <strong>Selective Authentication</strong>.</td></tr>
+</tbody></table></div>
+<h3 id="cap-3-8-dos-controles-obligatorios-en-cualquier-trust-entre-bosques-forest-external-trust">Dos controles obligatorios en cualquier Trust entre bosques (<code>Forest / External Trust</code>)</h3>
+<ol><li><strong>Filtrado de SIDs (<em>SID Filtering</em> / <em>Quarantine</em>):</strong> durante una migración legítima de dominios, el atributo <code>sIDHistory</code> permite que un usuario conserve temporalmente su antiguo SID para no perder acceso a archivos. Sin embargo, entre dos bosques distintos, <strong>SID Filtering debe estar siempre habilitado</strong> para que el Controlador de Dominio descarte cualquier SID en <code>sIDHistory</code> que no pertenezca explícitamente al dominio vecino confiable.</li><li><strong>Autenticación Selectiva (<em>Selective Authentication</em>) frente a <em>Forest-Wide Authentication</em>:</strong> con <em>Forest-Wide Authentication</em>, todos los usuarios del bosque externo pasan a formar parte automáticamente del grupo <code>Authenticated Users</code> del bosque local, pudiendo leer todo el directorio LDAP y cualquier recurso compartido abierto a <code>Authenticated Users</code>. Al activar <strong>Selective Authentication</strong>, ningún usuario del bosque vecino puede autenticarse en un servidor local a menos que se le otorgue explícitamente el permiso <code>Allowed to Authenticate</code> sobre ese servidor puntual.</li></ol>
+<h2 id="cap-3-8-4-superficies-corporativas-integradas-microsoft-sql-server-y-sccm-mecm">4. Superficies corporativas integradas: Microsoft SQL Server y SCCM / MECM</h2>
+<p>En entornos Active Directory reales, dos plataformas empresariales concentran privilegios elevados y deben incluirse siempre en el alcance de auditoría y hardening:</p>
+<ol><li><strong>Microsoft SQL Server (MSSQL) integrado al dominio:</strong></li></ol>
+<ul><li><strong>Cuentas de servicio:</strong> cada instancia de SQL Server debe correr bajo una cuenta <strong>gMSA</strong> o cuenta virtual local (<code>NT Service\MSSQLSERVER</code>) con privilegios mínimos, nunca bajo una cuenta de administrador del dominio.</li><li><strong>Enlaces entre servidores (<em>Linked Servers</em>):</strong> auditar <code>sys.servers</code> para verificar que ningún enlace hacia otro SQL Server utilice credenciales fijas con rol <code>sysadmin</code>.</li><li><strong><code>xp_cmdshell</code> y procedimientos extendidos:</strong> verificar en todas las instancias que <code>xp_cmdshell</code> permanezca estrictamente deshabilitado (<code>SELECT value_in_use FROM sys.configurations WHERE name = 'xp_cmdshell'</code> → <code>0</code>).</li></ul>
+<ol start="2"><li><strong>Microsoft Endpoint Configuration Manager (SCCM / MECM):</strong></li></ol>
+<ul><li>Dado que SCCM despliega software y scripts como <code>SYSTEM</code> en todas las estaciones y servidores que administra, <strong>el servidor de sitio de SCCM y su base de datos SQL deben clasificarse como activos de máxima criticidad (Tier 0 o Tier 1 crítico)</strong>.</li><li>Deshabilitar el uso de <strong>Cuentas de Instalación de Cliente (<em>Client Push Installation Accounts</em>)</strong> con privilegios de administrador local global o exigir Kerberos mutuo y firma SMB en todos los puntos de distribución, y eliminar credenciales estáticas de acceso a red (<em>Network Access Accounts</em>, NAA) migrando a <strong>Enhanced HTTP / PKI</strong>.</li></ul>
+<h2 id="cap-3-8-5-ejemplo-paso-a-paso-auditoria-de-plantillas-adcs-y-trusts-con-powershell">5. Ejemplo paso a paso: auditoría de plantillas ADCS y Trusts con PowerShell</h2>
+<p>Este script de verificación defensiva inspecciona por LDAP todas las plantillas de certificados publicadas en el bosque en busca de configuraciones tipo ESC1 (<code>ENROLLEE_SUPPLIES_SUBJECT = 1</code>), comprueba el flag global <code>EditFlags</code> de la CA y lista las relaciones de confianza del dominio:</p>
+<pre><code class="lenguaje-powershell"># 1. Localizar el contenedor de plantillas de certificados en la partición Configuration
+$configNC = (Get-ADRootDSE).configurationNamingContext
+$templatesDN = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$configNC"
+
+# 2. Buscar plantillas con el bit CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT (0x1 = 1) activado
+#    en el atributo msPKI-Certificate-Name-Flag
+Get-ADObject -SearchBase $templatesDN -Filter {objectClass -eq "pKICertificateTemplate"} `
+    -Properties cn, displayName, "msPKI-Certificate-Name-Flag", "msPKI-Enrollment-Flag", pKIExtendedKeyUsage |
+    Where-Object { $_."msPKI-Certificate-Name-Flag" -band 1 } |
+    Select-Object displayName, cn, "msPKI-Certificate-Name-Flag", pKIExtendedKeyUsage
+
+# 3. Auditar todas las relaciones de confianza (Trusts) del dominio actual
+Get-ADTrust -Filter * |
+    Select-Object Name, Direction, TrustType, ForestTransitive, SelectiveAuthentication, SIDFilteringQuarantined</code></pre>
+<h2 id="cap-3-8-6-plan-maestro-de-hardening-de-active-directory-lista-de-verificacion-en-10-puntos">6. Plan Maestro de Hardening de Active Directory (Lista de Verificación en 10 Puntos)</h2>
+<p>Para cerrar el <strong>Tomo III</strong>, esta matriz condensa los diez controles de mayor impacto para blindar un entorno Active Directory corporativo:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>#</th>
+<th>Pilar de Hardening</th>
+<th>Control técnico verificable</th>
+</tr></thead><tbody>
+<tr><td><strong>1</strong></td><td><strong>Aislamiento de Tier 0 y PAWs</strong></td><td>Separar cuentas y estaciones de administración por niveles (Tier 0, 1 y 2) aplicando GPOs de denegación de logon cruzado y Silos de Autenticación.</td></tr>
+<tr><td><strong>2</strong></td><td><strong>Grupo <code>Protected Users</code></strong></td><td>Incluir al 100 % de las cuentas de Tier 0 (<code>Domain Admins</code>, <code>Enterprise Admins</code>, <code>Schema Admins</code>) en el grupo <code>Protected Users</code>.</td></tr>
+<tr><td><strong>3</strong></td><td><strong>Cuentas de servicio gMSA</strong></td><td>Migrar todas las cuentas de servicio con SPN a <code>gMSA</code> (120 bytes rotados automáticamente) y forzar cifrado Kerberos AES-256 (<code>0x12</code>), deshabilitando RC4 (<code>0x17</code>).</td></tr>
+<tr><td><strong>4</strong></td><td><strong>Rotación de <code>krbtgt</code></strong></td><td>Rotar la contraseña de la cuenta <code>krbtgt</code> periódicamente (dos rotaciones espaciadas según el tiempo máximo de vida del TGT, mínimo 10–24 horas entre la primera y la segunda) siguiendo el script oficial de Microsoft.</td></tr>
+<tr><td><strong>5</strong></td><td><strong>LAPS (<em>Windows LAPS</em>)</strong></td><td>Desplegar <strong>Windows LAPS</strong> en el 100 % de las estaciones de trabajo y servidores miembro para que cada equipo tenga una contraseña de Administrador local única, aleatoria y rotada automáticamente almacenada con cifrado en AD.</td></tr>
+<tr><td><strong>6</strong></td><td><strong>Firma SMB, LDAP y EPA</strong></td><td>Exigir <code>SMB Signing</code> en clientes y servidores, <code>LDAP Signing</code> + <code>LDAP Channel Binding</code> en todos los DCs, y <code>HTTPS + EPA</code> en todos los servicios web integrados.</td></tr>
+<tr><td><strong>7</strong></td><td><strong>Endurecimiento de ADCS</strong></td><td>Desactivar <code>EDITF_ATTRIBUTESUBJECTALTNAME2</code>, auditar plantillas con <code>ENROLLEE_SUPPLIES_SUBJECT</code>, exigir <code>StrongCertificateBindingEnforcement</code>, eliminar HTTP Web Enrollment sin EPA y proteger la CA en Tier 0.</td></tr>
+<tr><td><strong>8</strong></td><td><strong>Restricción de creación de máquinas</strong></td><td>Cambiar el atributo del dominio <strong><code>ms-DS-MachineAccountQuota</code></strong> de su valor por defecto (<code>10</code>) a <strong><code>0</code></strong> para impedir que usuarios no administrativos unan o creen hasta 10 cuentas de máquina arbitrarias en el dominio.</td></tr>
+<tr><td><strong>9</strong></td><td><strong>Higiene de DACLs y Delegación</strong></td><td>Eliminar cualquier servidor con <em>Unconstrained Delegation</em>, auditar permisos <code>WriteDacl</code>/<code>GenericAll</code>/replicación en la raíz del dominio y verificar trusts con <code>SID Filtering</code> y <code>Selective Authentication</code>.</td></tr>
+<tr><td><strong>10</strong></td><td><strong>Auditoría continua y Telemetría SOC</strong></td><td>Ejecutar mensualmente evaluaciones automatizadas de postura (PingCastle / Purple Knight / BloodHound) y enviar al SIEM los Event IDs <code>4624</code>, <code>4662</code>, <code>4720</code>, <code>4728/4732/4756</code>, <code>4768</code>, <code>4769</code>, <code>4886/4887</code>, <code>5136</code> y <code>7045</code>.</td></tr>
+</tbody></table></div>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>Ajustar <strong><code>ms-DS-MachineAccountQuota = 0</code></strong> y desplegar <strong>Windows LAPS</strong> son dos cambios que pueden completarse en una tarde con riesgo operativo mínimo y que eliminan simultáneamente la reutilización de credenciales de administrador local entre estaciones de trabajo y la creación no autorizada de objetos de computadora para abusar de RBCD o certificados de máquina.</p></aside>
+<h2 id="cap-3-8-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Guardá las consultas de la sección 5 en un script <code>auditar_adcs_y_trusts.ps1</code> y agregale una consulta que verifique el valor actual de <code>ms-DS-MachineAccountQuota</code>:</li></ol>
+<p><code>Get-ADDomain | Select-Object Name, @{N="MachineAccountQuota";E={(Get-ADObject $_.DistinguishedName -Properties "ms-DS-MachineAccountQuota")."ms-DS-MachineAccountQuota"}}</code></p>
+<ol start="2"><li>Redactá un documento técnico <code>plan_hardening_ad_corporativo.md</code> de una página que ordene los 10 controles del Plan Maestro de Hardening en tres fases de implementación: <strong>Fase 1 (Victorias rápidas en 7 días sin impacto a usuarios)</strong>, <strong>Fase 2 (30 días: firmas SMB/LDAP, LAPS y gMSA)</strong> y <strong>Fase 3 (90 días: Tiering completo, PAWs y Silos de Autenticación)</strong>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>El script <code>auditar_adcs_y_trusts.ps1</code> completo y el documento <code>plan_hardening_ad_corporativo.md</code> con la hoja de ruta de implementación en tres fases (7, 30 y 90 días).</p></aside>
+<h2 id="cap-3-8-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué un servidor de Autoridad de Certificación (Enterprise CA) de ADCS debe protegerse en el Nivel 0 (Tier 0) con el mismo rigor que un Controlador de Dominio?</strong> Porque los Controladores de Dominio confían en los certificados firmados por la Enterprise CA para autenticar usuarios y máquinas mediante <code>PKINIT</code> (Kerberos) o SChannel. Quien tiene control administrativo sobre el servidor de la CA o sus plantillas puede emitir un certificado de autenticación válido para cualquier administrador del dominio.</p>
+<p><strong>2. ¿Qué combinación de cuatro condiciones en una plantilla de certificado de ADCS define la vulnerabilidad clásica <code>ESC1</code> y cómo se corrige?</strong> Ocurre cuando la plantilla: (1) permite un EKU de autenticación de cliente, (2) otorga permisos <code>Enroll</code> a usuarios o grupos amplios de bajo privilegio, (3) tiene activado el flag <code>CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT</code> (<em>Supply in the request</em>, permitiendo especificar un SAN arbitrario) y (4) no exige aprobación del administrador de la CA ni firmas autorizadas. Se corrige desactivando <code>Supply in the request</code> (o restringiendo el enrolamiento y exigiendo aprobación manual del CA Manager).</p>
+<p><strong>3. En una relación de confianza unidireccional donde el Dominio A confía en el Dominio B (<code>A → confía en → B</code>), ¿en qué sentido fluye el acceso y para qué sirve activar <em>Selective Authentication</em>?</strong> El acceso fluye en sentido contrario a la flecha de confianza: los usuarios del <strong>Dominio B</strong> pueden acceder a recursos del <strong>Dominio A</strong> si se les conceden permisos. Activar <em>Selective Authentication</em> impide que cualquier usuario del Dominio B sea tratado automáticamente como <code>Authenticated Users</code> en todos los equipos del Dominio A, exigiendo otorgar permiso explícito equipo por equipo (<code>Allowed to Authenticate</code>).</p>
+<p><strong>4. ¿Qué controla el atributo de dominio <code>ms-DS-MachineAccountQuota</code>, cuál es su valor predeterminado en Active Directory y a qué valor debe cambiarse durante el hardening?</strong> Controla cuántas cuentas de equipo (<code>Computer Objects</code>) puede crear y unir al dominio cualquier usuario autenticado estándar sin ser administrador. Su valor por defecto histórico es <strong><code>10</code></strong>, y debe cambiarse a <strong><code>0</code></strong> para que solo las cuentas o grupos con delegación explícita de soporte puedan dar de alta nuevos objetos de máquina en el directorio.</p>
+<p><strong>5. ¿Por qué la rotación de la contraseña de la cuenta <code>krbtgt</code> debe realizarse dos veces consecutivas dejando un intervalo de tiempo entre la primera y la segunda rotación?</strong> Porque el KDC de Active Directory mantiene válidas en memoria tanto la clave actual de <code>krbtgt</code> (<code>N</code>) como la clave inmediatamente anterior (<code>N-1</code>) para no cortar la sesión de los usuarios legítimos cuyos TGTs fueron emitidos minutos antes del cambio. Si solo se rota una vez, un TGT firmado con la clave comprometida sigue siendo aceptado como <code>N-1</code>; la segunda rotación reemplaza ambas claves tras expirar el tiempo de vida de los tickets legítimos.</p>
+<h2 id="cap-3-8-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Explicar cómo <code>PKINIT</code> conecta un certificado X.509 emitido por ADCS con un TGT de Kerberos.</li><li>Auditar y remediar las configuraciones ESC1 a ESC8 en plantillas y servidores de ADCS.</li><li>Configurar y auditar Trusts entre dominios/bosques (<code>SID Filtering</code> y <code>Selective Authentication</code>).</li><li>Diseñar y priorizar un Plan Maestro de Hardening de Active Directory de 10 puntos.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>¡Excelente trabajo! Completaste el <strong>Tomo III · Ruta 3 (Avanzado): Infraestructura, Escalada de Privilegios y Active Directory</strong>. Ahora tenés una visión profunda de cómo se auditan y aseguran servidores Linux, endpoints Windows y dominios corporativos enteros. El paso final de la obra es dominar la ingeniería de defensa activa, monitoreo y respuesta a incidentes en el <strong>Tomo IV · Defensivo, SOC, SIEM, DFIR y Detection Engineering</strong>.</p></aside>
+<h2 id="cap-3-8-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>RFC 4556 (Public Key Cryptography for Initial Authentication in Kerberos — PKINIT):</strong> estándar de autenticación con certificados X.509 en Kerberos.</li><li><strong>Microsoft Learn — Securing PKI: Planning and Implementing Active Directory Certificate Services Hardening &amp; KB5014754 (Certificate-based authentication changes on Windows domain controllers).</strong></li><li><strong>Microsoft Learn — Windows LAPS Overview &amp; Securing Active Directory Trusts (SID Filtering and Selective Authentication).</strong></li><li><strong>SpecterOps Whitepaper — Certified Pre-Owned (Abusing and Defending Active Directory Certificate Services):</strong> taxonomía pública de configuraciones ESC1–ESC8 y guía de auditoría defensiva.</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 3 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>ADCS Attacks</td><td>Hard</td><td>Offensive</td><td>19</td></tr><tr><td>Active Directory Trust Attacks</td><td>Hard</td><td>Offensive</td><td>21</td></tr><tr><td>MSSQL, Exchange, and SCCM Attacks</td><td>Hard</td><td>Offensive</td><td>19</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="24-ataques-kerberos-ntlm-y-dacl.html">← 3.7 Kerberos, NTLM Relay, abuso de DACLs y delegación en Active Directory</a></div><div><a href="26-operaciones-soc-y-respuesta-incidentes.html">4.1 Operaciones SOC, ciclo de respuesta a incidentes y MITRE ATT&amp;CK →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

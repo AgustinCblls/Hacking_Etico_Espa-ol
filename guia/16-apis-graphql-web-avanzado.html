@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 2.7 · Seguridad de APIs (REST/GraphQL), HTTP avanzado y revisión Whitebox · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar una API GraphQL/REST y detectar fallos de lógica leyendo código">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo2.html">Tomo II</a><span aria-hidden="true">›</span><span>Cap. 2.7</span></nav>
+<h1 id="cap-2-7">Capítulo 2.7 · Seguridad de APIs (REST/GraphQL), HTTP avanzado y revisión Whitebox</h1>
+<div class="meta-nivel"><span class="nivel-badge intermedio">Intermedio</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo II · Ruta 2 · Intermedio</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="17-reportes-y-metodologia-pentest.html">2.8 Metodología profesional de pentesting, informes ejecutivos y remediación</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a dominar la auditoría y el diseño seguro de APIs modernas (REST y GraphQL) conforme al estándar OWASP API Security Top 10, comprender anomalías avanzadas del protocolo HTTP y de concurrencia (asignación masiva, condiciones de carrera TOCTOU, discrepancias de encuadre HTTP entre proxy y backend y envenenamiento de caché), y aplicar una metodología sistemática de revisión de código fuente (<em>Whitebox Analysis</em>) trazando fuentes, validadores y sumideros.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 2.3 a 2.6 (Seguridad Web del lado servidor y cliente). <strong>Duración sugerida:</strong> 8 a 10 horas.</p>
+<h2 id="cap-2-7-1-arquitectura-de-apis-rest-y-owasp-api-security-top-10">1. Arquitectura de APIs REST y OWASP API Security Top 10</h2>
+<p>Las aplicaciones modernas separan casi toda su lógica de negocio en APIs REST o GraphQL consumidas por clientes web (SPA), aplicaciones móviles y otros microservicios. A diferencia de una aplicación tradicional que renderiza HTML en el servidor, una API expone directamente las estructuras de datos y métodos del dominio.</p>
+<p>Además de BOLA (IDOR) y BFLA que estudiamos en el Capítulo 2.5, existen tres riesgos arquitectónicos propios de las APIs que siempre debés auditar:</p>
+<h3 id="cap-2-7-1-asignacion-masiva-mass-assignment-bopla-broken-object-property-level-authorization">1. Asignación Masiva (<em>Mass Assignment</em> / <em>BOPLA — Broken Object Property Level Authorization</em>)</h3>
+<p>Ocurre cuando un endpoint de creación o actualización (<code>PUT /api/perfil</code> o <code>PATCH /api/usuarios/me</code>) toma todo el diccionario JSON enviado por el cliente y lo vuelca directamente sobre el modelo de base de datos (<code>usuario.update(**request.json)</code>). Si la tabla o modelo interno <code>Usuario</code> tiene columnas como <code>es_admin</code>, <code>saldo</code> o <code>plan_suscripcion</code> que no figuraban en el formulario visual, un cliente que agregue <code>"es_admin": true</code> en el JSON modificaría propiedades privilegiadas.</p>
+<p><strong>Mitigación:</strong> separar estrictamente el <strong>Modelo de Base de Datos</strong> del <strong>Esquema de Entrada (DTO)</strong> definiendo una lista blanca explícita de campos editables por el usuario:</p>
+<pre><code class="lenguaje-python"># PATRÓN SEGURO contra Mass Assignment: esquema cerrado de campos permitidos
+CAMPOS_EDITABLES_PERFIL = {"nombre_mostrar", "zona_horaria", "idioma"}
+
+def actualizar_perfil_seguro(datos_json: dict) -&gt; dict:
+    # Ignora o rechaza cualquier propiedad no incluida en el conjunto permitido
+    campos_invalidos = set(datos_json.keys()) - CAMPOS_EDITABLES_PERFIL
+    if campos_invalidos:
+        raise ValueError(f"Propiedades no permitidas en la solicitud: {sorted(campos_invalidos)}")
+    return {k: datos_json[k] for k in CAMPOS_EDITABLES_PERFIL if k in datos_json}</code></pre>
+<h3 id="cap-2-7-2-exposicion-excesiva-de-propiedades-en-respuestas">2. Exposición excesiva de propiedades en respuestas</h3>
+<p>Es el problema inverso: el backend serializa el objeto completo de la base de datos (<code>return jsonify(usuario.__dict__)</code>) confiando en que el frontend solo mostrará en pantalla el nombre y el avatar, pero enviando en el JSON oculto el hash de contraseña, tokens internos o correos privados. <strong>Mitigación:</strong> definir siempre un esquema de salida (<em>Response DTO</em>) que proyecte únicamente las columnas públicas necesarias para esa vista.</p>
+<h3 id="cap-2-7-3-consumo-irrestricto-de-recursos-unrestricted-resource-consumption-api4-2023">3. Consumo irrestricto de recursos (<em>Unrestricted Resource Consumption</em> — API4:2023)</h3>
+<p>Si un endpoint de listado (<code>GET /api/registros?limite=10000000</code>) acepta el parámetro <code>limite</code> sin tope máximo, una sola petición puede agotar la memoria RAM y la CPU de la base de datos. <strong>Mitigación:</strong> imponer en el servidor un tope duro (<code>limite = min(int(request.args.get("limite", 20)), 100)</code>), limitar el tamaño máximo del cuerpo HTTP (<code>MAX_CONTENT_LENGTH</code>) y aplicar <em>rate limiting</em> por token y por IP.</p>
+<h2 id="cap-2-7-2-seguridad-en-apis-graphql">2. Seguridad en APIs GraphQL</h2>
+<p><strong>GraphQL</strong> reemplaza múltiples rutas REST por un único endpoint (usualmente <code>POST /graphql</code>) donde el cliente especifica exactamente qué objetos y campos desea consultar (<em>Queries</em>) o modificar (<em>Mutations</em>). Esta flexibilidad exige cuatro controles defensivos específicos en el servidor GraphQL:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Riesgo en GraphQL</th>
+<th>Por qué ocurre</th>
+<th>Control de ingeniería requerido</th>
+</tr></thead><tbody>
+<tr><td><strong>Exposición del esquema completo en producción</strong></td><td>La consulta de <strong>introspección</strong> (<code>__schema</code>, <code>__type</code>) viene habilitada por defecto en muchos motores.</td><td>Desactivar la introspección en entornos de producción para usuarios no administrativos.</td></tr>
+<tr><td><strong>Consultas circulares profundas (<em>Depth DoS</em>)</strong></td><td>Si <code>Autor</code> tiene <code>libros</code> y <code>Libro</code> tiene <code>autor</code>, un cliente puede anidar 30 niveles (<code>autor { libros { autor { libros ... } } }</code>) colapsando el servidor.</td><td>Configurar un validador de profundidad máxima (<code>max_depth = 5</code>) y de complejidad máxima de consulta (<em>Query Cost Analysis</em>).</td></tr>
+<tr><td><strong>Abuso de <em>Batching</em> / <em>Aliases</em> para evadir límites de tasa</strong></td><td>Enviar un arreglo de 500 mutaciones o 500 <em>aliases</em> dentro de una sola petición HTTP <code>POST /graphql</code> evade un <em>rate limiter</em> que solo cuente peticiones HTTP.</td><td>Limitar la cantidad de operaciones/aliases por petición HTTP y aplicar el <em>rate limiting</em> dentro del resolver de autenticación.</td></tr>
+<tr><td><strong>Falta de autorización a nivel de <em>Resolver</em> o campo</strong></td><td>Proteger solo la ruta HTTP <code>/graphql</code> pero olvidar validar permisos en cada nodo del grafo.</td><td>Verificar la autorización del usuario autenticado dentro de cada <em>resolver</em> de objeto y de campo sensible.</td></tr>
+</tbody></table></div>
+<h2 id="cap-2-7-3-anomalias-de-protocolo-http-y-concurrencia-en-servidor">3. Anomalías de protocolo HTTP y concurrencia en servidor</h2>
+<p>En el nivel avanzado (<em>Senior Web</em>), muchos defectos no provienen de un carácter mal escapado sino de discrepancias en el estado temporal o en la interpretación del protocolo HTTP entre capas:</p>
+<h3 id="cap-2-7-1-condiciones-de-carrera-race-conditions-toctou">1. Condiciones de carrera (<em>Race Conditions</em> / TOCTOU)</h3>
+<p>Un fallo <strong>TOCTOU (<em>Time-of-Check to Time-of-Use</em>)</strong> ocurre cuando una aplicación primero comprueba una condición en la base de datos (<code>SELECT saldo FROM cuentas WHERE id = 1</code> → verifica <code>saldo &gt;= 100</code>) y, milisegundos después, ejecuta la actualización (<code>UPDATE cuentas SET saldo = saldo - 100</code>).</p>
+<p>Si llegan 10 peticiones concurrentes en el mismo milisegundo (por ejemplo enviadas en paralelo sobre una misma conexión multiplexada HTTP/2), las 10 peticiones leen <code>saldo = 100</code> antes de que la primera haya escrito el <code>UPDATE</code>, aprobando la operación 10 veces.</p>
+<pre><code class="lenguaje-sql">-- PATRÓN SEGURO ATÓMICO EN SQL (elimina la ventana TOCTOU):
+-- La verificación y el descuento ocurren en una única sentencia atómica con bloqueo de fila
+UPDATE cuentas
+SET saldo = saldo - 100
+WHERE id = ? AND saldo &gt;= 100;
+-- Luego el backend verifica que rowcount == 1; si es 0, el saldo era insuficiente.</code></pre>
+<p>En operaciones de múltiples pasos, debe usarse una transacción con bloqueo pesimista (<code>SELECT ... FOR UPDATE</code>) o una clave de idempotencia única por operación (<code>Idempotency-Key</code> en Redis con <code>SETNX</code>).</p>
+<h3 id="cap-2-7-2-discrepancias-de-encuadre-http-http-request-smuggling">2. Discrepancias de encuadre HTTP (<em>HTTP Request Smuggling</em>)</h3>
+<p>En arquitecturas con un proxy inverso delante de un servidor de aplicaciones que reutiliza conexiones HTTP/1.1 persistentes (<em>keep-alive</em>), todas las peticiones de distintos usuarios viajan una detrás de otra por el mismo socket TCP interno. El protocolo HTTP/1.1 (RFC 9112) define dos formas de indicar dónde termina el cuerpo de una petición:</p>
+<ul><li><code>Content-Length</code> (longitud exacta en bytes).</li><li><code>Transfer-Encoding: chunked</code> (bloques terminados en un bloque de tamaño <code>0</code>).</li></ul>
+<p>Si una petición malformada incluye ambas cabeceras (o una cabecera <code>Transfer-Encoding</code> con formato ambiguo) y el proxy frontal calcula el límite usando una cabecera mientras el backend usa la otra, ambos servidores pierden la sincronización sobre dónde termina una petición y dónde empieza la siguiente.</p>
+<p><strong>Mitigación:</strong></p>
+<ol><li>Configurar el proxy inverso para que <strong>normalice estrictamente las peticiones</strong> y rechace con <code>400 Bad Request</code> cualquier solicitud HTTP/1.1 que contenga simultáneamente <code>Content-Length</code> y <code>Transfer-Encoding</code>.</li><li>Utilizar <strong>HTTP/2 de extremo a extremo</strong> (donde la longitud está definida por tramas binarias y no por cabeceras de texto ambiguas).</li></ol>
+<h3 id="cap-2-7-3-envenenamiento-de-cache-web-host-header-attacks-http-2-downgrading-y-session-puzzling">3. Envenenamiento de caché web, <em>Host Header Attacks</em>, <em>HTTP/2 Downgrading</em> y <em>Session Puzzling</em></h3>
+<ul><li><strong>Web Cache Poisoning:</strong> ocurre cuando una caché intermedia (CDN o Varnish/Nginx) guarda una respuesta basándose solo en la clave de caché (<em>cache key</em>: método + ruta + query string), pero el backend modifica la respuesta usando una cabecera no incluida en esa clave (por ejemplo <code>X-Forwarded-Host</code>). <strong>Mitigación:</strong> ignorar cabeceras <code>X-Forwarded-*</code> que no provengan del balanceador de confianza e incluir en <code>Vary</code> cualquier cabecera que modifique la salida.</li><li><strong>Host Header Attacks:</strong> si la aplicación usa el valor de la cabecera <code>Host:</code> directamente para construir enlaces de "Recuperar contraseña" o redirigir tráfico interno, un cliente puede manipular esa cabecera generando enlaces hacia un dominio controlado por él o eludiendo restricciones de acceso local. <strong>Mitigación:</strong> validar el <code>Host</code> permitido explícitamente en Nginx (<code>server_name</code> estricto sin bloque comodín por defecto) y generar enlaces de recuperación desde una URL base fija de configuración (<code>BASE_URL</code>), jamás desde cabeceras de la petición.</li><li><strong>HTTP/2 Downgrading (<code>H2.CL</code> / <code>H2.TE</code>):</strong> ocurre cuando el proxy frontal recibe tráfico <strong>HTTP/2</strong> y lo traduce internamente a <strong>HTTP/1.1</strong> hacia el backend introduciendo cabeceras <code>Content-Length</code> o <code>Transfer-Encoding</code> conflictivas. <strong>Mitigación:</strong> usar HTTP/2 de extremo a extremo o configurar el proxy inverso para rechazar cabeceras prohibidas/redundantes de encuadre durante la traducción.</li><li><strong>Session Puzzling (<em>Variable Overloading</em>):</strong> fallo lógico donde distintas funcionalidades (por ejemplo "Registro incompleto" y "Autenticación") escriben en las mismas claves del almacén de sesión (<code>session['user_id']</code>), permitiendo que un flujo incompleto deje una sesión parcialmente autenticada reutilizable en otra ruta. <strong>Mitigación:</strong> usar claves de sesión separadas y con prefijo explícito por módulo o flujo.</li></ul>
+<h3 id="cap-2-7-4-dns-rebinding-prototype-pollution-y-type-juggling">4. <em>DNS Rebinding</em>, <em>Prototype Pollution</em> y <em>Type Juggling</em></h3>
+<ol><li><strong>DNS Rebinding (evasión temporal de filtros SSRF y SOP):</strong> como vimos en el Cap. 2.6, validar la IP del DNS antes de llamar a <code>requests.get(url)</code> deja una pequeña ventana temporal (TOCTOU): si un dominio externo responde primero con una IP pública válida y <code>TTL=0</code>, y un milisegundo después responde <code>127.0.0.1</code> cuando el cliente HTTP vuelve a resolver el nombre, burla la validación previa. <strong>Mitigación:</strong> conectar el socket directamente a la <strong>misma IP pública ya validada</strong> fijando la cabecera <code>Host</code>, además de exigir validación estricta del <code>Host</code> en servicios internos locales.</li><li><strong>Prototype Pollution (JavaScript / Node.js):</strong> cuando funciones inseguras de fusión recursiva de objetos (<code>merge</code>/<code>clone</code>) copian propiedades con clave <code>__proto__</code>, <code>constructor</code> o <code>prototype</code> desde un JSON de usuario, alterando propiedades heredadas de <code>Object.prototype</code> en toda la aplicación (causando escalada de privilegios lógica o ejecución de código en gadgets del backend/DOM). <strong>Mitigación:</strong> usar <code>Map</code> o <code>Object.create(null)</code>, validar esquemas JSON rechazando claves <code>__proto__</code> / <code>constructor</code> y congelar prototipos (<code>Object.freeze(Object.prototype)</code>).</li><li><strong>Type Juggling (comparación débil de tipos en PHP/JS):</strong> ocurre al usar <code>==</code> (comparación laxa) en lugar de <code>===</code> (identidad estricta de tipo y valor); por ejemplo, en versiones heredadas de PHP cadenas que empiezan con <code>"0e..."</code> comparadas con <code>==</code> se evaluaban como notación científica igual a cero. <strong>Mitigación:</strong> exigir siempre comparación estricta (<code>===</code>) y usar <code>hash_equals()</code> en tiempo constante para tokens y firmas.</li></ol>
+<h2 id="cap-2-7-4-metodologia-de-auditoria-de-codigo-fuente-whitebox-pentesting">4. Metodología de auditoría de código fuente (<em>Whitebox Pentesting</em>)</h2>
+<p>Contar con acceso al código fuente de la aplicación transforma la auditoría: en lugar de adivinar desde afuera, podés verificar el 100 % de las rutas y encontrar defectos lógicos en minutos. La metodología profesional combina tres técnicas:</p>
+<pre><code class="lenguaje-text">[1. Mapa de Superficie]        [2. Trazado Taint (Source → Sink)]      [3. Revisión de Lógica]
+Listar todas las rutas         Seguir cada dato de entrada hasta       Verificar transacciones,
+(@app.route, routers,          consultas SQL, plantillas, archivos,    controles de propiedad
+resolvers GraphQL)             llamadas HTTP o deserializadores        y estados de negocio</code></pre>
+<h3 id="cap-2-7-trazado-de-flujo-de-datos-taint-analysis-fuentes-sanitizadores-sumideros">Trazado de flujo de datos (<em>Taint Analysis</em>: Fuentes → Sanitizadores → Sumideros)</h3>
+<ol><li><strong>Identificar las Fuentes (<em>Sources</em>):</strong> todos los puntos donde entran datos controlados por el cliente (<code>request.args</code>, <code>request.form</code>, <code>request.json</code>, <code>request.headers</code>, <code>request.cookies</code>, parámetros de ruta).</li><li><strong>Identificar los Sumideros (<em>Sinks</em>):</strong> funciones sensibles donde un dato sin validar causa un fallo:</li></ol>
+<ul><li>Base de datos: <code>cursor.execute()</code>, <code>.raw()</code>, <code>text()</code>.</li><li>Sistema operativo: <code>subprocess.run()</code>, <code>os.system()</code>, <code>os.popen()</code>.</li><li>Archivos: <code>open()</code>, <code>Path()</code>, <code>send_file()</code>.</li><li>Plantillas / HTML: <code>render_template_string()</code>, <code>Markup()</code>, <code>|safe</code>.</li><li>Red saliente: <code>requests.get()</code>, <code>urllib.request.urlopen()</code>.</li><li>Deserialización: <code>pickle.loads()</code>, <code>yaml.load()</code>.</li></ul>
+<ol start="3"><li><strong>Verificar el Sanitizador o Parametrización en el camino:</strong> comprobar que entre cada <em>Source</em> y cada <em>Sink</em> exista parametrización estricta, validación por lista blanca o codificación contextual.</li></ol>
+<h2 id="cap-2-7-5-ejemplo-paso-a-paso-auditoria-whitebox-automatizada-con-un-script-en-python">5. Ejemplo paso a paso: auditoría Whitebox automatizada con un script en Python</h2>
+<p>Veamos cómo escribir un auditor estático ligero en Python que inspeccione archivos <code>.py</code> buscando patrones de riesgo (como <code>shell=True</code>, <code>pickle.loads</code>, <code>yaml.load(</code> sin <code>safe_load</code> o <code>render_template_string(f"</code>) y verificar con él nuestro propio laboratorio:</p>
+<pre><code class="lenguaje-python"># Auditor estático educativo de sumideros riesgosos en archivos Python
+import re, sys
+
+REGLAS_WHITEBOX = [
+    ("WB-CMD-01", r"subprocess\.\w+\([^)]*shell\s*=\s*True", "Uso de shell=True en subprocess"),
+    ("WB-DES-02", r"\bpickle\.loads?\(", "Deserialización con pickle"),
+    ("WB-YML-03", r"\byaml\.load\(", "Uso de yaml.load() (preferir yaml.safe_load)"),
+    ("WB-SSTI-04", r"render_template_string\(\s*f[\"']", "Interpolación f-string dentro de plantilla Jinja2"),
+]
+
+def auditar_codigo(ruta_archivo: str):
+    lineas = open(ruta_archivo, "r", encoding="utf-8").splitlines()
+    hallazgos = 0
+    for num, texto in enumerate(lineas, 1):
+        for cod, patron, desc in REGLAS_WHITEBOX:
+            if re.search(patron, texto):
+                hallazgos += 1
+                print(f"  [ALERTA {cod}] Línea {num}: {desc} -&gt; {texto.strip()}")
+    if hallazgos == 0:
+        print(f"  [OK] {ruta_archivo}: 0 sumideros inseguros detectados por las reglas base.")</code></pre>
+<p>Al ejecutarlo sobre <code>laboratorios/app_lab_educativa.py</code>, el auditor confirma <code>0 sumideros inseguros detectados</code>, validando que las rutas del laboratorio utilizan plantillas fijas y consultas parametrizadas.</p>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><ol><li><strong>Esquemas de entrada y salida tipados (DTOs):</strong> utilizá bibliotecas como Pydantic o Marshmallow en cada endpoint de API para rechazar propiedades desconocidas (<em>extra = "forbid"</em>), fijar longitudes máximas y validar tipos escalares antes de ejecutar la lógica de negocio.</li><li><strong>Operaciones financieras o de inventario siempre atómicas:</strong> nunca separes la lectura de verificación (<code>SELECT</code>) de la escritura (<code>UPDATE</code>) en peticiones concurrentes sin una transacción con bloqueo de fila o una actualización condicional atómica.</li><li><strong>Integrar análisis estático (SAST) en cada commit:</strong> ejecutá Semgrep o Bandit en el pipeline de integración continua para bloquear automáticamente código que introduzca sumideros peligrosos.</li></ol></aside>
+<h2 id="cap-2-7-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Implementá en un archivo local <code>auditor_whitebox_lab.py</code> el escáner estático de la sección 5 y agregale una quinta regla (<code>WB-SQL-05</code>) que detecte llamadas a <code>.execute(f"</code> o <code>.execute("SELECT " +</code> con concatenación directa.</li><li>Ejecutá tu auditor contra todos los scripts <code>.py</code> de la carpeta <code>laboratorios/</code> (<code>app_lab_educativa.py</code>, <code>auditor_red_local.py</code>, <code>analizador_logs_soc.py</code>) y verificá que todos pasen limpiamente.</li><li>Creá una función de prueba en Python que implemente <code>actualizar_perfil_seguro()</code> y comprobá que rechace cualquier intento de inyectar <code>"rol": "admin"</code> o <code>"saldo": 9999</code> dentro del diccionario de entrada.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>El script <code>auditor_whitebox_lab.py</code> con las 5 reglas SAST funcionando, el reporte de ejecución limpia sobre <code>laboratorios/</code> y la prueba unitaria contra asignación masiva.</p></aside>
+<h2 id="cap-2-7-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿En qué consiste la vulnerabilidad de Asignación Masiva (<em>Mass Assignment</em>) en una API REST y cómo se previene por diseño?</strong> Ocurre cuando el backend vincula automáticamente todos los campos de un cuerpo JSON enviado por el cliente a las columnas de un modelo de base de datos, permitiendo sobrescribir atributos internos como <code>es_admin</code> o <code>rol</code>. Se previene definiendo un esquema de entrada (DTO) con una lista blanca explícita de las propiedades que el usuario tiene permitido editar.</p>
+<p><strong>2. ¿Por qué una API GraphQL requiere limitar la profundidad de las consultas (<em>Query Depth</em>) y validar permisos dentro de cada <em>resolver</em>?</strong> Porque en GraphQL las relaciones entre objetos forman un grafo que puede contener ciclos (por ejemplo <code>usuario → grupo → miembros → grupo</code>), permitiendo que una sola consulta muy anidada agote la CPU y la memoria del servidor. Además, como todos los datos se consultan a través de un único endpoint <code>/graphql</code>, validar permisos solo en la ruta HTTP no impide que un usuario solicite nodos o campos restringidos dentro del grafo.</p>
+<p><strong>3. ¿Qué es una condición de carrera TOCTOU (<em>Time-of-Check to Time-of-Use</em>) y cómo se resuelve en una base de datos relacional?</strong> Es un fallo de concurrencia donde el programa comprueba primero una condición (por ejemplo, que el saldo sea suficiente) y luego modifica el estado en un paso separado; si varias peticiones llegan en paralelo durante esa ventana de milisegundos, todas pasan la verificación inicial antes de que se registre el descuento. Se resuelve realizando la verificación y el cambio en una sola sentencia SQL atómica (<code>UPDATE ... WHERE id = ? AND saldo &gt;= ?</code>) o usando transacciones con bloqueo de fila (<code>SELECT ... FOR UPDATE</code>).</p>
+<p><strong>4. ¿Cuál es la causa técnica del <em>HTTP Request Smuggling</em> entre un proxy inverso y un servidor backend?</strong> Se produce cuando una petición HTTP/1.1 malformada presenta ambigüedad en los encabezados que definen la longitud del cuerpo (por ejemplo, combinando <code>Content-Length</code> y <code>Transfer-Encoding: chunked</code>) y el proxy frontal interpreta un límite distinto al que interpreta el backend sobre la conexión TCP reutilizada, desincronizando la cola de peticiones.</p>
+<p><strong>5. En una revisión de código fuente (<em>Whitebox</em>), ¿qué significan los términos <em>Source</em> (fuente) y <em>Sink</em> (sumidero)?</strong> Un <em>Source</em> es cualquier punto de entrada por donde ingresan datos externos no confiables a la aplicación (parámetros GET/POST, cuerpo JSON, cabeceras HTTP, cookies). Un <em>Sink</em> es una función o operación sensible (como ejecutar una consulta SQL, abrir una ruta de archivo, renderizar HTML o invocar un subproceso) donde la llegada de un dato procedente de un <em>Source</em> sin validación ni parametrización produce una vulnerabilidad.</p>
+<h2 id="cap-2-7-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Auditar una API REST y GraphQL frente a BOLA, BFLA, Mass Assignment, exceso de datos y falta de límites de tasa.</li><li>Identificar y corregir ventanas de carrera TOCTOU mediante operaciones atómicas.</li><li>Realizar una revisión Whitebox sistemática siguiendo el recorrido <em>Source → Sanitizador → Sink</em>.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Ya tenés las herramientas técnicas para auditar aplicaciones y servicios de principio a fin. Para cerrar el <strong>Tomo II</strong>, queda aprender la habilidad que convierte un hallazgo técnico en valor real para una organización: avanzá al <strong>Capítulo 2.8 · Metodología profesional de pentesting, informes ejecutivos y remediación</strong>.</p></aside>
+<h2 id="cap-2-7-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>OWASP API Security Top 10 (Edición 2023):</strong> catálogo oficial de los diez riesgos críticos en arquitecturas de APIs.</li><li><strong>OWASP GraphQL Cheat Sheet:</strong> guía de endurecimiento de esquemas, límite de profundidad, complejidad y autorización en GraphQL.</li><li><strong>RFC 9112 (HTTP/1.1 Message Syntax and Routing — Sección 6: Message Body Length):</strong> reglas estrictas de precedencia y rechazo ante conflicto entre <code>Transfer-Encoding</code> y <code>Content-Length</code>.</li><li><strong>OWASP Code Review Guide:</strong> metodología abierta de revisión de código fuente y análisis de flujo de datos.</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 13 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Secure Coding 101: JavaScript</td><td>Hard</td><td>Defensive</td><td>17</td></tr><tr><td>Web Service &amp; API Attacks</td><td>Medium</td><td>Offensive</td><td>13</td></tr><tr><td>Abusing HTTP Misconfigurations</td><td>Hard</td><td>Offensive</td><td>20</td></tr><tr><td>HTTP Attacks</td><td>Hard</td><td>Offensive</td><td>18</td></tr><tr><td>Whitebox Attacks</td><td>Hard</td><td>Offensive</td><td>15</td></tr><tr><td>Modern Web Exploitation Techniques</td><td>Hard</td><td>Offensive</td><td>18</td></tr><tr><td>Parameter Logic Bugs</td><td>Hard</td><td>Defensive</td><td>21</td></tr><tr><td>Intro to Whitebox Pentesting</td><td>Hard</td><td>Offensive</td><td>18</td></tr><tr><td>API Attacks</td><td>Medium</td><td>Offensive</td><td>13</td></tr><tr><td>Attacking GraphQL</td><td>Medium</td><td>Offensive</td><td>9</td></tr><tr><td>Application Security for Security+</td><td>Easy</td><td>Defensive</td><td>7</td></tr><tr><td>Static Code Analysis</td><td>Hard</td><td>Defensive</td><td>12</td></tr><tr><td>Dynamic Code Analysis</td><td>Hard</td><td>Defensive</td><td>8</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="15-ssrf-xxe-ssti-archivos.html">← 2.6 LFI/Path Traversal, File Upload, SSRF, XXE, SSTI y deserialización</a></div><div><a href="17-reportes-y-metodologia-pentest.html">2.8 Metodología profesional de pentesting, informes ejecutivos y remediación →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

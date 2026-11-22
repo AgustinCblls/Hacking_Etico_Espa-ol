@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 7.5 · Seguridad física, perímetro hardware (RFID/BadUSB/DMA) e IoT/Firmware · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Evaluar riesgos físicos, cifrado BitLocker/LUKS, puertos UART/JTAG y extracción básica de firmware con binwalk">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo7.html">Tomo VII</a><span aria-hidden="true">›</span><span>Cap. 7.5</span></nav>
+<h1 id="cap-7-5">Capítulo 7.5 · Seguridad física, perímetro hardware (RFID/BadUSB/DMA) e IoT/Firmware</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Mobile, Wireless, OT y GRC</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo VII · Ruta 7 · Mobile, Wireless, OT y GRC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="53-redes-industriales-ot-ics-y-scada.html">7.6 Seguridad en entornos industriales OT / ICS / SCADA y Modelo Purdue</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a poder evaluar controles de seguridad física en auditorías autorizadas, diferenciar tecnologías RFID/NFC de baja y alta frecuencia frente a ataques de clonación, mitigar vectores en puertos expuestos como BadUSB y ataques DMA, comprender el diseño del cifrado de disco completo frente a ataques en frío y ejecutar un análisis pasivo inicial de hardware y firmware embebido con <code>binwalk</code>.</p></aside>
+<p>Toda infraestructura lógica descansa sobre un sustrato físico. Si un atacante o un auditor autorizado obtiene acceso directo a un puerto USB desbloqueado, a una placa base con depuración activa o al lector de acceso de un edificio, los controles perimetrales de red quedan soslayados. En este capítulo abordamos la frontera física y de hardware: cómo se evalúan estos controles bajo autorización estricta y cómo se diseña su defensa en profundidad.</p>
+<h2 id="cap-7-5-seguridad-fisica-en-auditorias-autorizadas">Seguridad física en auditorías autorizadas</h2>
+<p>Las auditorías de seguridad física forman parte de evaluaciones de <em>Red Team</em> o verificación de cumplimiento (como ISO/IEC 27001 o PCI-DSS). Al involucrar interacción humana e infraestructura sensible, nunca se improvisan: exigen un documento de Reglas de Enfrentamiento (<em>RoE</em>) que delimite edificios, horarios y áreas excluidas, además de una carta de autorización firmada que el auditor lleva consigo en todo momento.</p>
+<h3 id="cap-7-5-control-de-accesos-tailgating-y-piggybacking">Control de accesos, tailgating y piggybacking</h3>
+<p>El perímetro físico se diseña en anillos concéntricos: perímetro exterior, recepción, oficinas generales y áreas técnicas restringidas. Cada transición requiere controles acordes al riesgo:</p>
+<ul><li><strong>Barreras físicas y esclusas (<em>mantraps</em>):</strong> los molinetes ópticos alertan cuando pasan dos personas con una sola credencial; las esclusas de doble puerta con enclavamiento (<em>interlock</em>) impiden abrir la segunda puerta si sensores de peso o volumétricos detectan más de un individuo en cabina.</li><li><strong><em>Tailgating</em> y <em>piggybacking</em>:</strong> el <em>tailgating</em> consiste en aprovechar el cierre lento de una puerta para ingresar detrás de un empleado sin su consentimiento; el <em>piggybacking</em> utiliza ingeniería social para que el empleado sostenga la puerta voluntariamente (por ejemplo, cargando cajas o mostrando una credencial falsa).</li><li><strong>Gestión de visitas:</strong> todo tercero debe registrarse con documento de identidad, portar credencial de color diferenciado y circular siempre bajo escolta en áreas operativas.</li></ul>
+<aside class="callout aviso"><p class="callout-titulo">Protocolo ante confrontación en pruebas físicas</p><p>Si durante una auditoría autorizada el personal de vigilancia o un empleado te detiene e interroga, detené de inmediato la maniobra, mantené la calma y presentá la carta de autorización según lo acordado en el RoE. Nunca escales una discusión ni fuerces el paso físico.</p></aside>
+<h3 id="cap-7-5-cerraduras-ubicacion-de-racks-y-videovigilancia">Cerraduras, ubicación de racks y videovigilancia</h3>
+<p>Un lector biométrico o de proximidad pierde efectividad si la mecánica de la puerta o la disposición de salas técnicas presenta fallas elementales:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Componente</th>
+<th>Falla frecuente en auditorías</th>
+<th>Medida de mitigación</th>
+</tr></thead><tbody>
+<tr><td>Pestillo y marco</td><td>Holgura que permite retraer el pestillo con lámina (<em>latch slipping</em>)</td><td>Instalar placa protectora (<em>latch guard</em>) y pestillo con bloqueo muerto (<em>deadlatch</em>).</td></tr>
+<tr><td>Cerradura electrónica</td><td>Sensores REX mal orientados que abren al deslizar algo bajo la puerta</td><td>Calibrar ángulo del sensor PIR y elegir <em>fail-secure</em> o <em>fail-safe</em> según norma de evacuación.</td></tr>
+<tr><td>Bisagras y tabiques</td><td>Bisagras con pernos expuestos; paredes falsas hasta el cielorraso</td><td>Bisagras con pernos fijos de seguridad y muros extendidos hasta la losa (<em>slab-to-slab</em>).</td></tr>
+<tr><td>Cuartos IDF / MDF y racks</td><td>Racks abiertos o con llave universal de fábrica</td><td>Cerraduras únicas o electrónicas por gabinete, sensores de puerta y salas IDF dedicadas.</td></tr>
+<tr><td>Cámaras (CCTV)</td><td>Puntos ciegos sobre lectores, retención corta o cámaras en VLAN de oficinas</td><td>Cubrir accesos y frentes/dorsos de racks sin enfocar pantallas; aislar en VLAN dedicada con UPS.</td></tr>
+</tbody></table></div>
+<p>En cuartos de cableado (<em>IDF/MDF</em>), cada rack debe mantener cerradas sus puertas frontales y traseras con sensores magnéticos integrados al sistema de monitoreo. Si un puerto Ethernet de acceso queda expuesto en un cuarto sin 802.1X, pocos minutos bastan para conectar un implante de red o un punto de acceso oculto.</p>
+<h2 id="cap-7-5-tarjetas-rfid-y-nfc-del-125-khz-a-desfire-con-aes">Tarjetas RFID y NFC: del 125 kHz a DESFire con AES</h2>
+<p>Las credenciales sin contacto dominan el control de acceso físico, pero su resistencia a la clonación cambia por completo según la frecuencia y la arquitectura criptográfica.</p>
+<h3 id="cap-7-5-baja-frecuencia-125-khz-em410x-y-hid-prox">Baja frecuencia (125 kHz): EM410x y HID Prox</h3>
+<p>Las tarjetas LF (125 kHz) como <strong>EM410x</strong> y <strong>HID Prox</strong> fueron concebidas para identificación básica, sin criptografía. Al acercarse al campo electromagnético de una antena lectora, la tarjeta se energiza por inducción y transmite de forma continua su identificador estático en texto claro.</p>
+<p>Esta arquitectura presenta tres debilidades críticas: carece de autenticación mutua (responde a cualquier lector compatible, incluso oculto a corta distancia), viaja sin cifrado ni desafío-respuesta, y puede clonarse en segundos sobre chips regrabables como <strong>T5577</strong>, generando una copia idéntica para el controlador de la puerta.</p>
+<h3 id="cap-7-5-alta-frecuencia-13-56-mhz-mifare-classic-vs-mifare-desfire-ev2-ev3">Alta frecuencia (13.56 MHz): MIFARE Classic vs MIFARE DESFire EV2/EV3</h3>
+<p>En 13.56 MHz (ISO/IEC 14443 Tipo A/B, compatible con NFC) existen chips con capacidades criptográficas muy dispares:</p>
+<ul><li><strong>MIFARE Classic (1K / 4K):</strong> utiliza el cifrado propietario <strong>Crypto-1</strong> con claves de 48 bits y un generador pseudoaleatorio (PRNG) débil. Los ataques criptoanalíticos públicos (<em>Darkside</em>, <em>Nested</em>, <em>Hardnested</em>) recuperan todas las claves de los sectores en segundos o minutos, permitiendo leer la memoria completa y duplicarla en tarjetas <em>Magic</em> con bloque 0 (UID) regrabable. Se considera obsoleta.</li><li><strong>MIFARE DESFire (EV2 / EV3):</strong> implementa un sistema de archivos por aplicaciones con <strong>autenticación mutua basada en AES-128</strong> estándar. La clave secreta nunca sale del chip: lector (mediante módulo SAM) y tarjeta ejecutan un protocolo desafío-respuesta de tres pasos con números aleatorios frescos, derivando una clave de sesión efímera para cifrar y autenticar cada comando con CMAC (<em>Secure Messaging</em>).</li></ul>
+<p>¿Por qué <strong>DESFire EV2/EV3 con AES</strong> mitiga la clonación? Porque la verificación no depende del UID público: incluso activando <strong>Random UID</strong> (que impide rastrear usuarios por su identificador fijo) o copiando el UID físico, un clon sin la clave AES almacenada en el chip original no puede resolver el desafío criptográfico del lector. Además, soporta <strong>diversificación de claves</strong> (derivando una clave única por tarjeta desde una clave maestra mediante AES-CMAC), de modo que comprometer una credencial individual no compromete al resto del edificio.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Tecnología</th>
+<th>Frecuencia</th>
+<th>Cifrado / Estándar</th>
+<th>Autenticación mutua</th>
+<th>Riesgo de clonación</th>
+</tr></thead><tbody>
+<tr><td>EM410x / HID Prox</td><td>125 kHz (LF)</td><td>Ninguno (UID en claro)</td><td>No</td><td>Crítico (clonación directa en T5577)</td></tr>
+<tr><td>MIFARE Classic</td><td>13.56 MHz (HF)</td><td>Crypto-1 (48 bits, roto)</td><td>Débil</td><td>Crítico (recuperación de claves y copia en <em>Magic UID</em>)</td></tr>
+<tr><td>MIFARE DESFire EV2/EV3</td><td>13.56 MHz (HF)</td><td>AES-128 + Secure Messaging</td><td>Sí (3-pass + CMAC)</td><td>Muy bajo / Nulo con AES diversificado</td></tr>
+</tbody></table></div>
+<aside class="callout peligro"><p class="callout-titulo">El error del modo CSN-only</p><p>Adquirir tarjetas DESFire EV3 no protege la instalación si los lectores están configurados para leer únicamente el UID/CSN externo de capa ISO 14443A por compatibilidad heredada. Verificá siempre que los lectores usen módulos SAM y autenticación AES completa.</p></aside>
+<h2 id="cap-7-5-puertos-fisicos-expuestos-badusb-politicas-usb-y-ataques-dma">Puertos físicos expuestos: BadUSB, políticas USB y ataques DMA</h2>
+<p>Un equipo desatendido en una sala de reuniones o un puerto expuesto en un tótem de recepción aprovecha la confianza implícita del sistema operativo hacia el hardware conectado localmente.</p>
+<h3 id="cap-7-5-badusb-e-inyeccion-hid">BadUSB e inyección HID</h3>
+<p>Un dispositivo <strong>BadUSB</strong> modifica el firmware de un microcontrolador para declararse como un teclado <strong>HID</strong> (<em>Human Interface Device</em>), a veces combinado con un adaptador de red USB (RNDIS/ECM). Dado que los sistemas operativos confían automáticamente en teclados nuevos sin pedir confirmación, el dispositivo inyecta secuencias de comandos en milisegundos para abrir terminales, descargar cargas útiles o capturar hashes Net-NTLMv2 si el equipo está desbloqueado o permite interfaces de red en pantalla de bloqueo.</p>
+<h3 id="cap-7-5-bloqueo-de-puertos-usb-por-politica-udev-e-intune">Bloqueo de puertos USB por política, Udev e Intune</h3>
+<p>La mitigación combina bloqueo físico de puertos innecesarios, deshabilitación en UEFI y listas blancas en el sistema operativo:</p>
+<ul><li><strong>Linux (<code>udev</code> / <code>USBGuard</code>):</strong> permite fijar <code>authorized_default=0</code> y autorizar dispositivos únicamente por <code>idVendor</code>, <code>idProduct</code> y número de serie. <strong>USBGuard</strong> añade control por clase de interfaz para bloquear dispositivos compuestos que combinen almacenamiento y teclado.</li><li><strong>Windows (GPO / Microsoft Intune):</strong> las directivas de <em>Device Control</em> y <em>Restricción de instalación de dispositivos</em> en Intune permiten bloquear almacenamiento extraíble, impedir nuevos adaptadores de red USB y restringir nuevos teclados HID en quioscos o estaciones críticas mediante listas de <em>Hardware IDs</em> aprobados.</li></ul>
+<pre><code class="lenguaje-ini"># /etc/udev/rules.d/99-usb-restrict.rules
+# Bloquea por defecto nuevos dispositivos USB y autoriza un teclado corporativo específico
+ACTION=="add", SUBSYSTEM=="usb", TEST=="authorized_default", ATTR{authorized_default}="0"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c31c", ATTR{authorized}="1"</code></pre>
+<h3 id="cap-7-5-ataques-dma-via-thunderbolt-pcie-y-mitigacion-iommu">Ataques DMA vía Thunderbolt/PCIe y mitigación IOMMU</h3>
+<p>Los puertos <strong>Thunderbolt 3/4</strong>, <strong>USB4</strong> (con túnel PCIe) y ranuras <strong>M.2 / PCIe</strong> permiten <strong>Acceso Directo a Memoria (DMA)</strong>, transfiriendo datos hacia y desde la RAM sin intervención de la CPU ni controles del sistema operativo. Un atacante con hardware FPGA (como placas de prueba tipo <em>PCILeech</em>) conectado brevemente a un puerto Thunderbolt sin protección puede volcar la RAM para extraer claves de cifrado activas o inyectar código en el kernel y sortear la pantalla de bloqueo.</p>
+<p>La defensa estructural reside en la <strong>IOMMU</strong> (<strong>Intel VT-d</strong> / <strong>AMD-Vi</strong>), que interpone tablas de traducción de direcciones entre dispositivos PCIe externos y la RAM física, restringiendo cada periférico únicamente a sus páginas asignadas.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Capa</th>
+<th>Control defensivo contra DMA</th>
+<th>Efecto práctico</th>
+</tr></thead><tbody>
+<tr><td>Firmware UEFI</td><td>Activar <strong>Intel VT-d / AMD-Vi</strong> y <em>Pre-boot DMA Protection</em></td><td>Impide lecturas DMA antes de cargar el sistema operativo.</td></tr>
+<tr><td>Windows / Intune</td><td>Verificar <strong>Kernel DMA Protection</strong> (<code>msinfo32</code>) y bloquear periféricos no compatibles</td><td>Bloquea o aísla dispositivos Thunderbolt/PCIe mientras el equipo está bloqueado.</td></tr>
+<tr><td>Linux</td><td>Parámetros de kernel <code>intel_iommu=on iommu=force</code> y demonio <code>boltd</code></td><td>Exige remapeo estricto IOMMU y autorización explícita de túneles Thunderbolt.</td></tr>
+</tbody></table></div>
+<h2 id="cap-7-5-cifrado-completo-de-disco-bitlocker-y-luks2-frente-a-ataques-en-frio">Cifrado completo de disco: BitLocker y LUKS2 frente a ataques en frío</h2>
+<p>El cifrado completo de disco (<em>FDE</em>) protege los datos en reposo ante robo de portátiles, pero la forma de custodiar la clave maestra durante el arranque define su resistencia ante un atacante físico.</p>
+<h3 id="cap-7-5-bitlocker-con-tpm-pin-frente-a-tpm-sniffing-en-frio">BitLocker con TPM + PIN frente a TPM sniffing en frío</h3>
+<p>En modo <em>TPM-only</em> (solo TPM), al encender el equipo el chip <strong>TPM</strong> valida la integridad del arranque y entrega automáticamente la <strong>VMK (<em>Volume Master Key</em>)</strong> sin intervención del usuario. Cuando el equipo emplea un <strong>dTPM</strong> discreto soldado en la placa madre, la VMK suele viajar sin cifrar por el bus <strong>LPC</strong> o <strong>SPI</strong> hacia la CPU. Mediante <strong>TPM sniffing</strong>, un atacante con acceso físico breve conecta un analizador lógico a esas pistas expuestas durante el encendido y captura la VMK en claro, descifrando luego el disco entero fuera del equipo.</p>
+<p>Exigir <strong>BitLocker con TPM + PIN de pre-arranque</strong> (mejorado mediante directiva <code>AllowEnhancedPin</code>) neutraliza este ataque: el TPM no libera la VMK hasta recibir el secreto ingresado por el usuario, el cual no reside en la placa madre. Complementariamente, evitar la suspensión S3 tradicional (usando hibernación S4 o apagado fuera de oficina) mitiga ataques <em>cold boot</em> sobre RAM residual.</p>
+<h3 id="cap-7-5-luks2-en-linux">LUKS2 en Linux</h3>
+<p>En Linux, <strong>LUKS2</strong> (gestionado con <code>cryptsetup</code>) emplea cabeceras resilientes, cifrado <code>aes-xts-plain64</code> de 512 bits y la función de derivación <strong>Argon2id</strong>, resistente a fuerza bruta acelerada por GPU/ASIC. Para combinar usabilidad y resistencia contra <em>TPM sniffing</em>, se vincula el <em>keyslot</em> al chip TPM2 exigiendo PIN de arranque:</p>
+<pre><code class="lenguaje-bash"># Inspección de cabecera LUKS2 y parámetros KDF (solo lectura)
+sudo cryptsetup luksDump /dev/nvme0n1p3
+
+# Enrolamiento TPM2 con PIN obligatorio en LUKS2
+sudo systemd-cryptenroll --tpm2-device=auto --tpm2-with-pin=yes /dev/nvme0n1p3</code></pre>
+<h2 id="cap-7-5-analisis-basico-de-hardware-iot-y-firmware">Análisis básico de hardware, IoT y firmware</h2>
+<p>La evaluación autorizada de dispositivos embebidos e IoT requiere identificar las interfaces de depuración en la placa (<em>PCB</em>) y analizar de forma pasiva la imagen de firmware.</p>
+<h3 id="cap-7-5-buses-uart-depuracion-jtag-swd-y-memorias-spi">Buses UART, depuración JTAG/SWD y memorias SPI</h3>
+<ol><li><strong>UART (<em>Universal Asynchronous Receiver-Transmitter</em>):</strong> bus serie asíncrono (<code>VCC</code>, <code>GND</code>, <code>TX</code>, <code>RX</code> a 3.3 V o 1.8 V). Tras medir voltajes con multímetro y determinar la velocidad en baudios (habitualmente <code>115200 8N1</code>), un adaptador USB-UART suele exponer la consola del <em>bootloader</em> (U-Boot) o una shell <code>root</code> embebida sin autenticación.</li><li><strong>JTAG y SWD:</strong> puertos de depuración en chip (<code>TDI</code>, <code>TDO</code>, <code>TCK</code>, <code>TMS</code> en JTAG; <code>SWDIO</code>, <code>SWCLK</code> en ARM SWD). Si no fueron bloqueados en fábrica mediante fusibles (<em>eFuses</em> o niveles de protección de lectura), permiten pausar la CPU, volcar memoria flash protegida y leer secretos en RAM.</li><li><strong>Memorias SPI Flash:</strong> chips externos de 8 pines (SOIC-8) que almacenan <em>bootloader</em>, kernel y sistema de archivos. Cuando UART y JTAG están cerrados pero la flash no está cifrada, en laboratorio autorizado se lee la memoria con pinza SOIC-8 y programador SPI.</li></ol>
+<h3 id="cap-7-5-extraccion-y-analisis-pasivo-de-firmware-con-binwalk">Extracción y análisis pasivo de firmware con <code>binwalk</code></h3>
+<p>Con el volcado del chip o una actualización pública del fabricante, el análisis pasivo inicial se realiza en una estación aislada con <strong><code>binwalk</code></strong>, que detecta firmas de compresión, kernels y sistemas de archivos embebidos (SquashFS, JFFS2, CramFS):</p>
+<pre><code class="lenguaje-bash"># 1. Mapear firmas y desplazamientos (offsets) sin extraer
+binwalk firmware_router.bin
+
+# 2. Analizar entropía para identificar zonas comprimidas o cifradas
+binwalk -E firmware_router.bin
+
+# 3. Extraer de forma recursiva en un directorio de trabajo sin privilegios de root
+binwalk -eM firmware_router.bin</code></pre>
+<p>Sobre el sistema de archivos extraído (<code>squashfs-root/</code>), la inspección pasiva busca hallazgos de alto impacto: <strong>credenciales hardcodeadas</strong> en <code>/etc/shadow</code>, scripts de inicio <code>/etc/init.d/*</code> o archivos de configuración; <strong>claves privadas TLS/SSH</strong> compartidas por toda la línea de producto; y <strong>servicios expuestos</strong> al arranque como <code>telnetd</code>, servidores web obsoletos o scripts CGI que invoquen <code>system()</code> con entradas no sanitizadas.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Comando de inspección pasiva</th>
+<th>Objetivo dentro de <code>squashfs-root/</code></th>
+</tr></thead><tbody>
+<tr><td>`grep -rnE "password\</td><td>passwd\</td></tr>
+<tr><td><code>find . -name "*.pem" -o -name "*.key"</code></td><td>Localizar llaves privadas embebidas de fábrica.</td></tr>
+<tr><td><code>cat etc/inittab &amp;&amp; ls -la etc/init.d/</code></td><td>Verificar servicios peligrosos al inicio (ej. Telnet).</td></tr>
+<tr><td>`strings usr/bin/httpd \</td><td>grep -E "system\</td></tr>
+</tbody></table></div>
+<h2 id="cap-7-5-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En esta práctica vas a inspeccionar de forma pasiva un firmware abierto en entorno aislado y auditar los controles locales de USB e IOMMU en tu máquina virtual Linux.</p>
+<ol><li><strong>Preparación aislada:</strong> creá una VM Linux de laboratorio sin acceso a red corporativa, instalá <code>binwalk</code>, <code>squashfs-tools</code> y <code>cryptsetup</code>, y descargá una imagen de firmware abierta educativa (por ejemplo, una imagen oficial de OpenWrt para arquitectura virtual o una imagen pública de práctica como DVRF).</li><li><strong>Mapeo y extracción con <code>binwalk</code>:</strong> ejecutá <code>binwalk &lt;imagen.bin&gt;</code> y <code>binwalk -E &lt;imagen.bin&gt;</code> para registrar los offsets de kernel/sistema de archivos y verificar la entropía. Luego extraé el contenido con <code>binwalk -e &lt;imagen.bin&gt;</code> usando un usuario sin privilegios.</li><li><strong>Búsqueda pasiva de riesgos:</strong> dentro del directorio <code>squashfs-root</code> extraído, relevá <code>/etc/passwd</code>, <code>/etc/shadow</code>, <code>/etc/init.d/</code> y archivos de configuración en busca de servicios de red activos, usuarios administrativos y posibles claves o tokens hardcodeados.</li><li><strong>Verificación de endurecimiento local:</strong> en tu Linux de pruebas, revisá el estado de IOMMU (<code>dmesg | grep -iE "iommu|dmar|vt-d"</code>) y listá reglas activas de <code>udev</code> o <code>usbguard</code> (<code>usbguard list-rules</code>) para comprobar cómo restringir nuevos dispositivos HID o de red USB.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Presentá un informe técnico breve (1 a 2 páginas) con: (a) la salida resumida de <code>binwalk</code> indicando offsets y entropía; (b) una tabla con al menos tres servicios o archivos relevantes inspeccionados en <code>squashfs-root/</code> y su nivel de riesgo; y (c) una regla <code>udev</code> o política <code>USBGuard</code> comentada que bloquee dispositivos USB no autorizados.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y gobernanza</p><p>La seguridad física, de hardware y de firmware exige controles preventivos desde la arquitectura y las compras. En instalaciones físicas, implementá defensa por anillos con esclusas, cerraduras únicas por rack, CCTV aislado y credenciales <strong>DESFire EV2/EV3 con AES diversificado</strong> eliminando lectores de 125 kHz. En estaciones corporativas, desplegá políticas mediante <strong>Intune</strong> o <strong>USBGuard</strong> que bloqueen dispositivos USB no aprobados, activá <strong>IOMMU (VT-d / AMD-Vi) y Kernel DMA Protection</strong>, y exigí <strong>BitLocker con TPM + PIN</strong> o <strong>LUKS2 con TPM2 + PIN</strong>. En compras de dispositivos IoT, imponé contractualmente el bloqueo de JTAG/UART en producción, arranque seguro y ausencia de credenciales por defecto o servicios heredados como Telnet.</p></aside>
+<h2 id="cap-7-5-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué las tarjetas MIFARE DESFire EV2/EV3 con AES mitigan los ataques de clonación que afectan a EM410x y MIFARE Classic?</strong> Porque EM410x transmite su identificador estático en claro sin autenticación y MIFARE Classic usa el cifrado roto Crypto-1 cuyas claves se recuperan en segundos, mientras que DESFire EV2/EV3 ejecuta autenticación mutua desafío-respuesta basada en AES-128 con claves diversificadas y mensajería segura CMAC donde la clave secreta jamás abandona el chip.</p>
+<p><strong>2. ¿Qué diferencia existe entre un ataque BadUSB y un ataque DMA por Thunderbolt/PCIe, y cómo se mitiga cada uno?</strong> BadUSB abusa de la confianza del sistema operativo en periféricos HID/red USB para inyectar comandos o capturar tráfico, mitigándose con políticas de control de dispositivos (<code>udev</code>, <code>USBGuard</code>, Intune); en cambio, un ataque DMA accede directamente a la memoria RAM física saltándose el sistema operativo, por lo que requiere aislar direcciones mediante hardware y kernel con IOMMU (Intel VT-d / AMD-Vi) y Kernel DMA Protection.</p>
+<p><strong>3. ¿Por qué BitLocker configurado solo con TPM (TPM-only) es vulnerable ante un atacante con acceso físico y cómo lo resuelve TPM + PIN?</strong> En equipos con TPM discreto (dTPM), la clave maestra VMK viaja sin cifrar por el bus LPC o SPI durante el arranque automático y puede capturarse mediante <em>TPM sniffing</em> con un analizador lógico; agregar un PIN de pre-arranque impide que el TPM libere la VMK hasta ingresar el secreto que no reside en la placa madre.</p>
+<p><strong>4. ¿Qué hallazgos busca un auditor al extraer pasivamente un firmware embebido con <code>binwalk</code>?</strong> Busca credenciales o hashes débiles hardcodeados en <code>/etc/shadow</code> o scripts de inicio, claves privadas TLS/SSH reutilizadas en toda la flota de dispositivos, servicios riesgosos habilitados al arranque (como <code>telnetd</code>) y fallas evidentes de sanitización en interfaces web CGI o binarios embebidos.</p>
+<p><strong>5. ¿Qué riesgo implica dejar interfaces UART o JTAG/SWD habilitadas en dispositivos IoT comerciales?</strong> UART expuesto suele brindar acceso directo al <em>bootloader</em> o a una consola <code>root</code> sin contraseña para manipular el sistema, mientras que JTAG o SWD activos sin fusibles de bloqueo permiten depurar la CPU en tiempo real, volcar la memoria flash protegida y extraer claves criptográficas desde la RAM.</p>
+<h2 id="cap-7-5-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de continuar hacia redes industriales OT/ICS, verificá que puedas distinguir los riesgos de RFID LF/HF, explicar el rol de la IOMMU frente a ataques DMA, justificar el uso de TPM + PIN frente a <em>TPM sniffing</em> y describir el flujo de extracción pasiva con <code>binwalk</code>.</p></aside>
+<h2 id="cap-7-5-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>NIST SP 800-111 (<em>Guide to Storage Encryption Technologies for End User Devices</em>) y NIST SP 800-193 (<em>Platform Firmware Resiliency Guidelines</em>).</li><li>Estándar ISO/IEC 14443 y arquitectura pública de seguridad MIFARE DESFire EV2/EV3 (NXP).</li><li>OWASP IoT Security Verification Standard (ISVS) y Firmware Security Testing Methodology (FSTM).</li><li>Documentación del kernel Linux sobre IOMMU/<code>udev</code>, proyecto <code>USBGuard</code> y guías Microsoft Learn sobre BitLocker y Kernel DMA Protection.</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="51-wifi-enterprise-wpa3-y-defensa.html">← 7.4 Redes Inalámbricas II: WPA3, Wi-Fi Enterprise (802.1X/RADIUS), Evil Twin y WIDS</a></div><div><a href="53-redes-industriales-ot-ics-y-scada.html">7.6 Seguridad en entornos industriales OT / ICS / SCADA y Modelo Purdue →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

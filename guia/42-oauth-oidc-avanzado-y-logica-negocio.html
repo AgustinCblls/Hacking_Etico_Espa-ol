@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 6.2 · OAuth 2.0 / OIDC complejo, lógica de negocio y checklists OWASP WSTG · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Detectar CSRF en state, abuso de redirect_uri y fallas de flujo multi-paso o límites económicos en aplicaciones">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo6.html">Tomo VI</a><span aria-hidden="true">›</span><span>Cap. 6.2</span></nav>
+<h1 id="cap-6-2">Capítulo 6.2 · OAuth 2.0 / OIDC complejo, lógica de negocio y checklists OWASP WSTG</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Ingeniería Ofensiva y OPSEC</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo VI · Ruta 6 · Ingeniería Ofensiva y OPSEC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="43-threat-modeling-arquitectura-segura.html">6.3 Threat Modeling sistemático: STRIDE, PASTA, árboles de ataque y ASVS</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Comprender en profundidad los flujos modernos de autenticación delegada (OAuth 2.0 y OpenID Connect), identificar sus errores de implementación más críticos y dominar la detección y remediación de vulnerabilidades de lógica de negocio mediante checklists estructuradas del estándar OWASP WSTG. Al terminar, vas a poder auditar flujos de autorización complejos y diseñar máquinas de estado resilientes en el servidor.</p></aside>
+<p>Las fallas de inyección tradicionales suelen detectarse mediante analizadores sintácticos o escáneres automáticos porque violan la gramática esperada por un intérprete (SQL, HTML o shell). En cambio, las vulnerabilidades en protocolos de federación como <strong>OAuth 2.0 / OIDC</strong> y los defectos de <strong>lógica de negocio</strong> operan con peticiones completamente válidas desde el punto de vista sintáctico: el servidor no lanza errores de parseo, sino que ejecuta reglas de confianza o de negocio diseñadas de forma incompleta.</p>
+<p>Auditar estas capas exige entender el protocolo completo de punta a punta y trazar los invariantes que la aplicación debería sostener en todo momento.</p>
+<hr>
+<h2 id="cap-6-2-1-oauth-2-0-y-openid-connect-oidc-avanzado">1. OAuth 2.0 y OpenID Connect (OIDC) avanzado</h2>
+<p><strong>OAuth 2.0</strong> (RFC 6749) es un marco de <strong>autorización delegada</strong>, no un protocolo de autenticación. Permite que una aplicación cliente (<em>Client</em>) obtenga acceso limitado a recursos protegidos de un usuario (<em>Resource Owner</em>) alojados en un servidor de recursos, mediante tokens emitidos por un servidor de autorización (<em>Authorization Server</em>). <strong>OpenID Connect (OIDC)</strong> extiende OAuth 2.0 agregando una capa de <strong>autenticación</strong> estandarizada a través de un <code>id_token</code> en formato JWT y el endpoint <code>/userinfo</code>.</p>
+<h3 id="cap-6-2-1-1-authorization-code-flow-pkce-vs-implicit-flow">1.1 Authorization Code Flow + PKCE vs Implicit Flow</h3>
+<p>Históricamente, aplicaciones móviles y SPAs en navegador utilizaron el <strong>Implicit Flow</strong> (<code>response_type=token</code> o <code>id_token token</code>), donde el servidor de autorización devuelve el <em>access token</em> directamente en el fragmento de la URL de redirección (<code>https://app.ejemplo.com/cb#access_token=...</code>). Este flujo está <strong>formalmente deprecado</strong> en OAuth 2.1 y en las mejores prácticas actuales (RFC 9700) por múltiples riesgos:</p>
+<ul><li>El token queda expuesto en el historial del navegador, logs de extensiones o scripts de terceros en la página de destino.</li><li>No permite autenticar al cliente al intercambiar credenciales ni usar <em>Refresh Tokens</em> seguros.</li><li>Amplía la superficie de inyección o sustitución de tokens en el navegador.</li></ul>
+<p>El estándar moderno obligatorio para todo cliente (incluyendo SPAs y apps móviles) es <strong>Authorization Code Flow con PKCE</strong> (<em>Proof Key for Code Exchange</em>, RFC 7636):</p>
+<pre><code class="lenguaje-text">Cliente (SPA/Backend)                              Authorization Server
+  | 1. Genera code_verifier aleatorio (256 bits)         |
+  | 2. Calcula code_challenge = BASE64URL(SHA256(verif)) |
+  |                                                      |
+  |--- GET /authorize?response_type=code                 |
+  |    &amp;client_id=...&amp;redirect_uri=...                   |
+  |    &amp;code_challenge=...&amp;code_challenge_method=S256 --&gt;|
+  |                                                      |
+  |&lt;-- 302 Redirect ?code=AUTH_CODE&amp;state=... -----------|
+  |                                                      |
+  |--- POST /token (code + code_verifier) --------------&gt;| Verifica SHA256(code_verifier)
+  |&lt;-- 200 { access_token, id_token } -------------------| == code_challenge almacenado</code></pre>
+<p>Con PKCE (<code>S256</code>, nunca <code>plain</code>), incluso si un atacante lograra interceptar el parámetro <code>code</code> en tránsito o en el dispositivo, <strong>no puede canjearlo</strong> en <code>/token</code> sin poseer el <code>code_verifier</code> original guardado únicamente en la memoria o sesión del cliente legítimo.</p>
+<h3 id="cap-6-2-1-2-csrf-en-oauth-por-omision-o-previsibilidad-de-state">1.2 CSRF en OAuth por omisión o previsibilidad de <code>state</code></h3>
+<p>El parámetro <code>state</code> en la solicitud <code>/authorize</code> cumple el rol de <strong>token anti-CSRF</strong>. El cliente genera un valor criptográficamente aleatorio antes de redirigir al usuario al proveedor de identidad (IdP), lo vincula a la sesión actual (por ejemplo, en una cookie <code>HttpOnly</code>, <code>SameSite=Lax</code> o en <code>sessionStorage</code> con firma) y lo valida estrictamente cuando el IdP redirige de vuelta al <code>redirect_uri</code>.</p>
+<p>Si la aplicación <strong>omite <code>state</code></strong> o acepta un <code>state</code> vacío/predecible en el callback:</p>
+<ul><li>Un atacante puede iniciar un flujo OAuth en su propio navegador con su propia cuenta, detener la redirección justo antes de consumir <code>/callback?code=ATACANTE_CODE</code> y forzar al navegador de la víctima (mediante un enlace o iframe oculto) a visitar ese callback.</li><li>La víctima queda autenticada dentro de la <strong>cuenta del atacante</strong> (<em>Login CSRF</em>). Si la aplicación además permite vincular métodos de pago o realizar acciones sensibles creyendo que está en su sesión, o si el flujo es de <strong>vinculación de cuentas</strong> (<em>account linking</em>), la víctima termina conectando su identidad externa al perfil del atacante, otorgándole acceso permanente a su cuenta.</li></ul>
+<h3 id="cap-6-2-1-3-abuso-de-redirect-uri-y-encadenamiento-con-open-redirect">1.3 Abuso de <code>redirect_uri</code> y encadenamiento con Open Redirect</h3>
+<p>El servidor de autorización solo debe enviar el <code>code</code> de autorización a URLs previamente registradas (<em>allowlist</em> exacta). Sin embargo, errores comunes en la lógica de comparación de <code>redirect_uri</code> en el IdP permiten redirigir el código hacia dominios o rutas controladas:</p>
+<ol><li><strong>Coincidencia por prefijo o subcadena</strong>: validar <code>redirect_uri.startsWith("https://app.ejemplo.com")</code> permite registrar <code>https://app.ejemplo.com.atacante.invalid/cb</code>. Validar <code>.endsWith("ejemplo.com")</code> permite subdominios ajenos o dominios con prefijos similares (<code>malicioso-ejemplo.com</code>).</li><li><strong>Normalización y Path Traversal</strong>: si el IdP permite <code>https://app.ejemplo.com/oauth/cb</code> y valida solo el prefijo <code>/oauth/cb</code>, una ruta como <code>https://app.ejemplo.com/oauth/cb/../../redir?url=https://externo.invalid</code> puede ser normalizada por el servidor web de la aplicación hacia otro endpoint antes de responder.</li><li><strong>Encadenamiento con Open Redirect</strong>: aunque el IdP exija coincidencia exacta de esquema, host y ruta de <code>redirect_uri</code> (o permita cualquier ruta dentro de <code>https://app.ejemplo.com/*</code>), si existe una vulnerabilidad de <strong>Open Redirect</strong> en <code>https://app.ejemplo.com/logout?next=...</code>, el atacante puede usarla como <code>redirect_uri</code>. El navegador recibe el <code>code</code> en la URL de <code>/logout</code> y el servidor redirige inmediatamente hacia <code>next</code>, transfiriendo el <code>code</code> (o el fragmento <code>#access_token</code> en flujos implícitos, ya que los navegadores modernos preservan el fragmento URL a través de redirecciones <code>302</code>) al destino externo.</li></ol>
+<pre><code class="lenguaje-python"># Validación estricta de redirect_uri en el Authorization Server (sin prefijos ni regex laxas)
+from urllib.parse import urlparse
+
+def validate_redirect_uri(registered_uris: set[str], requested_uri: str) -&gt; bool:
+    if not requested_uri or "#" in requested_uri:
+        return False  # RFC 6749 prohíbe fragmentos en redirect_uri
+
+    parsed = urlparse(requested_uri)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return False
+
+    # Comparación exacta carácter por carácter contra la allowlist registrada para ese client_id
+    return requested_uri in registered_uris</code></pre>
+<aside class="callout aviso"><p class="callout-titulo">Validación doble en /authorize y /token</p><p>Según RFC 6749 (sección 4.1.3), el servidor de autorización no solo debe validar <code>redirect_uri</code> de forma exacta en <code>/authorize</code>, sino también verificar en <code>POST /token</code> que el <code>redirect_uri</code> enviado al canjear el código coincida exactamente con el usado en la solicitud de autorización inicial.</p></aside>
+<h3 id="cap-6-2-1-4-fuga-de-tokens-por-referer-e-historial">1.4 Fuga de tokens por <code>Referer</code> e historial</h3>
+<p>Cuando un código de autorización (<code>?code=...</code>) o token llega en la URL de callback, cualquier recurso externo incrustado en esa misma página (una imagen de analítica, una fuente externa, un botón social o un enlace saliente) hace que el navegador envíe la URL completa —incluyendo el <code>code</code>— en la cabecera HTTP <code>Referer</code>, salvo que se configure explícitamente la política de referencia.</p>
+<p>Controles obligatorios en la página de callback:</p>
+<ul><li>Enviar <code>Referrer-Policy: no-referrer</code> en la respuesta HTTP del callback.</li><li>Limpiar la barra de direcciones inmediatamente con <code>history.replaceState({}, document.title, "/callback")</code> o responder con una redirección <code>302</code> inmediata tras canjear el código en el servidor, evitando renderizar contenido HTML complejo o recursos externos en esa ruta.</li></ul>
+<h3 id="cap-6-2-1-5-vinculacion-de-cuentas-y-validacion-estricta-de-id-token-en-oidc">1.5 Vinculación de cuentas y validación estricta de <code>id_token</code> en OIDC</h3>
+<p>Dos errores recurrentes de implementación en OIDC comprometen la identidad del usuario:</p>
+<ol><li><strong>Account Linking sin re-autenticación ni verificación de correo</strong>: muchas plataformas permiten iniciar sesión con email/contraseña y también con "Continuar con Google/GitHub". Si el backend vincula automáticamente la identidad OIDC a una cuenta existente basándose únicamente en el claim <code>email</code> recibido del IdP <strong>sin verificar</strong> <code>email_verified === true</code> (algunos proveedores permiten correos sin verificar o cambiables), un tercero puede apropiarse de cuentas locales registrando ese correo en un proveedor permisivo. Del mismo modo, agregar un proveedor secundario desde la configuración del perfil siempre debe exigir <strong>re-autenticación reciente</strong> y confirmación CSRF.</li><li><strong>Validación incompleta del <code>id_token</code> (JWT)</strong>: en OIDC, el <code>id_token</code> es un JWT firmado que certifica la identidad. El cliente (Relying Party) debe verificar obligatoriamente cada uno de estos campos antes de crear la sesión:</li></ol>
+<pre><code class="lenguaje-python"># Validación robusta de id_token OIDC en backend (ejemplo conceptual con PyJWT)
+import jwt
+
+def verify_oidc_id_token(id_token: str, jwks_client, expected_nonce: str) -&gt; dict:
+    signing_key = jwks_client.get_signing_key_from_jwt(id_token)
+    claims = jwt.decode(
+        id_token,
+        signing_key.key,
+        algorithms=["RS256", "ES256"],  # Lista blanca explícita; jamás aceptar 'none' ni HS256 con clave pública
+        audience="mi-client-id-oficial", # Valida 'aud'
+        issuer="https://idp.ejemplo.com",# Valida 'iss' exacto
+        options={
+            "require": ["exp", "iat", "iss", "aud", "sub", "nonce"],
+            "verify_exp": True,
+        },
+    )
+
+    # Validar nonce vinculado a la sesión previa al flujo (previene replay de id_token)
+    if not constant_time_compare(claims["nonce"], expected_nonce):
+        raise ValueError("Nonce OIDC inválido")
+
+    if not claims.get("email_verified", False):
+        raise ValueError("El correo del proveedor no está verificado")
+
+    return claims</code></pre>
+<hr>
+<h2 id="cap-6-2-2-ataques-de-logica-de-negocio">2. Ataques de Lógica de Negocio</h2>
+<p>Las vulnerabilidades de lógica de negocio (<em>Business Logic Flaws</em>) nacen cuando los desarrolladores codifican el "camino feliz" (<em>happy path</em>) asumiendo que los usuarios interactuarán con la aplicación exclusivamente a través de la interfaz gráfica diseñada, respetando el orden de pantallas, los límites de formularios y las reglas implícitas del dominio.</p>
+<h3 id="cap-6-2-2-1-saltos-de-pasos-en-flujos-multi-etapa-workflow-bypass">2.1 Saltos de pasos en flujos multi-etapa (<em>Workflow Bypass</em>)</h3>
+<p>Procesos críticos como <em>checkouts</em> de comercio electrónico, verificaciones KYC, activación de 2FA o aprobaciones financieras suelen dividirse en pasos (<code>/paso-1-carrito</code>, <code>/paso-2-pago</code>, <code>/paso-3-confirmacion</code>). Si el servidor no mantiene una <strong>máquina de estados estricta</strong> en la sesión o base de datos y confía en un campo oculto (<code>step=3</code>) o permite invocar directamente <code>/paso-3-confirmacion</code> sin verificar que <code>/paso-2-pago</code> haya transicionado al estado <code>PAID</code>, el flujo completo queda eludido.</p>
+<pre><code class="lenguaje-python"># Ejemplo vulnerable: asume que el cliente solo llega aquí tras pagar
+@app.post("/checkout/confirm")
+def confirm_order(order_id: int):
+    order = db.get_order(order_id)
+    # Falta validar order.status == "PAYMENT_CONFIRMED"
+    db.mark_order_fulfilled(order_id)
+    return {"message": "Pedido confirmado"}</code></pre>
+<p><strong>Remediación</strong>: modelar las transiciones permitidas explícitamente en el servidor mediante un grafo de estados (<code>ALLOWED_TRANSITIONS = {"PENDING_PAYMENT": {"PAID", "CANCELLED"}, "PAID": {"FULFILLED"}}</code>), validando el estado previo dentro de una transacción antes de ejecutar la siguiente acción:</p>
+<pre><code class="lenguaje-python"># Implementación segura de máquina de estados y cálculo exacto en servidor
+from decimal import Decimal, ROUND_HALF_EVEN
+
+ALLOWED_TRANSITIONS = {
+    "CART": {"PENDING_PAYMENT", "CANCELLED"},
+    "PENDING_PAYMENT": {"PAID", "CANCELLED"},
+    "PAID": {"FULFILLED", "REFUNDED"},
+}
+
+def transition_order_and_calculate(order_id: int, user_id: int, target_state: str) -&gt; Decimal:
+    with db.transaction():
+        order = db.query_one(
+            "SELECT id, user_id, status, coupon_code FROM orders WHERE id = %s FOR UPDATE",
+            (order_id,),
+        )
+        if not order or order.user_id != user_id:
+            raise PermissionError("Orden inexistente o no pertenece al usuario")
+
+        if target_state not in ALLOWED_TRANSITIONS.get(order.status, set()):
+            raise ValueError(f"Transición inválida: {order.status} -&gt; {target_state}")
+
+        # Recálculo autoritativo en backend usando Decimal exacto (nunca confiar en precios del cliente)
+        items = db.query_all(
+            "SELECT oi.quantity, p.unit_price_cents FROM order_items oi "
+            "JOIN products p ON p.id = oi.product_id WHERE oi.order_id = %s",
+            (order_id,),
+        )
+        subtotal_cents = sum(item.quantity * item.unit_price_cents for item in items if item.quantity &gt; 0)
+        total = (Decimal(subtotal_cents) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+
+        db.execute(
+            "UPDATE orders SET status = %s, total_amount = %s WHERE id = %s AND status = %s",
+            (target_state, total, order_id, order.status),
+        )
+        return total</code></pre>
+<p>Fijate que este patrón combina tres defensas simultáneas: validación de propiedad (<code>order.user_id == user_id</code> contra IDOR), verificación estricta de transición en una máquina de estados bajo <code>FOR UPDATE</code>, y recálculo monetario autoritativo con <code>Decimal</code> a partir de centavos del catálogo en base de datos.</p>
+<h3 id="cap-6-2-2-2-manipulacion-de-cantidades-precios-negativos-y-precision-decimal">2.2 Manipulación de cantidades, precios negativos y precisión decimal</h3>
+<p>Cuando los cálculos monetarios o de inventario aceptan entradas numéricas sin invariantes estrictos en el backend, aparecen anomalías graves:</p>
+<ul><li><strong>Cantidades o montos negativos</strong>: en un carrito con dos productos, enviar <code>quantity = -2</code> para un artículo puede restar saldo del total a pagar o generar un crédito positivo en la billetera del usuario.</li><li><strong>Confianza en precios enviados por el cliente</strong>: incluir <code>price: 10.00</code> en el payload JSON del carrito en lugar de consultar el precio vigente desde el catálogo en servidor.</li><li><strong>Errores de precisión decimal y punto flotante</strong>: usar <code>float</code> (<code>IEEE 754</code>) para dinero o tasas de conversión introduce errores de representación (<code>0.1 + 0.2 = 0.30000000000000004</code>). Si un endpoint trunca o redondea hacia abajo (<code>int(monto)</code> o <code>floor</code>) para validar si hay saldo suficiente o calcular comisiones, transferencias fraccionarias repetidas (por ejemplo <code>0.004</code> unidades cuando se redondea a dos decimales) pueden generar acreditaciones sin débito equivalente o viceversa.</li></ul>
+<p><strong>Reglas de oro en lógica financiera:</strong></p>
+<ul><li>Nunca usar <code>float</code> ni <code>double</code> para dinero. Utilizar enteros en la unidad mínima indivisible (centavos) o tipos <code>Decimal</code> con precisión exacta y política explícita de redondeo (<code>ROUND_HALF_EVEN</code> o a favor del sistema en comisiones).</li><li>Validar estrictamente rangos en el servidor: <code>1 &lt;= quantity &lt;= MAX_ORDER_QTY</code> y <code>amount &gt; 0</code>.</li><li>Calcular precios, impuestos y descuentos <strong>exclusivamente en el servidor</strong> a partir de los IDs de catálogo y las reglas vigentes.</li></ul>
+<h3 id="cap-6-2-2-3-abuso-de-cupones-descuentos-acumulables-y-limites-de-dominio">2.3 Abuso de cupones, descuentos acumulables y límites de dominio</h3>
+<p>Incluso cuando los montos son positivos, las combinaciones de reglas de negocio suelen crear brechas:</p>
+<ul><li><strong>Acumulación no prevista</strong>: aplicar el mismo cupón dos veces si no se verifica unicidad por orden/usuario, o combinar dos cupones incompatibles cambiando el orden de aplicación (<code>CUPON_50_PORCIENTO</code> + <code>CUPON_FIJO_100</code>).</li><li><strong>Desbordamiento de límites de dominio</strong>:</li><li>Cambiar la moneda del pedido entre la cotización y la pasarela de pago (pagar en moneda de menor valor nominal manteniendo el número de monto).</li><li>Dividir una transferencia en múltiples transacciones pequeñas para evadir un límite por operación cuando el sistema no acumula un tope diario/mensual.</li><li>Abusar de la lógica de reembolso parcial tras haber aplicado un descuento por volumen: comprás 10 artículos con 30% de descuento, devolvés 9 al precio unitario lleno y conservás el restante por debajo del costo.</li></ul>
+<div class="tabla"><table>
+<thead><tr>
+<th>Defecto de lógica</th>
+<th>Causa raíz típica</th>
+<th>Control estructural de remediación</th>
+</tr></thead><tbody>
+<tr><td><strong>Workflow bypass</strong></td><td>Ausencia de máquina de estados persistida en servidor.</td><td>Validar estado actual en DB (<code>status = 'PAID'</code>) en cada transición.</td></tr>
+<tr><td><strong>Montos negativos / cero</strong></td><td>Validación realizada solo con atributos HTML (<code>min="1"</code>).</td><td>Validar tipos enteros positivos (<code>amount &gt; 0</code>) en esquema backend y <code>CHECK</code> SQL.</td></tr>
+<tr><td><strong>Arbitraje de redondeo</strong></td><td>Uso de <code>float</code> y redondeo inconsistente entre débito y crédito.</td><td>Operar en centavos enteros o <code>Decimal</code> con verificación <code>debito == credito</code>.</td></tr>
+<tr><td><strong>Abuso de cupones</strong></td><td>Lógica de carrito mutable sin recálculo atómico final.</td><td>Recalcular subtotal, descuentos e impuestos en servidor al cerrar la orden bajo lock.</td></tr>
+<tr><td><strong>Límites evadidos</strong></td><td>Verificación por petición aislada sin agregación temporal.</td><td>Contadores atómicos por ventana (<code>user_id + fecha</code>) en DB o Redis.</td></tr>
+</tbody></table></div>
+<hr>
+<h2 id="cap-6-2-3-checklists-practicas-owasp-wstg">3. Checklists prácticas OWASP WSTG</h2>
+<p>Para evitar auditorías improvisadas que solo buscan payloads obvios, el <strong>OWASP Web Security Testing Guide (WSTG)</strong> provee códigos de prueba estandarizados. A continuación tenés una matriz operativa enfocada en autorización (<code>WSTG-ATHZ</code>), gestión de sesiones/federación (<code>WSTG-SESS</code>) y lógica de negocio (<code>WSTG-BUSL</code>) para aplicar en cualquier flujo web completo.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Código WSTG</th>
+<th>Nombre de la prueba</th>
+<th>Qué verificar concretamente en auditoría</th>
+</tr></thead><tbody>
+<tr><td><strong><code>WSTG-ATHZ-01</code></strong></td><td><em>Directory Traversal / File Include</em></td><td>Confirmar que parámetros de ruta o descarga no escapan del directorio base y no existen discrepancias proxy-origen.</td></tr>
+<tr><td><strong><code>WSTG-ATHZ-02</code></strong></td><td><em>Bypassing Authorization Schema</em></td><td>Probar acceso directo a endpoints internos/administrativos saltando pantallas de UI o alterando métodos HTTP (<code>GET</code>/<code>POST</code>/<code>HEAD</code>).</td></tr>
+<tr><td><strong><code>WSTG-ATHZ-03</code></strong></td><td><em>Privilege Escalation</em></td><td>Verificar que un usuario de rol estándar no pueda asignarse roles elevados (<code>role: admin</code> en <em>mass assignment</em>) ni ejecutar acciones de otro tenant.</td></tr>
+<tr><td><strong><code>WSTG-ATHZ-04</code></strong></td><td><em>Insecure Direct Object References (IDOR)</em></td><td>Reemplazar IDs numéricos o UUIDs de órdenes, facturas o perfiles para confirmar que el servidor valida propiedad (<code>owner_id == session.user_id</code>).</td></tr>
+<tr><td><strong><code>WSTG-SESS-01</code></strong></td><td><em>Session Management Schema</em></td><td>Revisar entropía, flags <code>HttpOnly</code>/<code>Secure</code>/<code>SameSite</code>, expiración real en servidor al cerrar sesión y uso obligatorio de PKCE (<code>S256</code>) en OAuth.</td></tr>
+<tr><td><strong><code>WSTG-SESS-05</code></strong></td><td><em>Cross Site Request Forgery (CSRF)</em></td><td>Confirmar presencia, aleatoriedad y verificación estricta del parámetro <code>state</code> en callbacks OAuth y tokens CSRF en cambios de estado.</td></tr>
+<tr><td><strong><code>WSTG-BUSL-01</code></strong></td><td><em>Test Business Logic Data Validation</em></td><td>Probar valores negativos, cero, decimales extremos (<code>0.0001</code>), tipos inesperados y longitudes límites en montos y cantidades.</td></tr>
+<tr><td><strong><code>WSTG-BUSL-03</code></strong></td><td><em>Test Integrity Checks</em></td><td>Verificar si campos calculados (totales, descuentos, roles, timestamps) son modificables al interceptar el cuerpo antes de enviarlo al backend.</td></tr>
+<tr><td><strong><code>WSTG-BUSL-06</code></strong></td><td><em>Test Circumvention of Work Flows</em></td><td>Intentar invocar el paso final de un flujo multi-etapa directamente, repetir un paso ya completado o invertir el orden de pasos.</td></tr>
+<tr><td><strong><code>WSTG-BUSL-07</code></strong></td><td><em>Test Defenses Against Application Misuse</em></td><td>Evaluar límites de tasa, abuso de cupones acumulables, reintentos de verificación y reglas de devolución/reembolso.</td></tr>
+<tr><td><strong><code>WSTG-BUSL-09</code></strong></td><td><em>Test Upload of Unexpected File Types</em></td><td>Comprobar validación de <em>magic bytes</em>, extensión en lista blanca, renombrado seguro y almacenamiento fuera de la raíz ejecutable web.</td></tr>
+</tbody></table></div>
+<h3 id="cap-6-2-metodologia-de-auditoria-paso-a-paso-sobre-un-flujo-completo">Metodología de auditoría paso a paso sobre un flujo completo</h3>
+<p>Al auditar una aplicación web moderna (por ejemplo, un portal de pagos con login OIDC), seguí esta secuencia sistemática:</p>
+<ol><li><strong>Mapeo completo del flujo legítimo</strong>: capturá todas las peticiones desde el clic en "Iniciar sesión con OIDC" hasta la confirmación final de una operación de negocio. Identificá cada redirección, cookie emitida, token JWT y parámetro enviado.</li><li><strong>Auditoría de identidad federada</strong>: inspeccioná la petición <code>/authorize</code> (presencia de <code>code_challenge_method=S256</code>, <code>state</code>, <code>nonce</code>), verificá en el callback si el servidor valida <code>state</code>, probá cómo responde el backend ante un <code>id_token</code> con otro <code>aud</code>, sin <code>nonce</code> o con <code>email_verified: false</code>.</li><li><strong>Extracción de máquina de estados e invariantes</strong>: listá en una tabla los estados válidos de la entidad principal (ej. <code>Carrito -&gt; Pendiente -&gt; Pagado -&gt; Enviado</code>) y los invariantes matemáticos (<code>total == suma(precio_catalogo * cantidad) - descuento</code>, <code>saldo &gt;= 0</code>).</li><li><strong>Pruebas de violación de invariantes y WSTG</strong>: aplicá sistemáticamente cada fila de la tabla <code>WSTG-ATHZ</code>, <code>WSTG-SESS</code> y <code>WSTG-BUSL</code> sobre las transiciones identificadas, documentando evidencia de código y respuesta HTTP.</li></ol>
+<hr>
+<h2 id="cap-6-2-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>Configurá un entorno de laboratorio local con un cliente OIDC de prueba (por ejemplo, un servidor local con <em>Keycloak</em> o un mock OIDC en Python/Node.js) y una API sencilla de tienda online con carrito, cupón y checkout en tres pasos:</p>
+<ol><li><strong>Verificación de PKCE y <code>state</code></strong>: configurá el cliente para usar <code>Authorization Code + PKCE (S256)</code> y <code>state</code> aleatorio guardado en sesión. Realizá dos pruebas controladas en tu laboratorio: enviá un callback con <code>state</code> modificado y verificá que el cliente lo rechace con HTTP <code>400/403</code>; luego intentá canjear un <code>code</code> válido en <code>/token</code> omitiendo o alterando <code>code_verifier</code> para confirmar que el Authorization Server lo rechaza.</li><li><strong>Validación de <code>id_token</code></strong>: implementá el verificador JWT de tu backend local y comprobalo frente a tres casos negativos de prueba unitaria: firma inválida, <code>aud</code> perteneciente a otra aplicación cliente y ausencia de <code>nonce</code>.</li><li><strong>Auditoría <code>WSTG-BUSL</code> del checkout</strong>: revisá tu endpoint de confirmación de orden local verificando tres invariantes: rechazo de cantidades negativas/decimales, transición inválida de estado (<code>PENDING -&gt; FULFILLED</code> sin pasar por <code>PAID</code>) y bloqueo de doble aplicación del mismo cupón.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Entregá una matriz de auditoría completada con al menos 6 casos de prueba basados en códigos <code>WSTG-ATHZ</code>, <code>WSTG-SESS</code> y <code>WSTG-BUSL</code> ejecutados contra tu aplicación de laboratorio, incluyendo: el código WSTG, la precondición del flujo, la respuesta esperada vs. observada antes de la remediación y el parche implementado en el servidor.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y remediación</p><p>La seguridad en OAuth 2.0/OIDC y en la lógica de negocio no se resuelve con filtros perimetrales ni WAFs, porque todas las peticiones involucradas tienen formato HTTP y JSON válido. La defensa efectiva exige dos pilares: adoptar estándares actuales sin atajos (<strong>Authorization Code + PKCE S256</strong>, <code>state</code> aleatorio vinculado a sesión, validación estricta de <code>redirect_uri</code> exacta y verificación completa de <code>iss</code>/<code>aud</code>/<code>nonce</code>/<code>exp</code> en el <code>id_token</code>) y trasladar cada regla crítica del negocio a <strong>máquinas de estado explícitas y aritmética exacta en el backend</strong>.</p></aside>
+<h2 id="cap-6-2-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué el <em>Implicit Flow</em> de OAuth 2.0 fue deprecado en favor de <em>Authorization Code Flow</em> con PKCE incluso para SPAs en el navegador?</strong> Porque el <em>Implicit Flow</em> expone los tokens directamente en el fragmento de la URL de redirección (riesgo de fuga vía historial o scripts) y no ofrece prueba criptográfica de posesión del cliente; PKCE (<code>S256</code>) vincula el código de autorización a un <code>code_verifier</code> secreto generado por la instancia cliente, impidiendo que un código interceptado pueda canjearse en <code>/token</code>.</p>
+<p><strong>2. ¿Qué riesgo de seguridad concreto introduce omitir o no validar el parámetro <code>state</code> en el callback de OAuth 2.0?</strong> Expone al flujo a ataques de <em>Cross-Site Request Forgery</em> (CSRF) en el inicio de sesión o en la vinculación de cuentas, permitiendo que un tercero fuerce al navegador de la víctima a consumir un código de autorización generado por el atacante y autentique o vincule la sesión de la víctima con la cuenta del atacante.</p>
+<p><strong>3. ¿Cómo se combina una validación exacta de <code>redirect_uri</code> a nivel de dominio con un <em>Open Redirect</em> para comprometer un flujo OAuth?</strong> Si el servidor de autorización permite cualquier ruta dentro del dominio confiable (<code>https://app.ejemplo.com/*</code>) o si el <code>redirect_uri</code> apunta a un endpoint interno que sufre de <em>Open Redirect</em> (por ejemplo <code>/logout?next=...</code>), el navegador entrega el código o fragmento a ese endpoint y la aplicación redirige inmediatamente al usuario hacia un dominio externo filtrando el parámetro.</p>
+<p><strong>4. ¿Por qué nunca debe usarse aritmética de punto flotante (<code>float</code>/<code>double</code>) en el cálculo de saldos, precios o comisiones?</strong> Porque la representación binaria IEEE 754 introduce errores de redondeo exacto (como <code>0.1 + 0.2 != 0.3</code>), lo que al combinarse con truncamientos o comparaciones puede provocar discrepancias contables, pérdidas de precisión acumulada o bypass de validaciones de saldo mínimo.</p>
+<p><strong>5. ¿Qué verifica el código <code>WSTG-BUSL-06</code> del estándar OWASP WSTG y cómo se remedia la falla asociada?</strong> Verifica si es posible eludir pasos obligatorios, alterar el orden o repetir etapas dentro de un flujo de trabajo multi-etapa (<em>workflow bypass</em>). Se remedia persistiendo una máquina de estados estricta en el servidor y validando en cada endpoint que el estado actual de la entidad permita la transición solicitada dentro de una transacción atómica.</p>
+<h2 id="cap-6-2-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de continuar al capítulo de <em>Threat Modeling</em> y arquitectura segura, verificá que podés dibujar de memoria el flujo completo de <strong>Authorization Code + PKCE + OIDC</strong> indicando exactamente en qué paso se validan <code>state</code>, <code>code_challenge</code> y <code>nonce</code>, y explicar cómo diseñarías una máquina de estados segura para un proceso de pago.</p></aside>
+<h2 id="cap-6-2-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>RFC 6749</strong> — <em>The OAuth 2.0 Authorization Framework</em>.</li><li><strong>RFC 7636</strong> — <em>Proof Key for Code Exchange by OAuth Public Clients (PKCE)</em>.</li><li><strong>RFC 9700</strong> — <em>Best Current Practice for OAuth 2.0 Security</em>.</li><li><strong>OpenID Connect Core 1.0</strong> — Validación de <code>id_token</code>, <code>nonce</code>, <code>aud</code> e <code>iss</code>.</li><li><strong>OWASP Web Security Testing Guide (WSTG)</strong> — Categorías <code>WSTG-ATHZ</code>, <code>WSTG-SESS</code> y <code>WSTG-BUSL</code>.</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="41-web-avanzado-race-cache-websockets.html">← 6.1 Web avanzado: Race Conditions HTTP/2, Cache Poisoning, WebSockets y DOM Clobbering</a></div><div><a href="43-threat-modeling-arquitectura-segura.html">6.3 Threat Modeling sistemático: STRIDE, PASTA, árboles de ataque y ASVS →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

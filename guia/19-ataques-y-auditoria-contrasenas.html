@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 3.2 · Auditoría de contraseñas, hashes (Hashcat/John) y políticas NIST · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar hashes de prueba y diseñar políticas robustas con Argon2/NIST">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo3.html">Tomo III</a><span aria-hidden="true">›</span><span>Cap. 3.2</span></nav>
+<h1 id="cap-3-2">Capítulo 3.2 · Auditoría de contraseñas, hashes (Hashcat/John) y políticas NIST</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Avanzado</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo III · Ruta 3 · Avanzado</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="20-escalada-privilegios-linux.html">3.3 Escalada de privilegios en Linux y hardening de servidores</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a distinguir con precisión entre codificación, cifrado y hashing, evaluar por qué los algoritmos rápidos (MD5, SHA-1, NTLM) resultan inadecuados para almacenar contraseñas frente a funciones de derivación modernas (Argon2id, bcrypt, scrypt, PBKDF2), auditar hashes de prueba en laboratorio con Hashcat y John the Ripper, analizar el riesgo del password spraying y diseñar políticas de autenticación alineadas con NIST SP 800-63B.</p></aside>
+<p><strong>Prerrequisitos:</strong> Manejo básico de consola Linux, conceptos elementales de criptografía y laboratorio local aislado. <strong>Duración sugerida:</strong> 90 a 120 minutos.</p>
+<h2 id="cap-3-2-1-codificacion-cifrado-y-hashing-diferencias-tecnicas-esenciales">1. Codificación, cifrado y hashing: diferencias técnicas esenciales</h2>
+<p>Confundir estas tres operaciones conduce a errores críticos de diseño en sistemas de autenticación. Cada mecanismo responde a un propósito distinto y ofrece propiedades matemáticas diferentes.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Mecanismo</th>
+<th>Objetivo principal</th>
+<th>¿Es reversible?</th>
+<th>¿Usa clave secreta?</th>
+<th>Ejemplos típicos</th>
+</tr></thead><tbody>
+<tr><td><strong>Codificación</strong></td><td>Compatibilidad de transporte y formato</td><td>Sí (sin secreto)</td><td>No</td><td>Base64, URL encoding, Hex</td></tr>
+<tr><td><strong>Cifrado</strong></td><td>Confidencialidad de datos</td><td>Sí (con la clave)</td><td>Sí (simétrica o asimétrica)</td><td>AES-GCM, ChaCha20, RSA</td></tr>
+<tr><td><strong>Hashing</strong></td><td>Integridad o almacenamiento unidireccional</td><td>No (función unidireccional)</td><td>No (salvo HMAC)</td><td>SHA-256, Argon2id, bcrypt</td></tr>
+</tbody></table></div>
+<p>Un error frecuente en aplicaciones heredadas es almacenar contraseñas "cifradas" con una clave simétrica o simplemente codificadas en Base64. Si la base de datos y la clave se ven comprometidas, todas las credenciales quedan expuestas de inmediato. El almacenamiento correcto exige funciones unidireccionales diseñadas específicamente para contraseñas.</p>
+<h2 id="cap-3-2-2-hashes-rapidos-heredados-vs-kdf-modernas-con-salt-y-costo">2. Hashes rápidos heredados vs. KDF modernas con salt y costo</h2>
+<p>Los algoritmos de propósito general como MD5, SHA-1 o el formato NTLM fueron diseñados para calcularse a altísima velocidad. Esa virtud para verificar integridad de archivos se convierte en una debilidad grave cuando se aplican a contraseñas: una GPU moderna evalúa miles de millones de candidatos por segundo contra hashes sin costo computacional.</p>
+<h3 id="cap-3-2-propiedades-de-una-kdf-robusta">Propiedades de una KDF robusta</h3>
+<p>Para proteger credenciales en reposo se utilizan Funciones de Derivación de Claves (KDF) resistentes a fuerza bruta masiva:</p>
+<ul><li><strong>Salt único por usuario:</strong> Cadena aleatoria generada criptográficamente que impide el uso de tablas precalculadas (rainbow tables) y garantiza que dos usuarios con la misma contraseña produzcan hashes distintos.</li><li><strong>Factor de costo ajustable (iteraciones):</strong> Incrementa de forma controlada el tiempo de cómputo a medida que evoluciona el hardware.</li><li><strong>Dureza en memoria (<em>memory-hardness</em>):</strong> Exige una cantidad significativa de RAM por evaluación, frenando drásticamente la paralelización masiva en GPUs y ASICs.</li></ul>
+<div class="tabla"><table>
+<thead><tr>
+<th>Algoritmo</th>
+<th>Categoría</th>
+<th>Salt nativo</th>
+<th>Dureza en memoria</th>
+<th>Recomendación actual</th>
+</tr></thead><tbody>
+<tr><td><strong>MD5 / SHA-1 / NTLM</strong></td><td>Hash rápido heredado</td><td>No</td><td>No</td><td>Obsoleto para contraseñas</td></tr>
+<tr><td><strong>PBKDF2-HMAC-SHA256</strong></td><td>KDF por iteraciones</td><td>Sí</td><td>Baja</td><td>Aceptable con iteraciones altas (FIPS)</td></tr>
+<tr><td><strong>bcrypt</strong></td><td>KDF basada en Blowfish</td><td>Sí</td><td>Moderada (fija)</td><td>Válida (cuidado con límite de 72 bytes)</td></tr>
+<tr><td><strong>scrypt</strong></td><td>KDF memory-hard</td><td>Sí</td><td>Alta</td><td>Recomendada</td></tr>
+<tr><td><strong>Argon2id</strong></td><td>KDF híbrida (PHC winner)</td><td>Sí</td><td>Alta y configurable</td><td>Estándar preferido actual</td></tr>
+</tbody></table></div>
+<h2 id="cap-3-2-3-auditoria-autorizada-de-hashes-de-prueba-con-hashcat-y-john-the-ripper">3. Auditoría autorizada de hashes de prueba con Hashcat y John the Ripper</h2>
+<p>En una auditoría interna autorizada (por ejemplo, evaluando la robustez de credenciales sintéticas o volcados de laboratorio propios), herramientas como <strong>Hashcat</strong> y <strong>John the Ripper</strong> permiten medir qué porcentaje de contraseñas incumplen criterios mínimos de entropía frente a diccionarios y reglas comunes.</p>
+<h3 id="cap-3-2-estrategias-de-evaluacion-en-laboratorio">Estrategias de evaluación en laboratorio</h3>
+<ul><li><strong>Modo diccionario:</strong> Compara hashes de prueba contra listas de palabras frecuentes o filtradas históricamente.</li><li><strong>Modo basado en reglas:</strong> Aplica transformaciones determinísticas sobre un diccionario (mayúscula inicial, sustitución simple de caracteres, sufijos de años como <code>2025</code> o <code>2026</code>), evidenciando por qué las políticas tradicionales basadas en patrones predecibles fallan.</li><li><strong>Modo máscara:</strong> Evalúa patrones estructurales acotados en pruebas controladas de longitud y conjunto de caracteres.</li></ul>
+<pre><code class="lenguaje-bash"># 1. Medir el rendimiento local del hardware en modo benchmark (sin atacar objetivos reales)
+hashcat -b -m 0 --quiet
+john --test --format=raw-sha256
+
+# 2. Inspeccionar formatos soportados y verificar un archivo de hashes sintéticos de laboratorio
+# Archivo de ejemplo creado localmente para auditoría educativa
+printf 'usuario_lab:%s\n' "$(printf 'ClaveDebil2026' | sha256sum | awk '{print $1}')" &gt; /tmp/hashes_lab.txt
+
+# 3. Evaluar el archivo sintético con un diccionario local reducido y mostrar coincidencias
+john --format=raw-sha256 --wordlist=/tmp/diccionario_lab.txt /tmp/hashes_lab.txt
+john --show --format=raw-sha256 /tmp/hashes_lab.txt</code></pre>
+<aside class="callout peligro"><p class="callout-titulo">Alcance estrictamente autorizado</p><p>Nunca ejecutes auditorías de hashes ni pruebas de autenticación sobre cuentas o bases de datos sin autorización escrita y un alcance formalmente definido. Todas las prácticas de este manual se limitan a hashes generados por vos mismo en tu laboratorio aislado.</p></aside>
+<h2 id="cap-3-2-4-riesgos-de-la-fuerza-bruta-en-linea-y-del-password-spraying">4. Riesgos de la fuerza bruta en línea y del password spraying</h2>
+<p>A diferencia de la auditoría offline sobre hashes, las pruebas contra servicios de autenticación en línea interactúan directamente con el directorio de identidades o el portal de acceso.</p>
+<h3 id="cap-3-2-por-que-el-password-spraying-evade-bloqueos-simples">Por qué el password spraying evade bloqueos simples</h3>
+<p>En un intento vertical clásico (muchas contraseñas contra un solo usuario), la política de bloqueo de cuenta (<em>account lockout</em>) detiene la actividad tras 5 o 10 fallos consecutivos. El <strong>password spraying</strong> invierte la matriz: prueba unas pocas contraseñas muy comunes de manera horizontal contra cientos de cuentas distintas, espaciando los intentos por debajo del umbral de bloqueo individual.</p>
+<p>Esta técnica suele tener éxito en organizaciones que combinan dos debilidades: rotación obligatoria frecuente (que empuja a los usuarios a elegir patrones estacionales predecibles) y ausencia de autenticación multifactor (MFA) o monitoreo agregado por origen.</p>
+<h2 id="cap-3-2-5-politicas-modernas-de-contrasenas-segun-nist-sp-800-63b">5. Políticas modernas de contraseñas según NIST SP 800-63B</h2>
+<p>La guía NIST SP 800-63B revolucionó las recomendaciones clásicas al demostrar empíricamente que las reglas arbitrarias de complejidad y rotación periódica reducen la seguridad real en lugar de aumentarla.</p>
+<h3 id="cap-3-2-principios-centrales-para-implementar-hoy">Principios centrales para implementar hoy</h3>
+<ol><li><strong>Priorizar la longitud sobre la complejidad arbitraria:</strong> Fomentar frases de contraseña largas (mínimo 8 caracteres exigibles, recomendando ≥ 12–15 caracteres y permitiendo al menos 64 caracteres con espacios y Unicode).</li><li><strong>Eliminar reglas de composición artificiales:</strong> No forzar combinaciones obligatorias de mayúsculas, números y símbolos que inducen patrones predecibles.</li><li><strong>Bloquear contraseñas comprometidas:</strong> Comparar cada nueva contraseña contra listas de contraseñas filtradas, palabras de diccionario comunes y términos derivados del servicio o nombre de usuario.</li><li><strong>Suprimir la rotación periódica sin evidencia de compromiso:</strong> Cambiar contraseñas cada 90 días sin indicios de filtración degrada la calidad de las claves; solo se debe forzar el cambio ante sospecha o confirmación de compromiso.</li><li><strong>Desplegar MFA resistente a phishing:</strong> Complementar las contraseñas con autenticadores criptográficos vinculados al origen (FIDO2/WebAuthn o passkeys) y aplicar limitación de tasa (<em>rate limiting</em>) en todos los puntos de acceso.</li></ol>
+<h2 id="cap-3-2-ejemplo-paso-a-paso-comparacion-empirica-entre-sha-256-rapido-y-pbkdf2-scrypt-en-python">Ejemplo paso a paso: comparación empírica entre SHA-256 rápido y PBKDF2/scrypt en Python</h2>
+<p>Este script local permite observar directamente la diferencia de costo computacional entre un hash rápido sin salt y una KDF moderna en tu propia máquina.</p>
+<pre><code class="lenguaje-python">import hashlib
+import os
+import time
+
+password = b"FraseDePruebaEnLaboratorio2026"
+salt = os.urandom(16)
+
+# 1. Hash rápido (inadecuado para contraseñas)
+t0 = time.perf_counter()
+for _ in range(1000):
+    digest_rapido = hashlib.sha256(password).hexdigest()
+t1 = time.perf_counter()
+
+# 2. KDF con salt y alto número de iteraciones (PBKDF2-HMAC-SHA256)
+t2 = time.perf_counter()
+digest_pbkdf2 = hashlib.pbkdf2_hmac("sha256", password, salt, 600_000).hex()
+t3 = time.perf_counter()
+
+# 3. KDF memory-hard (scrypt)
+t4 = time.perf_counter()
+digest_scrypt = hashlib.scrypt(password, salt=salt, n=2**14, r=8, p=1).hex()
+t5 = time.perf_counter()
+
+print(f"1000 x SHA-256 rápido : {(t1 - t0)*1000:.2f} ms")
+print(f"1 x PBKDF2 (600k iter): {(t3 - t2)*1000:.2f} ms")
+print(f"1 x scrypt (memory)   : {(t5 - t4)*1000:.2f} ms")
+# Salida esperada (referencial):
+# 1000 x SHA-256 rápido : ~1.20 ms (millones por segundo en GPU)
+# 1 x PBKDF2 (600k iter): ~220.00 ms (frena drásticamente la evaluación offline)
+# 1 x scrypt (memory)   : ~45.00 ms (añade penalización de memoria contra GPUs)</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>Dentro de los marcos de defensa (tácticas de alto nivel de MITRE ATT&amp;CK como <strong>Credential Access</strong> e <strong>Initial Access</strong>), el fortalecimiento de identidades combina arquitectura criptográfica y detección conductual:</p>
+<ul><li><strong>Detección en telemetría de autenticación:</strong> Correlacionar fallos de inicio de sesión distribuidos sobre múltiples cuentas desde una misma IP, ASN o huella de cliente en ventanas cortas de tiempo, además de alertas por autenticaciones desde ubicaciones o dispositivos atípicos.</li><li><strong>Controles preventivos clave:</strong> Migrar almacenamiento de credenciales a Argon2id o scrypt con salt único, habilitar MFA resistente a phishing (WebAuthn/FIDO2), implementar bloqueo inteligente (<em>smart lockout</em>) y aplicar validación contra listas de contraseñas filtradas durante el alta o cambio de clave.</li></ul></aside>
+<h2 id="cap-3-2-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Ejecutá el script de Python del ejemplo paso a paso en tu máquina de laboratorio y documentá los tiempos medidos para SHA-256, PBKDF2 y scrypt.</li><li>Creá un pequeño archivo con tres hashes sintéticos (dos contraseñas débiles con patrón año/mayúscula y una frase de contraseña larga de 18 caracteres) y auditalo localmente con <code>john</code> o <code>hashcat</code> usando un diccionario reducido creado por vos.</li><li>Redactá una política técnica breve (media página) para una aplicación web ficticia aplicando los criterios de NIST SP 800-63B.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Tabla comparativa con los tiempos reales obtenidos en tu laboratorio, resultado de la verificación de los tres hashes sintéticos (mostrando cómo la frase larga resiste el diccionario) y el borrador de política de contraseñas alineada a NIST SP 800-63B.</p></aside>
+<h2 id="cap-3-2-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué no se debe usar cifrado simétrico ni Base64 para almacenar contraseñas de usuarios?</strong> Porque Base64 es una codificación reversible sin secreto y el cifrado simétrico permite recuperar las contraseñas en claro si la clave se filtra; las contraseñas deben protegerse mediante funciones unidireccionales (KDF) con salt único.</p>
+<p><strong>2. ¿Qué dos problemas resuelve el uso de un salt criptográfico único por usuario?</strong> Impide el aprovechamiento de tablas precalculadas (rainbow tables) y evita que un observador pueda detectar usuarios que comparten la misma contraseña dentro de una base de datos.</p>
+<p><strong>3. ¿Por qué Argon2id se considera superior a SHA-256 simple o incluso a PBKDF2 para almacenar contraseñas?</strong> Porque, además de incorporar salt y costo temporal configurable, exige un uso intensivo de memoria RAM (memory-hardness), lo cual limita fuertemente la aceleración paralela mediante GPUs o hardware dedicado.</p>
+<p><strong>4. ¿Por qué el password spraying resulta difícil de frenar únicamente con un umbral básico de bloqueo por cuenta?</strong> Porque distribuye pocos intentos entre muchas cuentas diferentes, manteniéndose por debajo del límite de fallos consecutivos de cada usuario individual.</p>
+<p><strong>5. ¿Por qué NIST SP 800-63B desaconseja la rotación periódica obligatoria de contraseñas sin evidencia de compromiso?</strong> Porque obliga a los usuarios a reutilizar patrones incrementales predecibles (como cambiar el número final o el mes), debilitando la entropía efectiva sin aportar protección real frente a credenciales no comprometidas.</p>
+<h2 id="cap-3-2-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Diferenciás claramente codificación, cifrado y hashing unidireccional.</li><li>☐ Sabés justificar la selección de Argon2id o scrypt frente a algoritmos heredados.</li><li>☐ Ejecutaste pruebas controladas con hashes sintéticos y comprendiste el impacto del costo computacional.</li><li>☐ Entendés la mecánica y mitigación del password spraying.</li><li>☐ Podés redactar e implementar controles de contraseñas conforme a NIST SP 800-63B.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Eliminá los archivos temporales con diccionarios y hashes de prueba de <code>/tmp</code> una vez documentado tu entregable y conservá únicamente tu informe técnico de resultados.</p></aside>
+<h2 id="cap-3-2-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>NIST SP 800-63B: <em>Digital Identity Guidelines — Authentication and Lifecycle Management</em> (https://pages.nist.gov/800-63-3/sp800-63b.html)</li><li>OWASP Cheat Sheet Series: <em>Password Storage Cheat Sheet</em> (https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)</li><li>RFC 9106: <em>Argon2 Memory-Hard Function for Password Hashing and Proof-of-Work Applications</em> (https://datatracker.ietf.org/doc/html/rfc9106)</li><li>MITRE ATT&amp;CK Enterprise Matrix: tácticas <em>Credential Access</em> e <em>Initial Access</em> (https://attack.mitre.org/)</li><li>Documentación oficial de Hashcat y John the Ripper (https://hashcat.net/wiki/ y https://www.openwall.com/john/doc/)</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 3 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Cracking Passwords with Hashcat</td><td>Medium</td><td>Offensive</td><td>14</td></tr><tr><td>Password Attacks</td><td>Medium</td><td>Offensive</td><td>26</td></tr><tr><td>Password Management</td><td>Easy</td><td>Defensive</td><td>7</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="18-shells-transferencias-y-metasploit.html">← 3.1 Shells, transferencias de archivos y uso metódico de Metasploit</a></div><div><a href="20-escalada-privilegios-linux.html">3.3 Escalada de privilegios en Linux y hardening de servidores →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

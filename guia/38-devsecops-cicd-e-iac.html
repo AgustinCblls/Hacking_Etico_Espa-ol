@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 5.5 · DevSecOps, pipelines CI/CD, secretos en Git e Infraestructura como Código (IaC) · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Detectar riesgos en GitHub Actions/GitLab CI, escanear Terraform/Docker con SAST/SCA y firmar artefactos">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo5.html">Tomo V</a><span aria-hidden="true">›</span><span>Cap. 5.5</span></nav>
+<h1 id="cap-5-5">Capítulo 5.5 · DevSecOps, pipelines CI/CD, secretos en Git e Infraestructura como Código (IaC)</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Cloud y DevSecOps</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo V · Ruta 5 · Cloud y DevSecOps</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="39-defensa-cloud-telemetria-y-perimetro.html">5.6 Defensa Cloud: CloudTrail, CloudWatch, GCP Logging, GuardDuty y WAF/Shield</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>En este capítulo vas a analizar la superficie de ataque de los pipelines de integración y entrega continua (CI/CD) y de la Infraestructura como Código (IaC). Vas a aprender a identificar configuraciones inseguras en GitHub Actions, GitLab CI y Jenkins, implementar higiene de secretos en Git, integrar controles automatizados (SAST, DAST, SCA y SBOM), auditar plantillas Terraform con herramientas estáticas y reemplazar credenciales estáticas mediante federación OIDC y firma criptográfica de artefactos con Sigstore/Cosign.</p></aside>
+<h2 id="cap-5-5-el-pipeline-ci-cd-como-superficie-de-ataque-en-la-cadena-de-suministro">El pipeline CI/CD como superficie de ataque en la cadena de suministro</h2>
+<p>En arquitecturas modernas, el sistema de CI/CD concentra privilegios que rara vez coinciden en otro componente: lee el código fuente, accede a secretos de despliegue, construye artefactos de producción y posee identidad para modificar infraestructura cloud. Desde una perspectiva defensiva, comprometer un flujo de compilación equivale a obtener ejecución remota dentro de un entorno confiable aguas arriba del entorno productivo.</p>
+<p>En plataformas como <strong>GitHub Actions</strong>, <strong>GitLab CI/CD</strong> y <strong>Jenkins</strong>, el modelo de amenazas gira en torno a cuatro fronteras de confianza: el disparador (<em>trigger</em>) que inicia el trabajo, la evaluación de variables provenientes de entradas externas, el aislamiento del agente ejecutor (<em>runner</em>) y el alcance mínimo de los tokens efímeros emitidos durante la ejecución.</p>
+<h3 id="cap-5-5-riesgos-en-disparadores-privilegiados-pull-request-target-y-contextos-no-confiables">Riesgos en disparadores privilegiados: <code>pull_request_target</code> y contextos no confiables</h3>
+<p>Uno de los errores más graves en GitHub Actions ocurre al combinar el evento <code>pull_request_target</code> con el checkout explícito del código propuesto por un colaborador externo (por ejemplo, desde un <em>fork</em>). A diferencia del evento <code>pull_request</code> —que se ejecuta en un contexto aislado de solo lectura y sin acceso a secretos cuando proviene de un fork—, <code>pull_request_target</code> se ejecuta en el contexto de la rama base del repositorio destino: tiene acceso a los secretos configurados y puede recibir un <code>GITHUB_TOKEN</code> con permisos de escritura.</p>
+<p>Si el flujo hace checkout de <code>github.event.pull_request.head.sha</code> o <code>github.event.pull_request.head.ref</code> y luego ejecuta pasos de compilación, pruebas (<code>npm test</code>, <code>pytest</code>, <code>make</code>) o linters con plugins cargados desde el repositorio, el código no revisado del pull request se ejecuta dentro del entorno privilegiado de la rama base.</p>
+<pre><code class="lenguaje-yaml"># PATRÓN INSEGURO: nunca hagas checkout del head de un PR bajo pull_request_target
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }} # Peligro: código no confiable con secretos
+      - run: npm ci &amp;&amp; npm test</code></pre>
+<p>La mitigación arquitectónica consiste en separar responsabilidades: usar <code>pull_request</code> (sin secretos ni permisos elevados) para compilar, correr tests y subir un artefacto inerte si hace falta; y reservar un segundo flujo disparado por <code>workflow_run</code> (con validaciones estrictas sobre los datos consumidos y sin ejecutar código del artefacto) para tareas que requieran comentar en el PR o etiquetarlo.</p>
+<h3 id="cap-5-5-inyeccion-de-expresiones-en-flujos-de-trabajo">Inyección de expresiones en flujos de trabajo</h3>
+<p>Otro vector frecuente es la interpolación directa de metadatos controlables por usuarios externos (títulos de issues o PRs, nombres de ramas, cuerpos de comentarios o mensajes de commit) dentro de bloques <code>run:</code> mediante la sintaxis <code>${{ ... }}</code>. El motor de GitHub Actions sustituye la expresión <strong>antes</strong> de entregar el script al intérprete de shell (<code>bash</code> o <code>pwsh</code>), de modo que comillas, operadores de encadenamiento o sustituciones de comando presentes en el texto se interpretan como sintaxis del shell.</p>
+<p>La regla defensiva es absoluta: nunca interpoles expresiones <code>${{ github.event.* }}</code> directamente dentro de <code>run:</code>. En su lugar, pasá esos valores a través del bloque <code>env:</code> y referencialos como variables de entorno entrecomilladas en el script:</p>
+<pre><code class="lenguaje-yaml"># PATRÓN ENDURECIDO: paso seguro por variables de entorno
+name: Validar título de PR
+on:
+  pull_request:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  check-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspeccionar título sin interpolación directa
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          printf 'Revisando rama: %s\n' "$HEAD_REF"
+          if [[ ! "$PR_TITLE" =~ ^(feat|fix|chore|docs): ]]; then
+            echo "El título debe seguir Conventional Commits."
+            exit 1
+          fi</code></pre>
+<h3 id="cap-5-5-runners-compartidos-persistentes-y-exposicion-de-tokens">Runners compartidos persistentes y exposición de tokens</h3>
+<p>Tanto en Jenkins (agentes estáticos compartidos entre múltiples proyectos) como en GitLab CI o GitHub Actions con <em>self-hosted runners</em> persistentes, reutilizar el mismo sistema de archivos o demonio de contenedores entre ejecuciones rompe el aislamiento entre trabajos. Un proceso anterior —o una ejecución sobre una rama no confiable— puede dejar archivos residuales en <code>/tmp</code>, modificar herramientas en <code>$PATH</code>, leer cachés compartidas o interactuar con <code>/var/run/docker.sock</code> si el runner monta el socket del host.</p>
+<aside class="callout peligro"><p class="callout-titulo">Runners persistentes en repositorios públicos</p><p>Nunca habilites <em>self-hosted runners</em> persistentes para ejecutar flujos disparados por forks externos en repositorios públicos. Todo ejecutor que procese código no confiable debe ser <strong>efímero</strong> (destruido inmediatamente al finalizar el job mediante micro-VMs o pods aislados como Actions Runner Controller) y operar con conectividad de salida restringida.</p></aside>
+<p>Respecto al token automático del pipeline (<code>GITHUB_TOKEN</code> en GitHub o <code>CI_JOB_TOKEN</code> en GitLab), aplicá siempre el principio de mínimo privilegio:</p>
+<ol><li>En GitHub Actions, declará <code>permissions: read-all</code> o un mapa vacío <code>{}</code> a nivel global del workflow y otorgá permisos puntuales (<code>contents: read</code>, <code>security-events: write</code>, <code>id-token: write</code>) únicamente al job que los necesite.</li><li>Fijá las acciones de terceros por <strong>hash SHA-1 completo del commit</strong> (no solo por etiqueta mutable como <code>@v4</code>) y habilitá Dependabot para mantenerlas actualizadas de forma auditable.</li><li>En GitLab CI, restringí el alcance de <code>CI_JOB_TOKEN</code> habilitando la lista de proyectos autorizados (<em>CI/CD job token allowlist</em>).</li><li>En Jenkins, evitá almacenar credenciales globales accesibles desde cualquier <code>Jenkinsfile</code>; usá carpetas con credenciales con ámbito limitado (<em>Folder-scoped credentials</em>), el bloque <code>withCredentials</code> con enmascaramiento de salida y <code>agent none</code> a nivel raíz.</li></ol>
+<hr>
+<h2 id="cap-5-5-higiene-de-secretos-en-repositorios-git">Higiene de secretos en repositorios Git</h2>
+<p>Cada vez que una clave de API, certificado privado o token de base de datos llega a un commit de Git, deja de ser un secreto en el instante en que se sincroniza con un remoto o se replica en clones y cachés de CI. Borrar la línea en un commit posterior no resuelve el problema: el objeto blob sigue intacto en el historial y en referencias internas como <code>refs/pull/*</code>.</p>
+<p>La estrategia defensiva combina prevención local, bloqueo en servidor y detección continua en el historial:</p>
+<ul><li><strong>Bloqueo temprano (<code>pre-commit</code> y Push Protection):</strong> Configurar hooks locales que analicen el <em>staging area</em> antes de confirmar el commit, complementados con controles del lado del servidor (como GitHub Push Protection) que rechazan el <code>git push</code> si detectan patrones conocidos.</li><li><strong>Escaneo en CI sobre commits e historial completo:</strong> Ejecutar herramientas como <code>gitleaks</code> y <code>trufflehog</code> en cada Pull Request (analizando el rango de commits nuevo) y de forma periódica sobre todo el repositorio. <code>trufflehog</code> aporta además verificación activa contra proveedores compatibles para distinguir credenciales reales de cadenas de prueba.</li></ul>
+<pre><code class="lenguaje-bash"># Escaneo incremental en CI con gitleaks sobre los commits de un PR
+gitleaks detect \
+  --source . \
+  --log-opts="origin/main..HEAD" \
+  --config .gitleaks.toml \
+  --redact \
+  --exit-code 1
+
+# Análisis completo de historial y verificación de estado con trufflehog
+trufflehog git file://. --only-verified --json &gt; trufflehog-report.json</code></pre>
+<p>Podés afinar falsos positivos sin desactivar reglas críticas declarando un archivo <code>.gitleaks.toml</code> versionado y revisado por el equipo de seguridad:</p>
+<pre><code class="lenguaje-toml">title = "Política corporativa de detección de secretos"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Excluir fixtures sintéticos de pruebas unitarias"
+paths = [
+  '''^tests/fixtures/.*\.json$''',
+]
+regexes = [
+  '''EXAMPLE_KEY_DO_NOT_USE_[0-9]{6}''',
+]</code></pre>
+<aside class="callout aviso"><p class="callout-titulo">Orden correcto ante una filtración confirmada</p><p>Si detectás una credencial real en un repositorio, <strong>primero revocá y rotá el secreto</strong> en el proveedor origen y revisá los logs de auditoría para descartar uso anómalo. Recién después evaluá limpiar el historial con <code>git filter-repo</code> y forzar la actualización de ramas; reescribir el historial sin rotar la clave genera una falsa sensación de seguridad.</p></aside>
+<hr>
+<h2 id="cap-5-5-puertas-de-seguridad-automatizadas-sast-dast-sca-y-sbom">Puertas de seguridad automatizadas: SAST, DAST, SCA y SBOM</h2>
+<p>Un pipeline DevSecOps maduro distribuye verificaciones complementarias en distintas etapas del ciclo de vida, equilibrando velocidad de retroalimentación para desarrollo con rigor de bloqueo hacia producción.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Control</th>
+<th>Qué inspecciona</th>
+<th>Momento óptimo en CI</th>
+<th>Herramientas abiertas típicas</th>
+</tr></thead><tbody>
+<tr><td><strong>SAST</strong></td><td>Código fuente propio y flujo de datos</td><td>Cada PR (análisis diferencial rápido)</td><td>Semgrep, CodeQL, Bandit</td></tr>
+<tr><td><strong>SCA</strong></td><td>Dependencias declaradas y transitivas</td><td>Cada PR + escaneo nocturno</td><td>Trivy (<code>fs</code>), <code>pip-audit</code>, <code>npm audit</code>, Grype</td></tr>
+<tr><td><strong>SBOM</strong></td><td>Inventario formal de componentes</td><td>En cada build de release o contenedor</td><td>Syft, Trivy (<code>sbom</code>), CycloneDX CLI</td></tr>
+<tr><td><strong>DAST</strong></td><td>Aplicación desplegada en ejecución</td><td>Entorno efímero de staging previo a prod</td><td>OWASP ZAP, Nuclei (plantillas controladas)</td></tr>
+</tbody></table></div>
+<h3 id="cap-5-5-analisis-estatico-sast-con-semgrep">Análisis estático (SAST) con Semgrep</h3>
+<p>Las expresiones regulares simples producen demasiados falsos positivos porque ignoran la sintaxis del lenguaje. <strong>Semgrep</strong> analiza el árbol de sintaxis abstracta (AST) y permite escribir reglas legibles en YAML adaptadas a los patrones internos de tu organización, además de exportar resultados en formato estándar <strong>SARIF</strong> para integrarlos en la pestaña de seguridad del repositorio.</p>
+<pre><code class="lenguaje-yaml"># .semgrep/python-tls-check.yml
+rules:
+  - id: requests-tls-verification-disabled
+    patterns:
+      - pattern: requests.$METHOD(..., verify=False, ...)
+    message: &gt;-
+      Se deshabilitó la validación de certificados TLS (verify=False).
+      Usá el almacén de confianza del sistema o un bundle CA explícito.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-295"</code></pre>
+<h3 id="cap-5-5-sca-y-generacion-de-sbom-cyclonedx-y-spdx">SCA y generación de SBOM (CycloneDX y SPDX)</h3>
+<p>El análisis de composición de software (<strong>SCA</strong>) exige trabajar siempre con archivos de bloqueo deterministas (<code>package-lock.json</code>, <code>poetry.lock</code>, <code>go.sum</code>) para conocer las versiones transitivas exactas que llegan a producción. A su vez, generar un <strong>SBOM</strong> (<em>Software Bill of Materials</em>) en cada compilación te permite saber en segundos qué servicios usan una librería vulnerable cuando aparece una vulnerabilidad crítica nueva, sin necesidad de recompilar todo el parque de aplicaciones.</p>
+<p>Los dos estándares abiertos predominantes son <strong>CycloneDX</strong> (muy orientado a seguridad, dependencias y documentos VEX de explotabilidad) y <strong>SPDX</strong> (estándar ISO/IEC 5962 ampliamente usado para licencias y cumplimiento).</p>
+<pre><code class="lenguaje-bash"># Generar SBOM CycloneDX de un directorio de proyecto e inspeccionar vulnerabilidades
+syft dir:. -o cyclonedx-json=sbom.cdx.json
+grype sbom:./sbom.cdx.json --fail-on high
+
+# Alternativa equivalente con Trivy en formato SPDX para una imagen OCI
+trivy image --format spdx-json --output image.spdx.json ghcr.io/org/app:1.4.2</code></pre>
+<h3 id="cap-5-5-pruebas-dinamicas-dast-controladas">Pruebas dinámicas (DAST) controladas</h3>
+<p>El <strong>DAST</strong> evalúa cabeceras HTTP de seguridad, exposición de endpoints administrativos, errores de CORS y fallas en flujos de autenticación contra una instancia viva desplegada en un entorno efímero de <em>staging</em> (nunca contra producción sin autorización ni ventanas de control). Un patrón práctico es levantar la aplicación con Docker Compose dentro del job de CI y ejecutar un escaneo base o contra la especificación OpenAPI con OWASP ZAP.</p>
+<hr>
+<h2 id="cap-5-5-seguridad-de-infraestructura-como-codigo-iac">Seguridad de Infraestructura como Código (IaC)</h2>
+<p>Cuando la infraestructura se define declarativamente en <strong>Terraform (HCL)</strong>, <strong>OpenTofu</strong> o <strong>AWS CloudFormation</strong>, los errores de configuración (buckets públicos, grupos de seguridad abiertos a <code>0.0.0.0/0</code>, discos sin cifrar o roles IAM con comodines) pueden detectarse antes de crear un solo recurso en la nube (<em>shift-left</em>).</p>
+<p>Compará un bloque Terraform con omisiones frecuentes frente a su versión endurecida:</p>
+<pre><code class="lenguaje-hcl"># ANTES: bucket S3 sin cifrado explícito ni bloqueo de acceso público
+resource "aws_s3_bucket" "logs_legacy" {
+  bucket = "empresa-logs-aplicacion"
+}
+
+# DESPUÉS: bucket S3 endurecido en código declarativo
+resource "aws_s3_bucket" "logs_seguros" {
+  bucket = "empresa-logs-aplicacion"
+}
+
+resource "aws_s3_bucket_public_access_block" "logs_seguros" {
+  bucket                  = aws_s3_bucket.logs_seguros.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "logs_seguros" {
+  bucket = aws_s3_bucket.logs_seguros.id
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.logs.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+resource "aws_s3_bucket_versioning" "logs_seguros" {
+  bucket = aws_s3_bucket.logs_seguros.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}</code></pre>
+<p>Para automatizar esta auditoría en cada Pull Request se utilizan motores estáticos como <strong>Checkov</strong> y <strong>Trivy Config</strong> (que integró las capacidades de <code>tfsec</code>). Además de reglas integradas basadas en guías CIS, podés definir políticas personalizadas para hacer cumplir convenciones internas (por ejemplo, exigir etiquetas <code>Owner</code> y <code>Environment</code> o prohibir cierto tipo de instancia).</p>
+<pre><code class="lenguaje-bash"># Auditoría estática de Terraform y CloudFormation con Checkov y Trivy
+checkov -d ./infra/terraform --framework terraform --compact --soft-fail-on LOW
+trivy config ./infra/terraform --severity HIGH,CRITICAL --exit-code 1</code></pre>
+<hr>
+<h2 id="cap-5-5-autenticacion-sin-llaves-estaticas-oidc-y-firma-de-artefactos-con-sigstore">Autenticación sin llaves estáticas (OIDC) y firma de artefactos con Sigstore</h2>
+<p>Almacenar pares <code>AWS_ACCESS_KEY_ID</code> / <code>AWS_SECRET_ACCESS_KEY</code> o archivos JSON de Service Accounts de GCP dentro de los secretos del repositorio es un riesgo estructural: las credenciales son de larga duración, suelen tener permisos amplios y requieren rotación manual periódica.</p>
+<p>La solución moderna es <strong>OpenID Connect (OIDC)</strong> entre el proveedor CI/CD y el proveedor cloud. Durante la ejecución, el runner solicita un JWT firmado por el emisor OIDC de la plataforma (por ejemplo, <code>https://token.actions.githubusercontent.com</code>) con <em>claims</em> criptográficos que identifican exactamente el repositorio, la rama, el entorno de aprobación y el commit. AWS STS, GCP Workload Identity Federation o Azure Entra ID validan ese JWT contra la política de confianza y entregan credenciales temporales válidas solo por unos minutos.</p>
+<h3 id="cap-5-5-ejemplo-real-de-federacion-oidc-hacia-aws">Ejemplo real de federación OIDC hacia AWS</h3>
+<p>En AWS IAM, la política de confianza (<em>Trust Policy</em>) del rol de despliegue restringe estrictamente qué repositorio y rama pueden asumirlo:</p>
+<pre><code class="lenguaje-json">{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:mi-org/mi-servicio:environment:production"
+        }
+      }
+    }
+  ]
+}</code></pre>
+<p>Observá que filtrar por <code>environment:production</code> permite además exigir aprobación manual de un revisor antes de que el runner obtenga el token OIDC.</p>
+<h3 id="cap-5-5-firma-y-verificacion-de-artefactos-con-sigstore-y-cosign">Firma y verificación de artefactos con Sigstore y Cosign</h3>
+<p>Asegurar quién despliega es la mitad del problema; la otra mitad es verificar que la imagen de contenedor o binario que llega a Kubernetes o producción fue construida legítimamente por tu pipeline oficial y no alterada en el registro. <strong>Sigstore / Cosign</strong> permite realizar firma <em>keyless</em> apoyándose en el mismo token OIDC del pipeline: <strong>Fulcio</strong> emite un certificado efímero X.509 ligado a la identidad OIDC del workflow y <strong>Rekor</strong> registra la firma en un libro mayor de transparencia inmutable.</p>
+<pre><code class="lenguaje-yaml"># Fragmento de pipeline con OIDC hacia AWS y firma keyless con Cosign
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+jobs:
+  build-sign-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Instalar Cosign
+        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
+
+      - name: Autenticar en AWS mediante OIDC sin llaves estáticas
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/ci-deploy-prod
+          aws-region: us-east-1
+
+      - name: Firmar imagen por digest (keyless OIDC)
+        env:
+          IMAGE_DIGEST: ghcr.io/mi-org/api@sha256:4f8c9b...
+        run: |
+          cosign sign --yes "$IMAGE_DIGEST"</code></pre>
+<p>Del lado del clúster de despliegue (por ejemplo mediante Kyverno o Policy Controller), la verificación rechaza cualquier imagen cuya firma no corresponda exactamente al emisor y workflow autorizados:</p>
+<pre><code class="lenguaje-bash">cosign verify ghcr.io/mi-org/api@sha256:4f8c9b... \
+  --certificate-identity-regexp="^https://github\.com/mi-org/mi-servicio/\.github/workflows/release\.yml@refs/heads/main$" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"</code></pre>
+<hr>
+<h2 id="cap-5-5-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En un repositorio de laboratorio local o privado vas a endurecer un flujo CI/CD de extremo a extremo combinando detección estática de secretos, análisis IaC y verificación de artefactos.</p>
+<ol><li>Inicializá un repositorio con un módulo Terraform que declare un bucket de almacenamiento y un archivo Python con un llamado inseguro de ejemplo para pruebas locales.</li><li>Configurá <code>.gitleaks.toml</code> y ejecutá <code>gitleaks detect</code> verificando que detecte tokens de prueba sintéticos y respete las exclusiones explícitas.</li><li>Escribí una regla personalizada de Semgrep y correla junto con <code>trivy config</code> sobre el directorio Terraform hasta obtener código de salida <code>0</code> tras aplicar los controles de cifrado y bloqueo público.</li><li>Generá un SBOM en formato CycloneDX con <code>syft</code> y comparalo tras actualizar una dependencia en el archivo lock.</li><li>Simulá o validá localmente un workflow YAML que use <code>permissions:</code> mínimas, variables <code>env:</code> seguras en lugar de interpolación en <code>run:</code> y pasos de firma/verificación con <code>cosign</code>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un directorio reproducible de laboratorio con: el workflow YAML endurecido (acciones fijadas por SHA, sin interpolación de <code>${{ github.event.* }}</code> en <code>run:</code> y con <code>id-token: write</code>), el archivo <code>.gitleaks.toml</code>, una regla Semgrep propia, el manifiesto Terraform corregido tras pasar <code>checkov</code> o <code>trivy config</code> con salida limpia, y el archivo <code>sbom.cdx.json</code> generado.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>La defensa efectiva de la cadena de suministro software exige asumir que cualquier repositorio con colaboradores o dependencias externas recibirá entradas no confiables. La combinación de disparadores aislados (<code>pull_request</code> frente a <code>pull_request_target</code>), runners efímeros sin persistencia, permisos mínimos en tokens, federación OIDC con condiciones estrictas de entorno y firma criptográfica verificable antes del despliegue elimina por diseño toda una clase de compromisos silenciosos en la tubería de entrega.</p></aside>
+<h2 id="cap-5-5-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué combinar <code>pull_request_target</code> con el checkout del <code>head.sha</code> de un Pull Request representa un riesgo crítico en GitHub Actions?</strong> Porque <code>pull_request_target</code> ejecuta el workflow en el contexto privilegiado de la rama base (con acceso a secretos y posibles permisos de escritura en <code>GITHUB_TOKEN</code>), por lo que hacer checkout del código no revisado del fork permite que scripts de compilación o pruebas ejecuten acciones arbitrarias dentro de ese contexto confiable.</p>
+<p><strong>2. ¿Cuál es la forma segura de procesar valores como el título de un PR o el nombre de una rama dentro de un paso <code>run:</code> en un workflow?</strong> Pasando las expresiones <code>${{ github.event.* }}</code> a través del bloque <code>env:</code> del paso y referenciándolas en el script como variables de entorno debidamente entrecomilladas (por ejemplo <code>"$PR_TITLE"</code>), evitando que el motor de plantillas las interpole directamente antes de invocar al shell.</p>
+<p><strong>3. ¿Qué diferencia práctica aportan CycloneDX y SPDX frente a ejecutar únicamente un escáner de dependencias en tiempo de compilación?</strong> Un SBOM en formato CycloneDX o SPDX deja un inventario formal y portable de todos los componentes y dependencias transitivas exactas contenidas en cada artefacto liberado, permitiendo auditar exposición ante nuevas vulnerabilidades de forma retrospectiva e inmediata sin tener que reconstruir el proyecto.</p>
+<p><strong>4. ¿Qué ventaja de seguridad ofrece la federación OIDC frente al almacenamiento de Access Keys de AWS o Service Accounts JSON en los secretos del CI?</strong> Elimina credenciales estáticas de larga duración; el runner obtiene credenciales efímeras emitidas por STS únicamente si el JWT firmado por el proveedor CI cumple con las condiciones de la política de confianza (repositorio, rama o entorno con aprobación manual).</p>
+<p><strong>5. ¿Qué rol cumplen Fulcio y Rekor dentro del modelo de firma sin llaves (<em>keyless</em>) de Sigstore/Cosign?</strong> Fulcio actúa como autoridad certificadora que emite certificados X.509 de vida muy corta vinculados a la identidad OIDC verificada del pipeline, mientras que Rekor registra la firma y el certificado en un log público de transparencia inmutable para permitir auditoría y verificación posterior sin gestionar llaves privadas permanentes.</p>
+<h2 id="cap-5-5-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de pasar al monitoreo y defensa perimetral en la nube, asegurate de poder distinguir en una revisión de código cuándo un disparador de CI/CD expone secretos a código externo, por qué las expresiones de plantilla nunca deben mezclarse en scripts de shell sin pasar por <code>env:</code>, y cómo una política de confianza OIDC restringe el despliegue por repositorio y entorno.</p></aside>
+<h2 id="cap-5-5-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>OWASP Top 10 CI/CD Security Risks: <a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/">https://owasp.org/www-project-top-10-ci-cd-security-risks/</a></li><li>SLSA (Supply-chain Levels for Software Artifacts): <a href="https://slsa.dev/">https://slsa.dev/</a></li><li>GitHub Actions Security Hardening Documentation: <a href="https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions">https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions</a></li><li>Sigstore &amp; Cosign Documentation: <a href="https://docs.sigstore.dev/">https://docs.sigstore.dev/</a></li><li>CycloneDX &amp; SPDX Specifications: <a href="https://cyclonedx.org/">https://cyclonedx.org/</a> / <a href="https://spdx.dev/">https://spdx.dev/</a></li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="37-seguridad-kubernetes-y-orquestacion.html">← 5.4 Seguridad en Kubernetes: RBAC, Pods, etcd, Network Policies y CIS Benchmark</a></div><div><a href="39-defensa-cloud-telemetria-y-perimetro.html">5.6 Defensa Cloud: CloudTrail, CloudWatch, GCP Logging, GuardDuty y WAF/Shield →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

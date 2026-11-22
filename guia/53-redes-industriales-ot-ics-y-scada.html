@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 7.6 · Seguridad en entornos industriales OT / ICS / SCADA y Modelo Purdue · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Diferenciar seguridad IT vs OT, auditar Modbus/OPC UA pasivamente y diseñar segmentación por zonas Purdue">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo7.html">Tomo VII</a><span aria-hidden="true">›</span><span>Cap. 7.6</span></nav>
+<h1 id="cap-7-6">Capítulo 7.6 · Seguridad en entornos industriales OT / ICS / SCADA y Modelo Purdue</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Mobile, Wireless, OT y GRC</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo VII · Ruta 7 · Mobile, Wireless, OT y GRC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="54-grc-marco-legal-riesgos-y-cumplimiento.html">7.7 GRC, marco legal, contratos (RoE), cuantificación de riesgos e ISO 27001 / NIST CSF</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender por qué las prioridades de seguridad se invierten en entornos de Tecnología Operativa (OT), identificar los componentes centrales de una arquitectura ICS/SCADA, aplicar el Modelo Purdue (ISA-95 / IEC 62443) con su DMZ Industrial en Nivel 3.5, analizar las debilidades históricas de protocolos industriales como Modbus, DNP3, S7comm y OPC UA, y diseñar controles defensivos basados en segmentación, diodos de datos y monitoreo estrictamente pasivo.</p></aside>
+<p>Cuando salís de una red corporativa tradicional (IT) y entrás en una planta industrial, una subestación eléctrica o una planta potabilizadora de agua, las reglas operativas cambian de raíz. En IT, reiniciar un servidor que se colgó durante un escaneo de puertos suele resolverse en minutos. En un entorno <strong>OT (<em>Operational Technology</em>)</strong> con sistemas <strong>ICS (<em>Industrial Control Systems</em>)</strong> y <strong>SCADA (<em>Supervisory Control and Data Acquisition</em>)</strong>, un paquete malformado o una ráfaga agresiva de red puede detener un proceso continuo de manufactura, dañar equipamiento de millones de dólares o poner en riesgo directo la vida de operarios y poblaciones cercanas.</p>
+<h2 id="cap-7-6-inversion-de-la-triada-y-fragilidad-de-los-dispositivos-de-campo">Inversión de la tríada y fragilidad de los dispositivos de campo</h2>
+<p>En seguridad informática corporativa (IT), la tríada clásica suele priorizar <strong>Confidencialidad -&gt; Integridad -&gt; Disponibilidad</strong> según el valor de los datos protegidos. En sistemas industriales OT/ICS, esa escala se invierte de forma tajante:</p>
+<ol><li><strong>Seguridad física humana y ambiental (<em>Safety</em>):</strong> ninguna acción técnica o de respuesta a incidentes puede comprometer la integridad física de las personas, el ambiente o la contención de materiales peligrosos.</li><li><strong>Disponibilidad:</strong> los procesos físicos operan en tiempo real determinista, las 24 horas del día durante años sin ventanas de parada. Perder la comunicación durante milisegundos puede disparar paradas de emergencia (<em>trips</em>) con daños mecánicos o pérdidas productivas enormes.</li><li><strong>Integridad:</strong> asegurar que las mediciones de los sensores y las consignas enviadas hacia válvulas, bombas o disyuntores no sean alteradas ni suplantadas en tránsito.</li><li><strong>Confidencialidad:</strong> aunque importa resguardar secretos de fabricación o topologías de planta, en la operación del piso de planta ocupa el último lugar frente a la estabilidad del proceso físico.</li></ol>
+<div class="tabla"><table>
+<thead><tr>
+<th>Criterio operativo</th>
+<th>Entorno IT corporativo</th>
+<th>Entorno OT / ICS / SCADA</th>
+</tr></thead><tbody>
+<tr><td>Prioridad principal</td><td>Confidencialidad e Integridad</td><td>Seguridad humana (<em>Safety</em>) y Disponibilidad</td></tr>
+<tr><td>Ciclo de vida del activo</td><td>3 a 5 años</td><td>15 a 30 años en operación continua</td></tr>
+<tr><td>Tolerancia a latencia y caídas</td><td>Alta (segundos de reintento aceptables)</td><td>Muy baja (requiere determinismo en milisegundos)</td></tr>
+<tr><td>Ventanas de parcheo</td><td>Mensuales o semanales automatizadas</td><td>Raras (solo en paradas programadas de planta)</td></tr>
+<tr><td>Impacto de escaneo activo</td><td>Degradación leve o alerta en SIEM</td><td>Bloqueo del PLC, disparo de protecciones y parada física</td></tr>
+</tbody></table></div>
+<h3 id="cap-7-6-por-que-un-escaneo-agresivo-tipo-nmap-puede-tumbar-un-plc-viejo">Por qué un escaneo agresivo tipo Nmap puede tumbar un PLC viejo</h3>
+<p>En auditorías IT es habitual ejecutar <code>nmap -sS -sV -T4 -p-</code>. Trasladar esa misma práctica a una red de control industrial provoca caídas reales por razones técnicas concretas:</p>
+<ul><li><strong>Pilas TCP/IP embebidas heredadas:</strong> muchos <strong>PLCs</strong>, <strong>RTUs</strong> y variadores de frecuencia diseñados hace 15 o 20 años corren sobre microcontroladores de bajos recursos con sistemas operativos en tiempo real (RTOS) minimalistas y tablas muy reducidas de sockets simultáneos (a veces 8 o 16 conexiones TCP).</li><li><strong>Agotamiento de buffers y falta de manejo de excepciones:</strong> una ráfaga de paquetes SYN o sondas de banners (<code>-sV</code>) que envían cadenas HTTP/TLS/SMB arbitrarias a puertos industriales propietarios puede saturar la cola de recepción o disparar fallos de memoria en la tarjeta de comunicaciones del controlador.</li><li><strong>Violación del tiempo de ciclo (<em>Scan Cycle</em>) y <em>Watchdog</em>:</strong> un PLC ejecuta un bucle determinista continuo (leer entradas -&gt; evaluar lógica -&gt; actualizar salidas). Si la CPU dedica ciclos excesivos a procesar interrupciones de red anómalas, el temporizador supervisor (<em>watchdog timer</em>) detecta que el ciclo superó el límite máximo y pasa el controlador a modo <strong>FAULT / STOP</strong> por seguridad, deteniendo la maquinaria conectada.</li></ul>
+<aside class="callout peligro"><p class="callout-titulo">Regla de oro en evaluaciones OT</p><p>Nunca ejecutes escaneos activos agresivos (<code>-T4</code>, <code>-T5</code>, <code>-sV</code>, <code>-A</code>, fuzzers o fuerza bruta) contra subredes de Nivel 0, 1 o 2 sin autorización explícita, validación previa en gemelo de laboratorio (<em>testbed</em>) y presencia del ingeniero de automatización de planta. La metodología recomendada parte siempre del <strong>descubrimiento pasivo</strong> mediante capturas de tráfico.</p></aside>
+<h2 id="cap-7-6-arquitectura-y-componentes-de-un-entorno-ics-scada">Arquitectura y componentes de un entorno ICS/SCADA</h2>
+<p>Para auditar o defender una red industrial necesitás identificar con claridad qué rol cumple cada activo dentro del lazo de control:</p>
+<ul><li><strong>PLC (<em>Programmable Logic Controller</em>):</strong> computadora industrial endurecida que recibe señales de sensores (temperatura, presión, caudal), ejecuta lógica determinista en tiempo real (lenguajes IEC 61131-3 como <em>Ladder</em> o <em>Texto Estructurado</em>) y acciona actuadores locales (válvulas, motores, relés).</li><li><strong>RTU (<em>Remote Terminal Unit</em>):</strong> dispositivo con propósito equivalente al PLC pero optimizado para emplazamientos geográficamente dispersos (subestaciones eléctricas, estaciones de bombeo, gasoductos), con almacenamiento en búfer local ante cortes y enlaces por radio, satélite, celular o fibra hacia el centro SCADA.</li><li><strong>HMI (<em>Human-Machine Interface</em>):</strong> panel táctil en máquina o estación gráfica de operador que muestra variables de proceso en tiempo real, alarmas activas y controles para ajustar consignas (<em>setpoints</em>) o iniciar secuencias.</li><li><strong>Historian:</strong> servidor especializado en bases de datos de series temporales de alta velocidad que registra miles de mediciones por segundo para trazabilidad regulatoria, calidad y analítica. Suele ser el puente de datos clave entre OT e IT.</li><li><strong>Engineering Workstation (EWS):</strong> estación de trabajo donde corren los entornos de ingeniería propietarios (como TIA Portal o Studio 5000) usados para programar lógica, actualizar firmware y descargar proyectos hacia los PLCs. Comprometer la EWS equivale a controlar el proceso físico completo.</li></ul>
+<h2 id="cap-7-6-el-modelo-purdue-isa-95-iec-62443-y-la-dmz-industrial">El Modelo Purdue (ISA-95 / IEC 62443) y la DMZ Industrial</h2>
+<p>El <strong>Modelo Purdue (PERA)</strong>, adoptado por <strong>ISA-95</strong> e integrado como referencia de segmentación en <strong>IEC 62443</strong>, organiza la frontera entre el proceso físico y la red corporativa en niveles jerárquicos separados por una zona desmilitarizada intermedia indispensable.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Nivel Purdue</th>
+<th>Denominación</th>
+<th>Componentes típicos</th>
+<th>Flujo de comunicación permitido</th>
+</tr></thead><tbody>
+<tr><td><strong>Nivel 0</strong></td><td>Proceso físico</td><td>Sensores, transmisores, válvulas, motores</td><td>Señales analógicas (4–20 mA), discretas o buses de campo hacia Nivel 1.</td></tr>
+<tr><td><strong>Nivel 1</strong></td><td>Control básico</td><td>PLCs, RTUs, IEDs, controladores PID, sistemas SIS</td><td>Intercambio determinista con Nivel 0 y supervisión con Nivel 2.</td></tr>
+<tr><td><strong>Nivel 2</strong></td><td>Control de área</td><td>HMIs locales, servidores SCADA de línea/celda</td><td>Supervisión de Nivel 1 y reporte hacia Nivel 3.</td></tr>
+<tr><td><strong>Nivel 3</strong></td><td>Operaciones de sitio</td><td>SCADA maestro de planta, EWS, MES, parches OT, Historian primario</td><td>Gestiona Niveles 1–2; único enlace con IT mediante Nivel 3.5.</td></tr>
+<tr><td><strong>Nivel 3.5</strong></td><td><strong>DMZ Industrial (IDMZ)</strong></td><td><em>Jump hosts</em> con MFA, Historian espejo, proxies de parches/AV, Data Diodes</td><td><strong>Aísla OT (&lt;=3) de IT (&gt;=4). Ningún flujo cruza directo.</strong></td></tr>
+<tr><td><strong>Nivel 4</strong></td><td>Redes empresariales IT</td><td>ERP, Active Directory corporativo, correo, analítica BI</td><td>Consume datos replicados desde Nivel 3.5; jamás conecta a Nivel 1–3.</td></tr>
+<tr><td><strong>Nivel 5</strong></td><td>Perímetro / Externo</td><td>VPN de proveedores, nube, Internet</td><td>Acceso remoto solo hacia IDMZ tras MFA y aprobación por ventana.</td></tr>
+</tbody></table></div>
+<p>El <strong>Nivel 3.5 (DMZ Industrial o IDMZ)</strong> es la pieza arquitectónica más crítica en seguridad OT. En redes mal segmentadas, un sistema de BI en Nivel 4 consulta directo al Historian de Nivel 3, o un proveedor externo accede por VPN corporativa directo a la IP de un PLC. Ese atajo permite que un <em>ransomware</em> originado en una notebook administrativa de Nivel 4 se propague hasta los servidores SCADA y HMIs de Nivel 2/3.</p>
+<p>Con una <strong>IDMZ</strong> bien diseñada en Nivel 3.5:</p>
+<ol><li>Toda sesión entre IT y OT termina y se regenera en un intermediario dentro de la DMZ (por ejemplo, el Historian primario en Nivel 3 empuja datos hacia un Historian espejo en Nivel 3.5, y Nivel 4 lee únicamente esa réplica).</li><li>El soporte remoto externo ingresa desde Nivel 5 hasta un <em>jump host</em> bastión en Nivel 3.5 con MFA, grabación de sesión y habilitación temporal aprobada por Operaciones antes de saltar hacia Nivel 3.</li><li>Los sistemas instrumentados de seguridad (<strong>SIS</strong>, <em>Safety Instrumented Systems</em>) se mantienen aislados del sistema de control básico (BPCS) para que un compromiso del SCADA no anule las paradas de emergencia físicas.</li></ol>
+<h2 id="cap-7-6-protocolos-industriales-anatomia-y-carencias-historicas">Protocolos industriales: anatomía y carencias históricas</h2>
+<p>La mayoría de los protocolos industriales nacieron sobre enlaces seriales RS-232/RS-485 punto a punto, donde el aislamiento físico hacía innecesaria la criptografía. Al encapsularse luego sobre TCP/IP, heredaron confianza implícita hacia cualquier nodo capaz de alcanzar el puerto de red.</p>
+<h3 id="cap-7-6-modbus-tcp-rtu-puerto-tcp-502">Modbus TCP / RTU (Puerto TCP 502)</h3>
+<p>Publicado por Modicon en 1979, <strong>Modbus</strong> es el protocolo más difundido en automatización por su simplicidad. Organiza los datos en cuatro tablas: bobinas (<em>Coils</em>, 1 bit R/W), entradas discretas (1 bit R), registros de entrada (<em>Input Registers</em>, 16 bits R) y registros de retención (<em>Holding Registers</em>, 16 bits R/W). El encabezado MBAP en TCP/502 transporta el identificador de unidad y el <strong>Código de Función (<em>Function Code</em>)</strong>: por ejemplo <code>0x01</code> (leer bobinas), <code>0x03</code> (leer registros de retención), <code>0x05</code> (escribir una bobina), <code>0x06</code> (escribir un registro) y <code>0x10</code> (escribir múltiples registros).</p>
+<p><strong>Análisis de seguridad:</strong> Modbus TCP clásico carece por completo de autenticación, autorización y cifrado. Cualquier equipo que alcance el puerto TCP <code>502</code> de un PLC puede leer variables o enviar códigos <code>0x05</code>/<code>0x06</code> para detener maquinaria o alterar consignas. Aunque existe <strong>Modbus/TCP Security</strong> sobre TLS en el puerto <code>802</code>, el parque instalado sigue operando mayoritariamente en claro sobre <code>502</code>.</p>
+<h3 id="cap-7-6-dnp3-distributed-network-protocol-3-puerto-tcp-20000">DNP3 (<em>Distributed Network Protocol 3</em>, Puerto TCP 20000)</h3>
+<p>Muy extendido en redes eléctricas y sistemas de agua, DNP3 tolera enlaces ruidosos y transmite eventos con estampa de tiempo entre una estación maestra SCADA y múltiples RTUs o IEDs.</p>
+<p><strong>Análisis de seguridad:</strong> la especificación base no cifra ni autentica mensajes, permitiendo inyección de comandos de apertura o cierre de interruptores (<em>Direct Operate</em> / <em>Select Before Operate</em>). Si bien existe <strong>DNP3 Secure Authentication (SAv5/SAv6)</strong> con desafío-respuesta HMAC-SHA256 para autenticar comandos críticos, muchas instalaciones heredadas lo mantienen desactivado por compatibilidad.</p>
+<h3 id="cap-7-6-s7comm-y-s7commplus-puerto-tcp-102">S7comm y S7commPlus (Puerto TCP 102)</h3>
+<p>Protocolo propietario de los controladores Siemens SIMATIC S7 sobre ISO-on-TCP (RFC 1006, puerto <code>102</code>). Permite leer/escribir bloques de datos (<code>DB</code>), cargar o descargar lógica y ejecutar comandos como <code>STOP CPU</code>.</p>
+<p><strong>Análisis de seguridad:</strong> en S7-300/400, <strong>S7comm</strong> clásico viaja sin cifrado y su protección opcional por contraseña resultó vulnerable a captura y repetición (<em>replay</em>). Los modelos modernos S7-1200/1500 introdujeron <strong>S7commPlus</strong> con integridad criptográfica y protección <em>anti-replay</em>, aunque habilitar modos de compatibilidad heredados (<em>PUT/GET</em>) vuelve a exponer el PLC.</p>
+<h3 id="cap-7-6-opc-ua-unified-architecture-puerto-tcp-4840">OPC UA (<em>Unified Architecture</em>, Puerto TCP 4840)</h3>
+<p>Sucesor multiplataforma de OPC Classic (que dependía de RPC/DCOM inseguro en Windows), <strong>OPC UA</strong> sí incorpora seguridad robusta nativa: certificados X.509 mutuos, firma y cifrado AES/SHA-256 (<code>Basic256Sha256</code>). Su falla frecuente en planta es operativa: por simplicidad de puesta en marcha, muchos integradores lo degradan a <code>SecurityPolicy: None</code> y acceso anónimo, anulando el cifrado.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Protocolo</th>
+<th>Puerto típico</th>
+<th>Seguridad nativa</th>
+<th>Riesgo frecuente en planta</th>
+<th>Filtro Wireshark</th>
+</tr></thead><tbody>
+<tr><td><strong>Modbus TCP</strong></td><td>TCP 502 (TLS: 802)</td><td>Ninguna en versión clásica</td><td>Escritura arbitraria de registros/bobinas (<code>0x05</code>, <code>0x06</code>, <code>0x10</code>)</td><td><code>modbus</code> o <code>mbtcp</code></td></tr>
+<tr><td><strong>DNP3</strong></td><td>TCP/UDP 20000</td><td>Opcional (SAv5/SAv6 HMAC)</td><td>Maniobras no autenticadas si SAv5 está inactivo</td><td><code>dnp3</code></td></tr>
+<tr><td><strong>S7comm / Plus</strong></td><td>TCP 102</td><td>Solo en S7commPlus moderno</td><td>Parada remota de CPU (<code>STOP</code>) o alteración de lógica</td><td><code>s7comm</code></td></tr>
+<tr><td><strong>OPC UA</strong></td><td>TCP 4840</td><td>Robusta (X.509 + AES/SHA256)</td><td>Degradación manual a <code>SecurityPolicy: None</code></td><td><code>opcua</code></td></tr>
+</tbody></table></div>
+<h2 id="cap-7-6-segmentacion-ot-data-diodes-y-monitoreo-pasivo-de-trafico">Segmentación OT, Data Diodes y monitoreo pasivo de tráfico</h2>
+<p>Como en OT raramente podés parchear PLCs en caliente o instalarles agentes EDR, la defensa se apoya en controlar caminos de red y observar pasivamente lo que circula por el cable.</p>
+<h3 id="cap-7-6-firewalls-ot-con-inspeccion-profunda-de-protocolos-dpi">Firewalls OT con inspección profunda de protocolos (DPI)</h3>
+<p>Un firewall L4 tradicional (<code>Permitir SCADA -&gt; PLC 502</code>) no distingue lecturas de escrituras. Los <strong>firewalls industriales con DPI</strong> comprenden la gramática de Modbus, DNP3 o S7comm y aplican políticas granulares alineadas a zonas y conductos de <strong>IEC 62443</strong>: por ejemplo, permitir al Historian leer registros con código <code>0x03</code> y bloquear códigos de escritura (<code>0x05</code>, <code>0x06</code>, <code>0x10</code>) desde cualquier origen distinto de la HMI o EWS autorizada.</p>
+<h3 id="cap-7-6-data-diodes-unidireccionales">Data Diodes unidireccionales</h3>
+<p>En infraestructuras críticas donde solo se necesita exportar telemetría desde Nivel 3 hacia la IDMZ/IT, se instalan <strong>Data Diodes</strong>. A diferencia de un firewall por software, un diodo de datos impone unidireccionalidad física mediante hardware: un transmisor óptico (LED/láser) conectado por una única fibra hacia un receptor (fotodiodo), <strong>sin fibra física de retorno</strong>. Así es físicamente imposible que un paquete de ataque cruce desde IT hacia la red OT. Para transportar protocolos que requieren <code>ACK</code>, proxies dedicados convierten el tráfico en tramas UDP unidireccionales con corrección de errores y reconstruyen la sesión en el lado receptor.</p>
+<h3 id="cap-7-6-monitoreo-pasivo-de-trafico-ot">Monitoreo pasivo de tráfico OT</h3>
+<p>Para obtener visibilidad continua sin inyectar paquetes activos ni agregar latencia en los lazos de control se utiliza <strong>monitoreo pasivo</strong>:</p>
+<ol><li><strong>Adquisición fuera de banda:</strong> se conectan <strong>TAPs de red</strong> pasivos o puertos <strong>SPAN / Mirror</strong> hacia sensores en modo solo escucha (sin dirección IP asignada en la subred de control).</li><li><strong>Análisis pasivo:</strong> motores abiertos como <strong>Zeek</strong> (analizadores ICS para Modbus, DNP3, S7comm, OPC UA), <strong>Suricata</strong> (reglas de protocolo <code>modbus</code>, <code>dnp3</code>, <code>enip</code>) y plataformas OT especializadas (como Nozomi Networks, Claroty o Dragos a nivel conceptual) construyen pasivamente el <strong>inventario de activos</strong> (modelo de PLC y firmware observados en tráfico legítimo), establecen la <strong>línea base de comunicaciones</strong> (<em>allowlisting</em> de pares IP y códigos de función) y alertan ante anomalías como nuevas estaciones conectándose al puerto <code>102</code>/<code>502</code> o descargas de lógica fuera de ventana.</li></ol>
+<pre><code class="lenguaje-text"># Regla Suricata conceptual para alertar escritura Modbus desde origen no autorizado
+alert modbus any any -&gt; 10.20.1.0/24 502 (msg:"OT ALERTA - Escritura Modbus FC 06 no autorizada"; \
+    modbus: function 6; flow:to_server,established; \
+    src_ip: ![10.20.30.10,10.20.30.11]; sid:9000101; rev:1;)</code></pre>
+<h2 id="cap-7-6-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En esta práctica vas a analizar de manera estrictamente pasiva una captura de tráfico industrial simulado y diseñar reglas defensivas de segmentación y detección.</p>
+<ol><li><strong>Obtención de captura educativa:</strong> descargá en tu VM de análisis una captura <code>.pcap</code> pública de tráfico ICS (por ejemplo, muestras Modbus/DNP3/S7comm de <em>Wireshark SampleCaptures</em> o repositorios educativos abiertos de <em>ICS-Security-Tools</em>).</li><li><strong>Inspección pasiva con TShark/Wireshark:</strong> ejecutá análisis en modo solo lectura sobre la captura:</li></ol>
+<ul><li>Listá conversaciones Modbus con <code>tshark -r captura.pcap -Y "modbus" -T fields -e ip.src -e ip.dst -e modbus.func_code</code>.</li><li>Clasificá los códigos de función observados diferenciando lecturas (<code>1</code>, <code>3</code>, <code>4</code>) de escrituras (<code>5</code>, <code>6</code>, <code>15</code>, <code>16</code>).</li></ul>
+<ol start="3"><li><strong>Diseño Purdue y reglas DPI:</strong> ubicá las IPs observadas en los Niveles 1, 2, 3 y 3.5 del Modelo Purdue, definiendo dónde conectarías el puerto SPAN para monitoreo pasivo y qué reglas DPI permitirían solo lecturas hacia el Historian.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Entregá un informe breve de análisis pasivo OT con: (a) los comandos <code>tshark</code> / filtros Wireshark usados y el inventario de nodos cliente-servidor extraído del <code>.pcap</code>; (b) tabla diferenciando códigos de función de lectura y escritura observados; y (c) diagrama textual del Modelo Purdue con Nivel 3.5 (IDMZ), ubicación del sensor pasivo y tres reglas DPI propuestas.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y gobernanza</p><p>La seguridad OT requiere alinear ingeniería de planta y ciberseguridad corporativa bajo <strong>IEC 62443</strong> y el <strong>Modelo Purdue</strong>. Eliminá conexiones directas entre Nivel 4 (IT) y Niveles 1–3 imponiendo una <strong>DMZ Industrial (Nivel 3.5)</strong> y <strong>Data Diodes</strong> donde solo exista exportación de telemetría; protegé las <strong>Engineering Workstations</strong> y accesos remotos con MFA y grabación de sesión; implementá <strong>monitoreo pasivo</strong> con TAP/SPAN (Zeek/Suricata o plataformas OT especializadas) para inventariar activos y detectar cambios en PLCs sin riesgo operativo; y prohibí por política todo escaneo activo no validado en redes productivas de control.</p></aside>
+<h2 id="cap-7-6-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué se invierte la tríada CIA en entornos OT/ICS respecto de IT y qué implica para un auditor?</strong> Porque en procesos físicos industriales la pérdida de disponibilidad o alteración de comandos puede causar accidentes humanos graves, daños ambientales o paradas costosas, priorizando Seguridad física (<em>Safety</em>) y Disponibilidad sobre Integridad y Confidencialidad; esto obliga al auditor a evitar pruebas activas disruptivas y priorizar técnicas pasivas.</p>
+<p><strong>2. ¿Por qué un escaneo agresivo con Nmap (<code>-T4 -sV</code>) puede sacar de servicio a un PLC antiguo?</strong> Porque muchos PLCs heredados poseen pilas TCP/IP simples y tablas muy pequeñas de sockets simultáneos; una ráfaga de paquetes o sondeos inesperados satura buffers o alarga el ciclo de escaneo, disparando el temporizador <em>watchdog</em> y pasando el controlador a estado de falla o parada (<em>STOP</em>).</p>
+<p><strong>3. ¿Qué función cumple el Nivel 3.5 (DMZ Industrial) dentro del Modelo Purdue?</strong> Desacopla obligatoriamente la red OT (Niveles 0–3) de la red IT corporativa (Niveles 4–5), alojando intermediarios como servidores Historian espejo, proxies de parches y <em>jump hosts</em> con MFA para evitar que compromisos en IT alcancen directamente los PLCs o servidores SCADA.</p>
+<p><strong>4. ¿Qué debilidad comparten Modbus TCP, DNP3 clásico y S7comm tradicional, y cuál es el riesgo habitual de OPC UA en campo?</strong> Modbus TCP, DNP3 clásico y S7comm tradicional carecen de autenticación mutua y cifrado nativos en sus versiones base; OPC UA sí incluye autenticación X.509 y cifrado AES/SHA-256, pero en campo suele degradarse operativamente a <code>SecurityPolicy: None</code> anulando esa protección.</p>
+<p><strong>5. ¿Cómo se logra visibilidad de red y aislamiento unidireccional en OT sin afectar el ciclo de los PLCs?</strong> Mediante <strong>monitoreo estrictamente pasivo</strong> sobre TAPs o puertos SPAN conectados a motores en modo solo escucha (Zeek, Suricata o plataformas OT) junto con <strong>firewalls DPI</strong> y <strong>Data Diodes</strong> unidireccionales por hardware que impiden físicamente el ingreso de tráfico desde IT.</p>
+<h2 id="cap-7-6-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de avanzar al último capítulo sobre GRC y marco legal, asegurate de saber ubicar PLC, RTU, HMI, Historian y EWS en el Modelo Purdue con su IDMZ en Nivel 3.5, explicar por qué los protocolos industriales clásicos fallan en autenticación y justificar el monitoreo pasivo frente al escaneo activo.</p></aside>
+<h2 id="cap-7-6-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>NIST SP 800-82 Rev. 3 (<em>Guide to Operational Technology Security</em>).</li><li>Serie normativa internacional <strong>ISA/IEC 62443</strong> y modelo de referencia <strong>ANSI/ISA-95</strong>.</li><li>Especificación técnica <strong>Modbus Application Protocol</strong> y <strong>OPC Foundation OPC UA Security Architecture</strong>.</li><li>Proyectos abiertos <strong>Zeek</strong> y <strong>Suricata</strong> para análisis pasivo de protocolos ICS.</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="52-seguridad-fisica-hardware-e-iot.html">← 7.5 Seguridad física, perímetro hardware (RFID/BadUSB/DMA) e IoT/Firmware</a></div><div><a href="54-grc-marco-legal-riesgos-y-cumplimiento.html">7.7 GRC, marco legal, contratos (RoE), cuantificación de riesgos e ISO 27001 / NIST CSF →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

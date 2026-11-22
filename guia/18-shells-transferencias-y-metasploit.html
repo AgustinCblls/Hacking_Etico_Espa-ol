@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 3.1 · Shells, transferencias de archivos y uso metódico de Metasploit · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Estabilizar sesiones en lab aislado y documentar artefactos dejados en host">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo3.html">Tomo III</a><span aria-hidden="true">›</span><span>Cap. 3.1</span></nav>
+<h1 id="cap-3-1">Capítulo 3.1 · Shells, transferencias de archivos y uso metódico de Metasploit</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Avanzado</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo III · Ruta 3 · Avanzado</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="19-ataques-y-auditoria-contrasenas.html">3.2 Auditoría de contraseñas, hashes (Hashcat/John) y políticas NIST</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender el funcionamiento interno de las sesiones interactivas (TTY/PTY) frente a las no interactivas, la diferencia arquitectónica entre sesiones bind y reverse en redes segmentadas, los métodos verificables para transferir archivos en un laboratorio controlado, los fundamentos de memoria y arquitectura x86 detrás de las corrupciones de pila y el uso metódico de Metasploit como plataforma de auditoría documentada.</p></aside>
+<p><strong>Prerrequisitos:</strong> Conocimientos básicos de redes TCP/IP, línea de comandos en Linux y PowerShell, y laboratorio local aislado con máquinas virtuales propias (red Host-Only). <strong>Duración sugerida:</strong> 90 a 120 minutos.</p>
+<h2 id="cap-3-1-1-shells-interactivas-no-interactivas-y-asignacion-de-pty-tty">1. Shells interactivas, no interactivas y asignación de PTY/TTY</h2>
+<p>En sistemas tipo Unix, una shell es un intérprete de comandos que se comunica con el núcleo mediante descriptores de archivo estándar: <code>stdin</code> (0), <code>stdout</code> (1) y <code>stderr</code> (2). La experiencia operativa y el comportamiento de los programas cambian según exista o no una terminal virtual asociada.</p>
+<h3 id="cap-3-1-diferencias-entre-sesiones-con-y-sin-pty">Diferencias entre sesiones con y sin PTY</h3>
+<p>Cuando te conectás por SSH o abrís una consola local, el sistema asigna una pseudoterminal (PTY), compuesta por un extremo maestro y uno esclavo (<code>/dev/pts/N</code>). Esto habilita el control de trabajos (<code>Ctrl+C</code>, <code>Ctrl+Z</code>), el historial, el autocompletado y programas que requieren lectura directa de terminal como <code>sudo</code>, <code>su</code> o <code>less</code>. En contraste, una sesión canalizada únicamente por tuberías (pipes) o sockets sin PTY carece de disciplina de línea: las señales no se enrutan al proceso hijo y las utilidades interactivas fallan o exponen comportamiento errático.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Característica</th>
+<th>Shell no interactiva (pipe/socket)</th>
+<th>Shell interactiva con PTY/TTY</th>
+</tr></thead><tbody>
+<tr><td>Dispositivo asociado</td><td>Ninguno (<code>not a tty</code>)</td><td><code>/dev/pts/N</code> o <code>/dev/ttyN</code></td></tr>
+<tr><td>Manejo de señales (<code>SIGINT</code>)</td><td>Suele cerrar la sesión completa</td><td>Se entrega al proceso en primer plano</td></tr>
+<tr><td>Programas como <code>sudo</code> o <code>vim</code></td><td>Rechazan entrada o fallan al dibujar</td><td>Funcionan con control de eco y cursor</td></tr>
+<tr><td>Trazabilidad en auditoría</td><td>Menor contexto de sesión interactiva</td><td>Registrada en <code>utmp</code>/<code>wtmp</code> y auditoría TTY</td></tr>
+</tbody></table></div>
+<p>Para inspeccionar el estado de tu terminal actual en una máquina Linux del laboratorio, ejecutá:</p>
+<pre><code class="lenguaje-bash"># Verificar si la sesión posee un dispositivo TTY asignado
+tty
+
+# Inspeccionar los parámetros de disciplina de línea (tamaño, señales, eco)
+stty -a | head -n 3
+
+# Confirmar la relación entre la terminal y el proceso actual
+ps -o pid,ppid,tty,cmd -p $$</code></pre>
+<h2 id="cap-3-1-2-arquitectura-de-sesiones-bind-vs-reverse-en-redes-con-firewall-y-nat">2. Arquitectura de sesiones bind vs. reverse en redes con firewall y NAT</h2>
+<p>En auditorías de laboratorio sobre topologías segmentadas, el sentido de inicio de la conexión TCP determina cómo interactúa la sesión con reglas de filtrado perimetral y traducción de direcciones (NAT).</p>
+<h3 id="cap-3-1-comparativa-arquitectonica">Comparativa arquitectónica</h3>
+<p>En un modelo <strong>bind</strong>, el sistema objetivo abre un puerto TCP en escucha y espera una conexión entrante desde la estación de administración. En un modelo <strong>reverse</strong>, el flujo se invierte: la conexión TCP se inicia desde el segmento interno hacia un puerto de escucha en la estación de control. Desde el punto de vista de ingeniería de redes, esta diferencia es crítica porque los firewalls corporativos suelen bloquear conexiones entrantes no solicitadas hacia subredes internas, mientras que el tráfico saliente (egress) suele estar menos restringido si no existe filtrado estricto por proxy o lista de permitidos.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Dimensión</th>
+<th>Sesión Bind (entrante)</th>
+<th>Sesión Reverse (saliente)</th>
+</tr></thead><tbody>
+<tr><td>Quién inicia el handshake TCP</td><td>Estación de auditoría → objetivo</td><td>Objetivo → estación de auditoría</td></tr>
+<tr><td>Impacto de firewall perimetral</td><td>Bloqueada por políticas default-deny entrantes</td><td>Depende del control de egress y proxy</td></tr>
+<tr><td>Comportamiento tras NAT</td><td>Requiere reenvío de puertos explícito</td><td>Atraviesa NAT saliente como tráfico estándar</td></tr>
+<tr><td>Superficie expuesta en el host</td><td>Deja un socket en estado <code>LISTEN</code> visible</td><td>Genera una conexión <code>ESTABLISHED</code> saliente</td></tr>
+</tbody></table></div>
+<aside class="callout aviso"><p class="callout-titulo">Uso exclusivo en redes aisladas</p><p>El análisis de conectividad saliente debe realizarse únicamente dentro de redes Host-Only o laboratorios propios sin salida a Internet. En entornos productivos, restringir el tráfico saliente (egress filtering) es uno de los controles más eficaces contra comunicaciones no autorizadas.</p></aside>
+<h2 id="cap-3-1-3-transferencias-de-archivos-trazables-e-integras-en-laboratorio">3. Transferencias de archivos trazables e íntegras en laboratorio</h2>
+<p>Durante una auditoría técnica o una respuesta ante incidentes, suele ser necesario mover herramientas de diagnóstico, scripts de verificación o evidencias entre máquinas del laboratorio. Toda transferencia profesional debe ser <strong>predecible, acotada en tiempo y verificada criptográficamente</strong> mediante SHA-256.</p>
+<h3 id="cap-3-1-metodos-recomendados-en-linux-y-windows">Métodos recomendados en Linux y Windows</h3>
+<ol><li><strong>SCP sobre SSH:</strong> Cifra el canal de extremo a extremo y reutiliza autenticación estándar, ideal entre nodos Linux y servidores Windows con OpenSSH.</li><li><strong>Servidor HTTP efímero local:</strong> Útil en redes Host-Only para servir archivos de solo lectura durante pocos segundos, restringido a la interfaz del laboratorio.</li><li><strong>Codificación Base64 + verificación de hash:</strong> Adecuada para archivos pequeños de texto o configuración cuando solo disponés de una consola interactiva.</li></ol>
+<div class="tabla"><table>
+<thead><tr>
+<th>Método</th>
+<th>Cifrado nativo</th>
+<th>Requisito principal</th>
+<th>Verificación recomendada</th>
+</tr></thead><tbody>
+<tr><td><code>scp</code> / <code>sftp</code></td><td>Sí (SSH)</td><td>Servicio SSH activo</td><td><code>sha256sum</code> / <code>Get-FileHash</code></td></tr>
+<tr><td><code>python3 -m http.server</code></td><td>No (HTTP plano)</td><td>Python 3 en origen y red local</td><td>Validar hash SHA-256 en destino</td></tr>
+<tr><td><code>base64</code> por consola</td><td>Depende del canal</td><td>Utilidad <code>base64</code> o PowerShell</td><td>Comparar digest origen vs. destino</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Origen (Linux): calcular huella SHA-256 antes de transferir
+sha256sum reporte_auditoria.txt
+
+# Transferencia cifrada por SCP hacia un host del laboratorio
+scp reporte_auditoria.txt auditor@192.168.56.20:/tmp/reporte_auditoria.txt
+
+# Alternativa efímera acotada a la interfaz Host-Only (cerrar con Ctrl+C al terminar)
+python3 -m http.server 8080 --bind 192.168.56.10</code></pre>
+<pre><code class="lenguaje-powershell"># Destino (Windows PowerShell): descarga en red de laboratorio y control de integridad
+Invoke-WebRequest -Uri "http://192.168.56.10:8080/reporte_auditoria.txt" -OutFile "C:\Lab\reporte_auditoria.txt"
+Get-FileHash -Path "C:\Lab\reporte_auditoria.txt" -Algorithm SHA256</code></pre>
+<h2 id="cap-3-1-4-fundamentos-de-ensamblador-x86-y-corrupciones-de-pila">4. Fundamentos de ensamblador x86 y corrupciones de pila</h2>
+<p>Comprender cómo la CPU organiza la memoria permite entender por qué existen vulnerabilidades de corrupción de memoria tanto en Linux como en Windows x86 y cómo las mitigan los sistemas operativos modernos.</p>
+<h3 id="cap-3-1-registros-clave-y-marco-de-pila-stack-frame">Registros clave y marco de pila (Stack Frame)</h3>
+<p>En arquitectura x86 de 32 bits, la ejecución secuencial depende de registros de propósito general (<code>EAX</code>, <code>EBX</code>, <code>ECX</code>, <code>EDX</code>) y de control de pila:</p>
+<ul><li><code>ESP</code> (<em>Stack Pointer</em>): apunta a la cima actual de la pila (crece hacia direcciones menores).</li><li><code>EBP</code> (<em>Base Pointer</em>): marca la base del marco de la función en ejecución para referenciar variables locales y parámetros.</li><li><code>EIP</code> (<em>Instruction Pointer</em>): contiene la dirección de la próxima instrucción que ejecutará el procesador.</li></ul>
+<p>Cuando un programa en C/C++ copia datos de entrada a un búfer de tamaño fijo en la pila sin validar la longitud (por ejemplo, usando funciones inseguras en lugar de variantes acotadas), la escritura desborda el espacio reservado para variables locales y puede sobrescribir el <code>EBP</code> guardado y la dirección de retorno. Al ejecutarse la instrucción <code>RET</code>, el procesador carga esa dirección corrupta en <code>EIP</code>, provocando una caída del proceso o una alteración del flujo de control.</p>
+<h3 id="cap-3-1-protecciones-modernas-contra-corrupcion-de-memoria">Protecciones modernas contra corrupción de memoria</h3>
+<p>Los compiladores y sistemas operativos contemporáneos implementan defensas en profundidad que elevan drásticamente el costo de explotar errores de memoria:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Mecanismo</th>
+<th>Plataforma</th>
+<th>Función protectora</th>
+</tr></thead><tbody>
+<tr><td><strong>Stack Canaries</strong> (<code>-fstack-protector</code>, <code>/GS</code>)</td><td>Linux y Windows</td><td>Inserta un valor aleatorio antes de la dirección de retorno y aborta si se modifica</td></tr>
+<tr><td><strong>NX / DEP</strong></td><td>Linux y Windows</td><td>Marca la pila y el heap como memoria no ejecutable</td></tr>
+<tr><td><strong>ASLR</strong></td><td>Linux y Windows</td><td>Aleatoriza las direcciones base de pila, bibliotecas y ejecutables en cada ejecución</td></tr>
+<tr><td><strong>SafeSEH / SEHOP</strong></td><td>Windows x86</td><td>Verifica la integridad de los manejadores estructurados de excepciones</td></tr>
+</tbody></table></div>
+<h2 id="cap-3-1-5-uso-metodico-y-documentado-de-metasploit-framework">5. Uso metódico y documentado de Metasploit Framework</h2>
+<p>Metasploit no debe utilizarse como una caja negra automatizada, sino como un entorno modular para validar configuraciones, ejecutar reconocimientos reproducibles y mantener trazabilidad completa de cada prueba autorizada.</p>
+<h3 id="cap-3-1-arquitectura-modular-y-disciplina-de-evidencia">Arquitectura modular y disciplina de evidencia</h3>
+<ul><li><strong>Workspaces:</strong> Aíslan resultados, hosts y servicios por proyecto o subred dentro de la base de datos PostgreSQL.</li><li><strong>Módulos <code>auxiliary</code> y <code>scanner</code>:</strong> Permiten verificar versiones, banners y configuraciones expuestas sin alterar la estabilidad del servicio.</li><li><strong>Módulos <code>post</code>:</strong> Orientados a inventario estructurado y recolección de evidencias dentro de sesiones autorizadas.</li><li><strong>Registro con <code>spool</code>:</strong> Guarda la salida íntegra de consola en un archivo de auditoría con marca temporal para respaldar el informe técnico.</li></ul>
+<pre><code class="lenguaje-text">msf6 &gt; workspace -a lab_tomo3
+[*] Added workspace: lab_tomo3
+
+msf6 &gt; spool /home/auditor/evidencias/sesion_lab_tomo3.log
+[*] Spooling to file /home/auditor/evidencias/sesion_lab_tomo3.log...
+
+msf6 &gt; search type:auxiliary name:ssh_version
+msf6 &gt; use auxiliary/scanner/ssh/ssh_version
+msf6 auxiliary(scanner/ssh/ssh_version) &gt; set RHOSTS 192.168.56.20
+msf6 auxiliary(scanner/ssh/ssh_version) &gt; show options
+msf6 auxiliary(scanner/ssh/ssh_version) &gt; run</code></pre>
+<h2 id="cap-3-1-6-busqueda-lectura-critica-y-adaptacion-de-exploits-publicos-searchsploit-y-compilacion-cruzada">6. Búsqueda, lectura crítica y adaptación de exploits públicos (<code>searchsploit</code> y compilación cruzada)</h2>
+<p>En certificaciones prácticas como <strong>PEN-200 (OSCP)</strong> —donde el uso de explotación automatizada con Metasploit suele restringirse— y en auditorías reales sobre software legado, no basta con lanzar módulos prefabricados: necesitás encontrar pruebas de concepto (<strong>PoCs</strong>) públicas, verificar que sean seguras antes de ejecutarlas y adaptarlas a la arquitectura real del objetivo en laboratorio.</p>
+<h3 id="cap-3-1-busqueda-metodica-con-searchsploit-y-lectura-critica-de-pocs">Búsqueda metódica con <code>searchsploit</code> y lectura crítica de PoCs</h3>
+<p>La base local de <strong>Exploit-DB</strong> se consulta offline con <code>searchsploit</code> cruzando producto y versión exacta obtenida durante la enumeración (Cap. 2.1):</p>
+<pre><code class="lenguaje-bash"># Buscar por nombre de servicio y versión (sin ruido externo)
+searchsploit -t "Apache 2.4"
+
+# Inspeccionar el código fuente completo de un PoC antes de copiarlo (ejemplo ID 12345)
+searchsploit -x 12345
+
+# Copiar el archivo al directorio de trabajo del laboratorio para revisarlo y adaptarlo
+searchsploit -m 12345</code></pre>
+<aside class="callout peligro"><p class="callout-titulo">Regla de seguridad obligatoria antes de ejecutar un PoC público</p><p>Nunca compiles ni ejecutes a ciegas un script descargado de GitHub, blogs o Exploit-DB sin <strong>leer línea por línea todo su código fuente</strong>: han existido PoCs falsos con <em>backdoors</em> o comandos destructivos ocultos en llamadas <code>curl</code>, cadenas Base64 o funciones auxiliares. Verificá siempre qué IP contacta, qué archivos modifica y qué payload contiene, ejecutándolo únicamente en tu VM aislada con snapshot previo.</p></aside>
+<h3 id="cap-3-1-adaptacion-de-exploits-publicos-fixing-exploits-y-compilacion-cruzada">Adaptación de exploits públicos (<em>Fixing Exploits</em>) y compilación cruzada</h3>
+<p>Los scripts históricos rara vez funcionan a la primera sobre sistemas modernos o redes de laboratorio distintas a la del autor original. Los cuatro ajustes habituales en laboratorio son:</p>
+<ol><li><strong>Migración de Python 2 a Python 3:</strong> muchos PoCs antiguos importan <code>urllib2</code> (reemplazar por <code>urllib.request</code>) o envían cadenas <code>str</code> directas por sockets (<code>sock.send("...")</code>), lo cual falla en Python 3 por exigir <code>bytes</code> (<code>b"..."</code> o <code>.encode("utf-8")</code>) y <code>requests</code> moderno.</li><li><strong>Parámetros hardcodeados de red y ruta:</strong> revisar direcciones <code>127.0.0.1</code> o <code>10.10.x.x</code> escritas dentro del código, puertos HTTP frente a HTTPS (deshabilitar verificación de certificado autofirmado en lab cuando aplica o ajustar el esquema) y prefijos de directorio (<code>/app/</code> vs <code>/</code>).</li><li><strong>Ajuste de payload o comando de verificación:</strong> reemplazar cualquier comando intrusivo del autor original por una prueba inocua y verificable en tu laboratorio (por ejemplo <code>id</code>, <code>whoami</code> o un ping/petición HTTP hacia tu propia interfaz Host-Only) para confirmar ejecución sin dañar el servicio.</li><li><strong>Compilación cruzada (<em>Cross-Compilation</em>) desde Linux hacia Windows o Linux x86:</strong> si el PoC está escrito en C/C++, debés compilarlo apuntando a la arquitectura exacta del sistema destino (<code>file</code> / <code>uname -m</code> / <code>systeminfo</code>):</li></ol>
+<pre><code class="lenguaje-bash"># Compilar en Linux un PoC en C para Windows 64 bits (enlazando sockets Winsock con -lws2_32)
+x86_64-w64-mingw32-gcc poc_lab.c -o poc_win64.exe -lws2_32
+
+# Compilar para Windows 32 bits en sistemas legados
+i686-w64-mingw32-gcc poc_lab.c -o poc_win32.exe -lws2_32
+
+# Compilar para Linux 32 bits o con bibliotecas estáticas (evita errores de GLIBC en hosts antiguos)
+gcc -m32 -static poc_linux.c -o poc_linux32</code></pre>
+<h2 id="cap-3-1-ejemplo-paso-a-paso-auditoria-reproducible-con-verificacion-de-integridad-y-registro">Ejemplo paso a paso: auditoría reproducible con verificación de integridad y registro</h2>
+<p>En este recorrido verificamos la conectividad de un servicio SSH local, transferimos un archivo de inventario entre dos VMs del laboratorio comprobando su integridad SHA-256 y documentamos la sesión.</p>
+<pre><code class="lenguaje-bash"># 1. Crear un archivo de inventario local en la VM origen (192.168.56.10)
+uname -a &gt; /tmp/inventario_vm.txt
+sha256sum /tmp/inventario_vm.txt
+# Salida esperada:
+# 9c4b8e2f...  /tmp/inventario_vm.txt
+
+# 2. Codificar a Base64 si se necesita auditar transferencia por texto plano
+base64 /tmp/inventario_vm.txt &gt; /tmp/inventario_vm.b64
+
+# 3. Transferir por SCP hacia la VM destino (192.168.56.20)
+scp /tmp/inventario_vm.b64 auditor@192.168.56.20:/tmp/
+
+# 4. En la VM destino: decodificar y validar que el hash coincida exactamente
+base64 -d /tmp/inventario_vm.b64 &gt; /tmp/inventario_vm.txt
+sha256sum /tmp/inventario_vm.txt
+# Salida comentada: si el digest coincide carácter a carácter, no hubo corrupción ni alteración.</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>Desde la óptica de defensa y monitoreo (tácticas de alto nivel de MITRE ATT&amp;CK como <strong>Execution</strong> y <strong>Command and Control</strong>), las sesiones anómalas, transferencias no autorizadas y escaneos modulares dejan rastros claros en los registros del host y de red:</p>
+<ul><li><strong>Árbol de procesos anómalo:</strong> Intérpretes de comandos o motores de scripting iniciados desde servicios de red o aplicaciones que normalmente no generan consolas interactivas.</li><li><strong>Conexiones salientes inusuales:</strong> Tráfico TCP desde servidores internos hacia puertos no estándar o estaciones fuera de la lista de destinos aprobados.</li><li><strong>Mitigación directa:</strong> Aplicar filtrado estricto de salida (egress), compilar binarios propios con ASLR, NX/DEP y stack canaries habilitados, y restringir herramientas de transferencia en servidores productivos a canales autenticados y auditados.</li></ul></aside>
+<h2 id="cap-3-1-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>Configurá dos máquinas virtuales en una red Host-Only aislada (una estación de auditoría Linux y un servidor Linux o Windows de prueba):</p>
+<ol><li>Verificá tu entorno de terminal con <code>tty</code>, <code>stty -a</code> y <code>ps</code> dentro de una sesión SSH y comparalo con la salida obtenida al ejecutar un comando no interactivo por SSH (<code>ssh usuario@host tty</code>).</li><li>Transferí un archivo de prueba usando <code>scp</code> y luego mediante <code>python3 -m http.server</code> restringido a la IP de la red Host-Only, comprobando en ambos casos el hash SHA-256.</li><li>Inicializá un workspace dedicado en <code>msfconsole</code>, activá <code>spool</code> y ejecutá un módulo auxiliar de identificación de versión (<code>ssh_version</code> o <code>http_version</code>) únicamente contra tu VM de laboratorio.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un archivo de evidencia que incluya: captura de la salida de <code>tty</code> (interactiva vs. no interactiva), los digests SHA-256 coincidentes en origen y destino, y el extracto del log generado con <code>spool</code> mostrando el workspace utilizado.</p></aside>
+<h2 id="cap-3-1-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué ciertos comandos administrativos como <code>sudo</code> o editores de pantalla completa requieren una PTY para operar normalmente?</strong> Porque dependen de la disciplina de línea y las llamadas de control de terminal que provee el dispositivo PTY para desactivar el eco de contraseñas, gestionar señales como <code>SIGINT</code> y conocer las dimensiones de la ventana.</p>
+<p><strong>2. ¿Cuál es la diferencia fundamental entre una sesión bind y una sesión reverse frente a un firewall perimetral con NAT?</strong> En una sesión bind el cliente inicia la conexión hacia un puerto abierto en el destino, lo cual suele ser bloqueado por políticas entrantes y NAT; en una sesión reverse el host interno origina la conexión saliente, atravesando NAT salvo que exista filtrado estricto de tráfico de salida.</p>
+<p><strong>3. ¿Por qué es obligatorio verificar el hash SHA-256 tras transferir un archivo en una auditoría?</strong> Porque garantiza integridad criptográfica, confirmando que el archivo recibido es idéntico bit a bit al original y no sufrió truncamientos, errores de codificación o alteraciones durante el tránsito.</p>
+<p><strong>4. ¿Qué papel cumplen los mecanismos ASLR, DEP/NX y Stack Canaries frente a una corrupción de pila x86?</strong> Actúan como defensas en profundidad: los canaries detectan la sobrescritura antes de retornar de la función, DEP/NX impide ejecutar instrucciones desde regiones de datos y ASLR dificulta predecir direcciones válidas en memoria.</p>
+<p><strong>5. ¿Qué valor aporta trabajar con workspaces y <code>spool</code> dentro de Metasploit?</strong> Permite segregar los hallazgos de distintos entornos evaluados y conservar una bitácora íntegra y auditable de cada módulo ejecutado, evitando mezclar evidencias y facilitando la reproducibilidad técnica.</p>
+<h2 id="cap-3-1-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Diferenciás el comportamiento de una shell con PTY frente a una sesión sin terminal asignada.</li><li>☐ Comprendés cómo las políticas de firewall y NAT afectan el sentido de conexión TCP.</li><li>☐ Sabés transferir archivos de forma controlada en laboratorio y verificar su integridad con SHA-256.</li><li>☐ Identificás los registros básicos x86 y las principales defensas contra corrupción de memoria.</li><li>☐ Usás workspaces y registro de evidencias al ejecutar módulos auxiliares en Metasploit.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de pasar al Capítulo 3.2, asegurate de haber cerrado cualquier servidor HTTP temporal que hayas levantado en tu laboratorio y de conservar tus evidencias organizadas por fecha y host.</p></aside>
+<h2 id="cap-3-1-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>NIST SP 800-115: <em>Technical Guide to Information Security Testing and Assessment</em> (https://csrc.nist.gov/publications/detail/sp/800-115/final)</li><li>MITRE ATT&amp;CK Enterprise Matrix: tácticas <em>Execution</em> y <em>Command and Control</em> (https://attack.mitre.org/)</li><li>Linux man-pages: <code>pty(7)</code>, <code>stty(1)</code>, <code>scp(1)</code>, <code>sha256sum(1)</code> (https://man7.org/linux/man-pages/)</li><li>Microsoft Learn: <em>Data Execution Prevention (DEP) y mitigaciones de memoria en Windows</em> (https://learn.microsoft.com/en-us/windows/win32/memory/data-execution-prevention)</li><li>Rapid7 Metasploit Framework Documentation: <em>Managing Workspaces and Auxiliary Modules</em> (https://docs.metasploit.com/)</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 3 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>File Transfers</td><td>Medium</td><td>Offensive</td><td>10</td></tr><tr><td>Using the Metasploit Framework</td><td>Easy</td><td>Offensive</td><td>15</td></tr><tr><td>Shells &amp; Payloads</td><td>Medium</td><td>Offensive</td><td>17</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="17-reportes-y-metodologia-pentest.html">← 2.8 Metodología profesional de pentesting, informes ejecutivos y remediación</a></div><div><a href="19-ataques-y-auditoria-contrasenas.html">3.2 Auditoría de contraseñas, hashes (Hashcat/John) y políticas NIST →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

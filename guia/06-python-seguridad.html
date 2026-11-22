@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 1.6 · Python 3 aplicado a seguridad ofensiva y defensiva · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Escribir un escáner TCP local y un analizador de logs en Python 3">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo1.html">Tomo I</a><span aria-hidden="true">›</span><span>Cap. 1.6</span></nav>
+<h1 id="cap-1-6">Capítulo 1.6 · Python 3 aplicado a seguridad ofensiva y defensiva</h1>
+<div class="meta-nivel"><span class="nivel-badge principiante">Principiante</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo I · Ruta 1 · Principiante</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="07-protocolos-y-servicios.html">1.7 Protocolos y servicios de red: SSH, SMB, DNS, LDAP, RDP y bases de datos</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Escribir herramientas propias y auditables en <strong>Python 3</strong> para automatización defensiva, verificación de red local, análisis de registros y comprobación de integridad. Al finalizar vas a dominar sockets TCP, peticiones HTTP seguras, parsing con expresiones regulares/JSON/CSV, hashing con <code>hashlib</code>, ejecución controlada mediante <code>subprocess</code> y el funcionamiento interno de <code>laboratorios/auditor_red_local.py</code> y <code>laboratorios/analizador_logs_soc.py</code>.</p></aside>
+<p><strong>Prerrequisitos:</strong> Manejo fluido de terminal y lógica básica de scripting (Capítulo 1.5), además de fundamentos TCP/IP (Capítulo 1.2). <strong>Duración sugerida:</strong> 3 a 4 horas (incluyendo ejecución y extensión de los scripts del laboratorio).</p>
+<h2 id="cap-1-6-1-python-3-limpio-para-tareas-de-seguridad-y-comparativa-con-go">1. Python 3 limpio para tareas de seguridad y comparativa con Go</h2>
+<p>Cuando una tarea supera la complejidad de una tubería de shell —por ejemplo, mantener estado entre múltiples archivos, correlacionar alertas en JSON, consultar una API REST o hablar directamente sobre TCP—, <strong>Python 3</strong> ofrece el mejor equilibrio entre velocidad de desarrollo, legibilidad y biblioteca estándar. Su ecosistema cubre desde prototipado rápido en auditorías autorizadas hasta automatización de respuestas en un SOC.</p>
+<h3 id="cap-1-6-1-1-entornos-aislados-tipado-y-gestion-de-recursos">1.1 Entornos aislados, tipado y gestión de recursos</h3>
+<p>Un script de seguridad descuidado suele fallar por dependencias rotas, sockets sin cerrar o excepciones silenciosas. Aplicá cuatro hábitos desde el primer día:</p>
+<ul><li><strong>Entornos virtuales (<code>venv</code>):</strong> aislá librerías externas como <code>requests</code> con <code>python3 -m venv .venv</code> para no contaminar el Python del sistema operativo.</li><li><strong>Manejadores de contexto (<code>with</code>):</strong> garantizan el cierre automático de archivos y sockets incluso cuando ocurre una excepción.</li><li><strong>Anotaciones de tipo (<em>type hints</em>):</strong> documentan qué entra y qué sale de cada función (<code>def verificar_puerto(host: str, puerto: int) -&gt; tuple[bool, str]:</code>), reduciendo errores en tiempo de mantenimiento.</li><li><strong>Tiempos de espera explícitos (<code>timeout</code>):</strong> ninguna llamada de red o subproceso debe quedar bloqueada indefinidamente.</li></ul>
+<h3 id="cap-1-6-1-2-criterio-de-eleccion-shell-python-3-y-go">1.2 Criterio de elección: Shell, Python 3 y Go</h3>
+<p>En equipos de seguridad modernos suele combinarse el scripting de sistema con Python 3 y, para utilidades compiladas de alto rendimiento, <strong>Go (Golang)</strong>. Conviene entender cuándo elegir cada herramienta:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Criterio</th>
+<th>Bash / PowerShell</th>
+<th>Python 3</th>
+<th>Go (Golang)</th>
+</tr></thead><tbody>
+<tr><td>Velocidad de prototipado</td><td>Muy alta (línea única)</td><td>Alta (biblioteca estándar extensa)</td><td>Media (tipado estático estricto)</td></tr>
+<tr><td>Distribución en hosts</td><td>Depende del SO y versión</td><td>Requiere intérprete y dependencias</td><td>Binario estático único sin runtime externo</td></tr>
+<tr><td>Concurrencia nativa</td><td>Limitada (subprocesos)</td><td><code>asyncio</code> / <code>concurrent.futures</code></td><td>Muy alta (<em>goroutines</em> y canales)</td></tr>
+<tr><td>Caso de uso ideal</td><td>Triaje inmediato y administración</td><td>Parsing SOC, clientes HTTP/API, automatización</td><td>Colectores de telemetría, proxies y agentes portables</td></tr>
+</tbody></table></div>
+<h2 id="cap-1-6-2-programacion-de-red-con-sockets-tcp-y-clientes-http">2. Programación de red con sockets TCP y clientes HTTP</h2>
+<h3 id="cap-1-6-2-1-sockets-tcp-defensivos-y-control-de-alcance">2.1 Sockets TCP defensivos y control de alcance</h3>
+<p>El módulo estándar <code>socket</code> expone la interfaz BSD de comunicaciones de red. Para verificar si un puerto TCP acepta conexiones sin generar ruido innecesario, <code>connect_ex()</code> resulta más limpio que <code>connect()</code> porque devuelve <code>0</code> en caso de éxito o un código de error numérico del sistema operativo sin lanzar excepciones por cada puerto cerrado.</p>
+<p>Además, toda herramienta educativa o de inventario interno debe incorporar <strong>guardarraíles de alcance</strong> usando el módulo <code>ipaddress</code>, restringiendo las conexiones únicamente a direcciones de laboratorio (<code>127.0.0.0/8</code> o rangos privados RFC 1918):</p>
+<pre><code class="lenguaje-python">import ipaddress
+import socket
+
+
+def validar_destino_laboratorio(host: str) -&gt; str:
+    ip_str = socket.gethostbyname(host)
+    ip_obj = ipaddress.ip_address(ip_str)
+    if not (ip_obj.is_private or ip_obj.is_loopback):
+        raise ValueError(f"Destino fuera de laboratorio autorizado: {ip_str}")
+    return ip_str
+
+
+def probar_tcp(host: str, puerto: int, timeout: float = 0.8) -&gt; bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(timeout)
+        return sock.connect_ex((host, puerto)) == 0</code></pre>
+<h3 id="cap-1-6-2-2-peticiones-http-reproducibles-con-urllib-y-requests">2.2 Peticiones HTTP reproducibles con <code>urllib</code> y <code>requests</code></h3>
+<p>Para auditar cabeceras de seguridad, consultar APIs de inteligencia de amenazas o verificar endpoints de una aplicación local, Python ofrece <code>urllib.request</code> en su biblioteca estándar (cero dependencias externas) y la librería <code>requests</code> como estándar de facto por su ergonomía. En ambos casos, <strong>nunca deshabilites la verificación de certificados TLS</strong> (<code>verify=False</code>) en producción ni omitas <code>timeout</code>:</p>
+<pre><code class="lenguaje-python">import urllib.request
+import urllib.error
+
+CABECERAS_ESPERADAS = (
+    "Content-Security-Policy",
+    "X-Content-Type-Options",
+    "X-Frame-Options",
+    "Strict-Transport-Security",
+)
+
+
+def auditar_cabeceras_http(url: str, timeout: float = 3.0) -&gt; dict[str, str]:
+    req = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"User-Agent": "Lab-Auditor/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return {h: resp.headers.get(h, "AUSENTE") for h in CABECERAS_ESPERADAS}
+    except urllib.error.URLError as exc:
+        return {"error": str(exc)}</code></pre>
+<p>Si necesitás mantener cookies entre múltiples solicitudes o reutilizar conexiones TCP persistentes (<em>keep-alive</em>), usá <code>requests.Session()</code> dentro de un bloque <code>with</code> y comprobá siempre <code>resp.status_code</code> antes de decodificar el cuerpo con <code>resp.json()</code>.</p>
+<h2 id="cap-1-6-3-parsing-estructurado-json-csv-regex-e-integridad-con-hashlib">3. Parsing estructurado (JSON, CSV, Regex) e integridad con <code>hashlib</code></h2>
+<h3 id="cap-1-6-3-1-expresiones-regulares-compiladas-json-y-csv">3.1 Expresiones regulares compiladas, JSON y CSV</h3>
+<p>Los registros heterogéneos rara vez llegan en un único formato: un firewall puede exportar CSV, una API devuelve JSON y <code>sshd</code> escribe texto semiestructurado. En Python conviene compilar previamente las expresiones regulares con <code>re.compile()</code> y usar <strong>grupos con nombre</strong> (<code>(?P&lt;campo&gt;...)</code>) para que el código siga siendo legible meses después:</p>
+<pre><code class="lenguaje-python">import csv
+import json
+import re
+from pathlib import Path
+
+PATRON_ACCESO = re.compile(
+    r'^(?P&lt;ip&gt;\S+) .* "(?P&lt;metodo&gt;GET|POST|PUT|DELETE|HEAD) (?P&lt;ruta&gt;\S+) HTTP/.*" (?P&lt;codigo&gt;\d{3}) '
+)
+
+
+def exportar_resumen_csv_a_json(ruta_csv: Path, ruta_json: Path) -&gt; int:
+    filas_filtradas = []
+    with ruta_csv.open("r", encoding="utf-8", newline="") as f:
+        for fila in csv.DictReader(f):
+            if fila.get("estado", "").lower() == "alerta":
+                filas_filtradas.append(fila)
+
+    ruta_json.write_text(
+        json.dumps(filas_filtradas, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return len(filas_filtradas)</code></pre>
+<h3 id="cap-1-6-3-2-verificacion-de-integridad-con-hashlib-y-comparacion-segura">3.2 Verificación de integridad con <code>hashlib</code> y comparación segura</h3>
+<p>En respuesta a incidentes, forense y verificación de artefactos descargados, el módulo <code>hashlib</code> calcula resúmenes criptográficos sin cargar archivos grandes completos en RAM. Usá <strong>SHA-256</strong> (o SHA-512) para integridad, evitando MD5 y SHA-1 debido a colisiones conocidas. Además, al comparar dos resúmenes o tokens sensibles, utilizá <code>hmac.compare_digest()</code> para prevenir filtraciones por tiempo de ejecución (<em>timing attacks</em>):</p>
+<pre><code class="lenguaje-python">import hashlib
+import hmac
+from pathlib import Path
+
+
+def sha256_archivo(ruta: Path, bloque: int = 65536) -&gt; str:
+    h = hashlib.sha256()
+    with ruta.open("rb") as f:
+        while fragmento := f.read(bloque):
+            h.update(fragmento)
+    return h.hexdigest()
+
+
+def verificar_integridad(ruta: Path, hash_esperado: str) -&gt; bool:
+    calculado = sha256_archivo(ruta)
+    return hmac.compare_digest(calculado.lower(), hash_esperado.strip().lower())</code></pre>
+<h2 id="cap-1-6-4-automatizacion-segura-del-sistema-con-subprocess">4. Automatización segura del sistema con <code>subprocess</code></h2>
+<p>En ocasiones un script Python necesita invocar binarios del sistema operativo (<code>ss</code>, <code>openssl</code>, <code>git</code>, <code>ip</code>). La regla de oro en Python moderno es usar <code>subprocess.run()</code> pasando el comando como <strong>lista de argumentos</strong> y manteniendo <code>shell=False</code> (el valor por defecto).</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Práctica</th>
+<th>Ejemplo</th>
+<th>Riesgo / Beneficio</th>
+</tr></thead><tbody>
+<tr><td>Insegura (prohibida)</td><td><code>subprocess.run(f"ping -c 1 {host}", shell=True)</code></td><td>Inyección de comandos si <code>host</code> contiene <code>;</code>, <code>&amp;&amp;</code> o <code>$(...)</code></td></tr>
+<tr><td>Segura (recomendada)</td><td><code>subprocess.run(["ping", "-c", "1", "--", host], capture_output=True, text=True, timeout=5)</code></td><td>El sistema ejecuta el binario directo sin invocar <code>/bin/sh</code> ni interpretar metacaracteres</td></tr>
+</tbody></table></div>
+<p>El separador <code>--</code> indica a muchas utilidades POSIX que los argumentos posteriores son datos y no opciones adicionales (mitigando inyección de flags). Siempre capturá <code>subprocess.TimeoutExpired</code> y validá previamente la entrada (por ejemplo, comprobando que <code>host</code> sea una IP válida con <code>ipaddress.ip_address()</code>).</p>
+<pre><code class="lenguaje-python">import ipaddress
+import subprocess
+
+
+def inspeccionar_ruta_local(ip_texto: str) -&gt; str:
+    ip_validada = str(ipaddress.ip_address(ip_texto))
+    resultado = subprocess.run(
+        ["ip", "route", "get", ip_validada],
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=False,
+    )
+    if resultado.returncode != 0:
+        return f"Error al consultar ruta: {resultado.stderr.strip()}"
+    return resultado.stdout.strip()</code></pre>
+<aside class="callout peligro"><p class="callout-titulo">Nunca uses <code>os.system()</code> ni <code>eval()</code> sobre datos externos</p><p>Tanto <code>os.system()</code> como <code>subprocess.run(..., shell=True)</code> pasan la cadena completa al intérprete de comandos del sistema. De forma análoga, <code>eval()</code> y <code>pickle.loads()</code> sobre datos no confiables ejecutan código arbitrario. Para deserializar datos externos, restringite siempre a formatos declarativos seguros como <code>json.loads()</code> o <code>yaml.safe_load()</code>.</p></aside>
+<h2 id="cap-1-6-5-recorrido-practico-por-los-scripts-de-laboratorios">5. Recorrido práctico por los scripts de <code>laboratorios/</code></h2>
+<p>El repositorio del manual incluye dos utilidades educativas en Python 3 diseñadas para consolidar los conceptos de este capítulo sin dependencias externas.</p>
+<h3 id="cap-1-6-5-1-anatomia-de-laboratorios-auditor-red-local-py">5.1 Anatomía de <code>laboratorios/auditor_red_local.py</code></h3>
+<p>Este script realiza un inventario rápido de superficie expuesta sobre un host local o de laboratorio:</p>
+<ol><li><strong>Lista acotada de puertos (<code>PUERTOS_COMUNES</code>):</strong> verifica 14 puertos representativos (<code>22, 53, 80, 135, 139, 389, 443, 445, 3306, 3389, 5050, 5432, 8080, 8443</code>), incluyendo el puerto <code>5050</code> de nuestra aplicación educativa web.</li><li><strong>Guardarraíl de alcance (<code>es_destino_privado</code>):</strong> resuelve el host con <code>socket.gethostbyname()</code> y exige que <code>ip.is_private or ip.is_loopback</code> sea verdadero; ante cualquier dirección pública aborta con código <code>1</code> y el mensaje <code>[BLOQUEADO]</code>.</li><li><strong>Verificación y captura pasiva/mínima de banner (<code>verificar_puerto</code>):</strong> abre un socket TCP con <code>timeout=0.6</code> segundos y usa <code>connect_ex()</code>. Si el puerto responde y pertenece al conjunto HTTP local (<code>80</code>, <code>5050</code>, <code>8080</code>), envía <code>HEAD / HTTP/1.0\r\nHost: localhost\r\n\r\n</code> para leer la primera línea de respuesta (<code>recv(120)</code>), decodificando con <code>errors="replace"</code> para no fallar ante bytes no UTF-8.</li></ol>
+<h3 id="cap-1-6-5-2-anatomia-de-laboratorios-analizador-logs-soc-py">5.2 Anatomía de <code>laboratorios/analizador_logs_soc.py</code></h3>
+<p>Este script ilustra cómo estructurar un detector ligero de anomalías de autenticación y sondeo web para un flujo SOC:</p>
+<ol><li><strong>Dos patrones compilados:</strong> <code>PATRON_SSH_FAIL</code> extrae <code>user</code> e <code>ip</code> de líneas <code>Failed password for</code> de OpenSSH; <code>PATRON_HTTP_4XX</code> captura <code>ip</code>, <code>metodo</code>, <code>ruta</code> y <code>codigo</code> (<code>401</code>, <code>403</code>, <code>404</code>) en registros de acceso web.</li><li><strong>Estructuras de acumulación eficientes:</strong> emplea <code>collections.Counter()</code> para contabilizar eventos por IP y <code>collections.defaultdict(set)</code> para registrar qué usuarios distintos intentó cada origen sin duplicados.</li><li><strong>Emisión de alertas en JSON estructurado:</strong> genera la regla <code>SOC-AUTH-001</code> cuando una IP alcanza o supera <code>umbral</code> fallos SSH (severidad <code>media</code> si es <code>&lt; 20</code>, <code>alta</code> si es <code>&gt;= 20</code>, acotando <code>usuarios_distintos</code> a 10 elementos) y la regla <code>SOC-WEB-002</code> cuando las respuestas <code>4xx</code> alcanzan <code>umbral * 3</code>. La salida JSON facilita la integración directa con dashboards, scripts posteriores o sistemas SIEM.</li></ol>
+<h2 id="cap-1-6-6-panorama-complementario-go-golang-y-c-net-en-ciberseguridad">6. Panorama complementario: Go (Golang) y C# (.NET) en ciberseguridad</h2>
+<p>Aunque Python es el lenguaje principal para automatización ágil, muchas herramientas de auditoría, agentes defensivos y aplicaciones empresariales están escritas en <strong>Go</strong> o <strong>C#</strong>, por lo que conviene reconocer ambos ecosistemas desde el inicio:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Lenguaje</th>
+<th>Dónde aparece en ciberseguridad</th>
+<th>Por qué importa saber leerlo</th>
+<th>Ejemplo mínimo representativo</th>
+</tr></thead><tbody>
+<tr><td><strong>Go (Golang)</strong></td><td>Herramientas CLI de red y defensa (<code>ffuf</code>, <code>nuclei</code>, <code>ligolo-ng</code>, sensores eBPF/telemetría y parsers concurrentes de PCAP/logs).</td><td>Compila a un <strong>único binario estático</strong> sin dependencias externas en Linux/Windows y maneja alta concurrencia mediante <em>goroutines</em>.</td><td><code>h := sha256.Sum256(data)</code> y <code>net.DialTimeout("tcp", addr, time.Second)</code></td></tr>
+<tr><td><strong>C# (.NET)</strong></td><td>Utilidades corporativas de administración Windows, APIs internas y herramientas de auditoría AD (<code>SharpView</code>, <code>SharpHound</code>, <code>Rubeus</code>).</td><td>Se integra nativamente con la API Win32, WMI y <code>System.DirectoryServices</code> en Windows, y puede inspeccionarse en claro con <strong>ILSpy / dnSpyEx</strong> (ver Etapa 3 del Curso de Reversing).</td><td><code>DirectorySearcher</code> en LDAP y <code>WindowsIdentity.GetCurrent()</code></td></tr>
+</tbody></table></div>
+<h2 id="cap-1-6-ejemplo-paso-a-paso-ejecucion-de-los-scripts-del-laboratorio">Ejemplo paso a paso: Ejecución de los scripts del laboratorio</h2>
+<p>Ejecutá ambos scripts en tu entorno local contra <code>127.0.0.1</code> y un archivo de registros sintético para observar su comportamiento real.</p>
+<p><strong>Paso 1:</strong> probá el inventario local y comprobá además que el bloqueo de seguridad rechaza direcciones externas:</p>
+<pre><code class="lenguaje-bash">python3 laboratorios/auditor_red_local.py 127.0.0.1
+python3 laboratorios/auditor_red_local.py 8.8.8.8</code></pre>
+<p>Salida esperada comentada:</p>
+<pre><code class="lenguaje-text">=== Inventario local de puertos en 127.0.0.1 (2026-11-22T20:10:05+00:00) ===
+  [ABIERTO] TCP/22    | SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13  # Banner devuelto al conectar
+  [ABIERTO] TCP/5050  | HTTP/1.1 200 OK                         # Respuesta tras enviar HEAD /
+Total de puertos detectados: 2/14
+
+[BLOQUEADO] Este script educativo solo permite direcciones loopback (127.0.0.0/8) o privadas RFC 1918.</code></pre>
+<p><strong>Paso 2:</strong> generá un archivo de muestra combinado y procesalo con <code>analizador_logs_soc.py</code> usando un umbral de <code>3</code>:</p>
+<pre><code class="lenguaje-bash">cat &lt;&lt;'EOF' &gt; /tmp/soc_muestra.log
+Nov 22 11:00:01 srv sshd[101]: Failed password for invalid user test from 192.168.56.50 port 41001 ssh2
+Nov 22 11:00:03 srv sshd[101]: Failed password for root from 192.168.56.50 port 41002 ssh2
+Nov 22 11:00:05 srv sshd[101]: Failed password for admin from 192.168.56.50 port 41003 ssh2
+192.168.56.50 - - [22/Nov/2026:11:01:00 +0000] "GET /admin HTTP/1.1" 404 162
+EOF
+
+python3 laboratorios/analizador_logs_soc.py /tmp/soc_muestra.log 3</code></pre>
+<p>Salida esperada comentada:</p>
+<pre><code class="lenguaje-json">{
+  "archivo": "/tmp/soc_muestra.log",
+  "total_alertas": 1,
+  "alertas": [
+    {
+      "regla": "SOC-AUTH-001",
+      "severidad": "media",
+      "tactica_mitre": "Credential Access",
+      "ip_origen": "192.168.56.50",
+      "intentos_fallidos": 3,
+      "usuarios_distintos": [
+        "admin",
+        "root",
+        "test"
+      ]
+    }
+  ]
+}</code></pre>
+<p>Notá que la línea HTTP <code>404</code> no disparó <code>SOC-WEB-002</code> porque solo hubo <code>1</code> evento y el umbral efectivo para esa regla es <code>umbral * 3</code> (<code>9</code> respuestas <code>4xx</code>).</p>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>Escribir scripts seguros es tan importante como analizar vulnerabilidades en sistemas ajenos:</p>
+<ul><li><strong>Cadena de suministro en Python:</strong> fijá versiones exactas de dependencias en <code>requirements.txt</code> (idealmente con hashes mediante <code>pip install --require-hashes</code>) y revisá paquetes con herramientas de auditoría como <code>pip-audit</code> antes de usarlos en un entorno operativo.</li><li><strong>Prevención de ReDoS:</strong> al diseñar expresiones regulares para analizar logs no confiables, evitá cuantificadores anidados ambiguos (como <code>(a+)+</code>) que pueden causar retroceso exponencial y bloquear un analizador SOC con una sola línea malformada.</li><li><strong>Límites defensivos en herramientas propias:</strong> incorporá siempre validación de alcance (<code>ipaddress</code>), <code>timeout</code> en red y subprocesos, lectura por bloques en archivos grandes y sanitización de rutas (<code>Path.resolve()</code>) para evitar recorridos inesperados.</li><li><strong>Análisis estático continuo:</strong> ejecutá <code>bandit</code> sobre tus propios scripts Python para detectar de forma temprana usos accidentales de <code>shell=True</code>, hashes débiles (<code>md5</code>/<code>sha1</code>), deserialización insegura o credenciales hardcodeadas.</li></ul></aside>
+<h2 id="cap-1-6-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>Extendé en una copia local los conceptos vistos sobre los scripts de <code>laboratorios/</code>:</p>
+<ol><li>Creá una copia llamada <code>mi_auditor_local.py</code> basada en <code>laboratorios/auditor_red_local.py</code> que además calcule y muestre el hash <strong>SHA-256</strong> de su propio archivo fuente al inicio del reporte (para trazabilidad de evidencia) y acepte una opción <code>--json</code> con <code>argparse</code> para emitir el inventario de puertos en formato JSON.</li><li>Creá una copia llamada <code>mi_analizador_soc.py</code> basada en <code>laboratorios/analizador_logs_soc.py</code> que agregue una tercera regla <code>SOC-WEB-003</code> cuando una misma IP genere <code>&gt;= 5</code> respuestas <code>401</code> (posible prueba repetida de credenciales HTTP), conservando el formato JSON de salida.</li><li>Probá ambos scripts sobre <code>127.0.0.1</code> y un log de prueba local, y verificá que no haya llamadas a <code>shell=True</code> ni manejo inseguro de archivos.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Los dos scripts extendidos (<code>mi_auditor_local.py</code> y <code>mi_analizador_soc.py</code>), el archivo JSON de inventario generado contra <code>127.0.0.1</code> y la salida JSON de <code>mi_analizador_soc.py</code> disparando al menos dos reglas distintas sobre un log de prueba.</p></aside>
+<h2 id="cap-1-6-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué <code>laboratorios/auditor_red_local.py</code> utiliza <code>socket.connect_ex()</code> junto con <code>settimeout()</code> y un bloque <code>with</code>?</strong> Porque <code>connect_ex()</code> devuelve un entero (<code>0</code> si conecta o el código <code>errno</code> si falla) sin lanzar excepciones en cada puerto cerrado, <code>settimeout()</code> impide que un puerto filtrado con paquetes descartados bloquee el script indefinidamente y el bloque <code>with</code> asegura que el descriptor del socket se libere de inmediato al terminar cada verificación.</p>
+<p><strong>2. ¿Cuál es el riesgo concreto de ejecutar <code>subprocess.run(comando, shell=True)</code> cuando <code>comando</code> incluye datos externos?</strong> Al activar <code>shell=True</code>, Python delega la interpretación de la cadena a <code>/bin/sh</code> o <code>cmd.exe</code>. Si la entrada contiene metacaracteres de shell (<code>;</code>, <code>|</code>, <code>&amp;&amp;</code>, `<code> </code> `<code> o </code>$(...)<code>), el intérprete ejecuta comandos arbitrarios adicionales fuera de la intención del programa. Pasar una lista de argumentos con </code>shell=False` elimina esa superficie.</p>
+<p><strong>3. ¿Por qué conviene calcular el SHA-256 de un archivo leyéndolo por bloques (por ejemplo, 64 KiB) en lugar de usar <code>Path.read_bytes()</code>?</strong> Porque <code>read_bytes()</code> carga el archivo completo en memoria RAM de una sola vez, lo que puede agotar la memoria del equipo al verificar imágenes de disco, volcados de memoria o registros de varios gigabytes. Leer en bloques iterativos y llamar a <code>h.update(fragmento)</code> mantiene el consumo de RAM constante.</p>
+<p><strong>4. ¿Qué ventaja ofrece usar grupos con nombre (<code>(?P&lt;ip&gt;...)</code>) en <code>re.compile()</code> dentro de <code>analizador_logs_soc.py</code>?</strong> Hace que el código acceda a los campos por nombre semántico (<code>m.group("ip")</code>) en lugar de índices numéricos frágiles (<code>m.group(2)</code>). Si más adelante se añade un grupo de captura anterior en la expresión regular, el resto de la lógica no se rompe silenciosamente, y compilar el patrón una sola vez mejora el rendimiento al procesar miles de líneas.</p>
+<p><strong>5. ¿En qué escenario profesional elegirías Go por encima de Python 3 para una utilidad de seguridad?</strong> Cuando necesitás distribuir un binario estático único en sistemas donde no existe intérprete Python ni permiso para instalar dependencias, o cuando la herramienta requiere alta concurrencia real y bajo consumo de memoria (como un colector de telemetría o un proxy ligero de red).</p>
+<h2 id="cap-1-6-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Sabés crear sockets TCP con <code>timeout</code> y validar direcciones privadas/loopback con <code>ipaddress</code>.</li><li>☐ Entendés cómo emitir peticiones HTTP seguras sin desactivar la verificación TLS y cómo parsear JSON, CSV y expresiones regulares compiladas.</li><li>☐ Podés calcular y comparar hashes SHA-256 por bloques usando <code>hashlib</code> y <code>hmac.compare_digest</code>.</li><li>☐ Comprendés el funcionamiento completo de <code>laboratorios/auditor_red_local.py</code> y <code>laboratorios/analizador_logs_soc.py</code>, y evitás siempre <code>subprocess(..., shell=True)</code>.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con Bash, PowerShell y Python 3 dominados para automatizar inspecciones y analizar registros, ya tenés la caja de herramientas lista. En el Capítulo 1.7 vas a profundizar en los protocolos y servicios de red reales que aparecen detrás de cada puerto TCP/UDP descubierto.</p></aside>
+<h2 id="cap-1-6-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>Python Software Foundation — <em>Python 3 Standard Library Documentation (<code>socket</code>, <code>ipaddress</code>, <code>hashlib</code>, <code>subprocess</code>, <code>re</code>, <code>urllib</code>)</em>: https://docs.python.org/3/library/</li><li>OWASP Foundation — <em>Command Injection Prevention Cheat Sheet</em>: https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html</li><li>NIST FIPS 180-4 — <em>Secure Hash Standard (SHS — familia SHA-2)</em>: https://csrc.nist.gov/publications/detail/fips/180/4/final</li><li>IETF RFC 1918 — <em>Address Allocation for Private Internets</em>: https://datatracker.ietf.org/doc/html/rfc1918</li><li>PyCQA — <em>Bandit: Security Linter for Python Code</em>: https://bandit.readthedocs.io/</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 6 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>DNS Enumeration Using Python</td><td>Medium</td><td>General</td><td>11</td></tr><tr><td>Introduction to Python 3</td><td>Easy</td><td>General</td><td>14</td></tr><tr><td>Introduction to C#</td><td>Easy</td><td>General</td><td>21</td></tr><tr><td>Go for Cybersecurity</td><td>Medium</td><td>Defensive</td><td>5</td></tr><tr><td>Introduction to Python</td><td>Medium</td><td>General</td><td>10</td></tr><tr><td>Python for Blue Team</td><td>Hard</td><td>Defensive</td><td>8</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="05-bash-y-powershell.html">← 1.5 Automatización y análisis con Bash y PowerShell</a></div><div><a href="07-protocolos-y-servicios.html">1.7 Protocolos y servicios de red: SSH, SMB, DNS, LDAP, RDP y bases de datos →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

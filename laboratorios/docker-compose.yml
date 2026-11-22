@@ -1,0 +1,40 @@
+# Laboratorio Local Aislado - Hacking Ético y Defensa Integral
+# Regla de seguridad: todos los puertos escuchan EXCLUSIVAMENTE en 127.0.0.1
+services:
+  app-educativa:
+    image: python:3.12-slim
+    container_name: lab_local_web
+    working_dir: /app
+    volumes:
+      - ./app_lab_educativa.py:/app/app_lab_educativa.py:ro
+    command: ["sh", "-c", "pip install --no-cache-dir flask && python /app/app_lab_educativa.py"]
+    ports:
+      - "127.0.0.1:5050:5050"
+    networks:
+      - red_aislada_lab
+    restart: unless-stopped
+
+  servidor-nginx:
+    image: nginx:alpine
+    container_name: lab_local_nginx
+    ports:
+      - "127.0.0.1:8080:80"
+    networks:
+      - red_aislada_lab
+    restart: unless-stopped
+
+  # Entorno opcional de entrenamiento OWASP (activar solo bajo demanda con:
+  # docker compose --profile owasp up -d) - Accesible unicamente en http://127.0.0.1:3000
+  owasp-juice-shop:
+    image: bkimminich/juice-shop:latest
+    container_name: lab_local_juiceshop
+    profiles: ["owasp"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - red_aislada_lab
+
+networks:
+  red_aislada_lab:
+    driver: bridge
+    internal: false

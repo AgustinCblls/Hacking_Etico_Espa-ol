@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 2.1 · Reconocimiento, footprinting, Nmap y evaluación de vulnerabilidades · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Mapear servicios de una red de laboratorio y priorizar hallazgos por riesgo">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo2.html">Tomo II</a><span aria-hidden="true">›</span><span>Cap. 2.1</span></nav>
+<h1 id="cap-2-1">Capítulo 2.1 · Reconocimiento, footprinting, Nmap y evaluación de vulnerabilidades</h1>
+<div class="meta-nivel"><span class="nivel-badge intermedio">Intermedio</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo II · Ruta 2 · Intermedio</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="11-enumeracion-web-y-fuzzing.html">2.2 Enumeración web, fuzzing con ffuf y análisis de JavaScript</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a poder planificar una fase de reconocimiento autorizada, diferenciar técnicas pasivas de activas, inventariar servicios en un laboratorio local con Nmap de forma controlada y priorizar hallazgos combinando criterios de severidad, probabilidad y causa raíz.</p></aside>
+<p><strong>Prerrequisitos:</strong> Manejo básico de terminal Linux/PowerShell, modelo TCP/IP (puertos, handshake de tres vías y DNS) y laboratorio local aislado en funcionamiento. <strong>Duración sugerida:</strong> 2 a 3 horas.</p>
+<h2 id="cap-2-1-metodologia-de-pruebas-autorizadas-y-mentalidad-analitica">Metodología de pruebas autorizadas y mentalidad analítica</h2>
+<p>Toda evaluación técnica seria comienza con un alcance formalmente autorizado (<em>Rules of Engagement</em>). El marco <strong>NIST SP 800-115</strong> divide el proceso en cuatro etapas: planificación, descubrimiento, validación controlada e informe de remediación. Antes de ejecutar cualquier comando, definí qué activos están dentro del alcance, qué ventanas horarias rigen y qué acciones están expresamente excluidas para evitar interrupciones operativas.</p>
+<p>Adoptar una mentalidad orientada a amenazas (<em>threat-informed</em>) implica ir más allá de tildar listas de control: buscás entender cómo interactúan los activos expuestos, los controles preventivos y la telemetría defensiva. En una planificación moderna de superficie de ataque, conviene contemplar tanto los servicios de red tradicionales como vectores adyacentes que suelen quedar fuera de foco:</p>
+<ul><li><strong>Cadena de suministro de software (<em>Supply Chain</em>):</strong> dependencias externas, imágenes base de contenedores y paquetes de terceros pueden introducir debilidades sin modificar una sola línea de código propio. Mantener un inventario SBOM (<em>Software Bill of Materials</em>) y verificar firmas criptográficas es parte del reconocimiento defensivo.</li><li><strong>Protocolos heredados e inalámbricos:</strong> comprender por qué protocolos obsoletos como <strong>WEP</strong> (<em>Wired Equivalent Privacy</em>) fallaron por diseño —reutilización de vectores de inicialización cortos sobre RC4 que degrada la confidencialidad— explica por qué la auditoría de configuraciones busca eliminar cifrados débiles antes que intentar repararlos.</li><li><strong>Integridad en clientes locales (aplicaciones y videojuegos):</strong> en arquitectura cliente-servidor, cualquier dato o lógica que viva exclusivamente en la memoria del cliente puede ser inspeccionado o alterado por el usuario local. Ese principio, evidente al analizar mecánicas básicas de ingeniería inversa en clientes locales, sustenta una regla universal de seguridad: nunca confíes en validaciones que ocurren solo del lado del cliente.</li></ul>
+<h2 id="cap-2-1-reconocimiento-pasivo-y-footprinting-corporativo">Reconocimiento pasivo y footprinting corporativo</h2>
+<p>El reconocimiento pasivo recopila información pública y registros abiertos sin enviar paquetes exploratorios directos hacia los sistemas objetivo. Su propósito es mapear la huella externa de una organización (<em>footprinting</em>) y detectar activos olvidados, configuraciones DNS incompletas o exposición innecesaria de infraestructura.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Fuente pasiva</th>
+<th>Protocolo o registro</th>
+<th>Qué revela en una auditoría</th>
+<th>Utilidad defensiva</th>
+</tr></thead><tbody>
+<tr><td><strong>DNS público</strong></td><td>A, AAAA, MX, NS, TXT</td><td>Servidores de correo, proveedores cloud y subdominios conocidos</td><td>Detectar registros huérfanos (<em>dangling DNS</em>)</td></tr>
+<tr><td><strong>Transparencia de Certificados (CT)</strong></td><td>Logs públicos RFC 6962</td><td>Subdominios con certificados TLS emitidos históricamente</td><td>Descubrir entornos de pruebas expuestos por error</td></tr>
+<tr><td><strong>RDAP / WHOIS</strong></td><td>HTTP/JSON (RFC 7480)</td><td>Bloques ASN, rangos IP asignados y fechas de vencimiento</td><td>Validar propiedad de activos y contactos de abuso</td></tr>
+<tr><td><strong>Autenticación de correo</strong></td><td>Registros TXT (SPF, DMARC, DKIM)</td><td>Política frente a suplantación de dominio y terceros autorizados</td><td>Endurecer entregas y reducir riesgo de <em>phishing</em></td></tr>
+</tbody></table></div>
+<h3 id="cap-2-1-consultas-dns-y-verificacion-de-postura-de-correo">Consultas DNS y verificación de postura de correo</h3>
+<p>Podés inspeccionar registros DNS y políticas SPF/DMARC con herramientas estándar como <code>dig</code> sin interactuar con los puertos de aplicación del objetivo:</p>
+<pre><code class="lenguaje-bash"># Consultar registros de intercambio de correo y políticas TXT de un dominio de ejemplo
+dig +short MX example.com
+dig +short TXT example.com
+dig +short TXT _dmarc.example.com</code></pre>
+<p>Un registro SPF terminado en <code>-all</code> indica rechazo estricto de emisores no listados, mientras que una política DMARC en <code>p=reject</code> (o <code>p=quarantine</code> durante la transición) protege la reputación del dominio. Documentar hallazgos pasivos permite construir un inventario inicial antes de pasar al entorno de laboratorio.</p>
+<aside class="callout aviso"><p class="callout-titulo">Límite legal y ético</p><p>Ejecutá únicamente consultas pasivas sobre dominios autorizados o dominios reservados para documentación (<code>example.com</code>, RFC 2606). Todo escaneo activo de puertos y servicios debe realizarse estrictamente contra tu propio laboratorio local (<code>127.0.0.1</code> o red privada aislada de VMs).</p></aside>
+<h2 id="cap-2-1-enumeracion-activa-en-laboratorio-con-nmap">Enumeración activa en laboratorio con Nmap</h2>
+<p>Cuando ya contás con autorización explícita en tu red de pruebas, <strong>Nmap</strong> permite descubrir equipos activos, identificar puertos abiertos, inferir versiones de servicios y validar configuraciones mediante scripts del motor NSE (<em>Nmap Scripting Engine</em>).</p>
+<h3 id="cap-2-1-tipos-de-escaneo-temporizacion-y-formatos-de-salida">Tipos de escaneo, temporización y formatos de salida</h3>
+<p>Elegir la técnica adecuada reduce el ruido en la red y mejora la precisión de los resultados:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Opción Nmap</th>
+<th>Mecanismo técnico</th>
+<th>Privilegios</th>
+<th>Uso recomendado en laboratorio</th>
+</tr></thead><tbody>
+<tr><td><code>-sn</code></td><td>Descubrimiento de hosts sin escaneo de puertos</td><td>Usuario / Root</td><td>Mapear VMs activas en la subred local</td></tr>
+<tr><td><code>-sS</code></td><td>Escaneo TCP SYN (<em>half-open</em>, no completa handshake)</td><td>Root / Admin</td><td>Rápido y limpio para inventariar puertos TCP</td></tr>
+<tr><td><code>-sT</code></td><td>Escaneo TCP Connect (usa syscall <code>connect()</code> del SO)</td><td>Usuario normal</td><td>Alternativa sin privilegios elevados</td></tr>
+<tr><td><code>-sU</code></td><td>Escaneo UDP (evalúa respuestas ICMP <em>port unreachable</em>)</td><td>Root / Admin</td><td>Verificar DNS (53), NTP (123) o SNMP (161) en rangos acotados</td></tr>
+<tr><td><code>-sV</code></td><td>Sondas de protocolo para identificar servicio y versión</td><td>Usuario / Root</td><td>Correlacionar banners con versiones instaladas</td></tr>
+<tr><td><code>-sC</code></td><td>Ejecuta scripts NSE de la categoría <code>default</code> (seguros)</td><td>Usuario / Root</td><td>Obtener metadatos TLS, cabeceras HTTP o banners estándar</td></tr>
+<tr><td><code>-O</code></td><td>Huella de pila TCP/IP para estimar sistema operativo</td><td>Root / Admin</td><td>Validar homogeneidad del parque de VMs</td></tr>
+<tr><td><code>-oA base</code></td><td>Guarda simultáneamente <code>.nmap</code>, <code>.xml</code> y <code>.gnmap</code></td><td>Usuario / Root</td><td>Preservar evidencia reproducible para informes</td></tr>
+</tbody></table></div>
+<p>Las plantillas de temporización van de <code>-T0</code> (extremadamente lento) a <code>-T5</code> (agresivo). En laboratorios locales, <code>-T3</code> (valor por defecto) o <code>-T4</code> ofrecen un buen equilibrio entre velocidad y fiabilidad sin saturar servicios livianos ni provocar pérdidas de paquetes.</p>
+<h3 id="cap-2-1-uso-responsable-del-motor-nse">Uso responsable del motor NSE</h3>
+<p>Los scripts NSE se agrupan por categorías como <code>safe</code>, <code>discovery</code>, <code>version</code>, <code>vuln</code> e <code>intrusive</code>. Para evaluaciones iniciales y verificaciones defensivas, limitate a <code>safe</code> y <code>default</code>, revisando previamente qué hace cada script con <code>--script-help</code>:</p>
+<pre><code class="lenguaje-bash"># Inspeccionar la documentación de un script NSE antes de ejecutarlo
+nmap --script-help http-headers,ssl-cert
+
+# Ejecutar únicamente scripts informativos y seguros contra un servicio local
+nmap -sT -sV --script="http-headers,http-title" -p 5050 127.0.0.1</code></pre>
+<h2 id="cap-2-1-evaluacion-y-priorizacion-de-vulnerabilidades">Evaluación y priorización de vulnerabilidades</h2>
+<p>Identificar un servicio expuesto o una versión desactualizada no alcanza: necesitás priorizar qué corregir primero. Para evitar decisiones basadas solo en intuición, combiná tres marcos complementarios:</p>
+<ol><li><strong>CVSS (v3.1 y v4.0):</strong> estima la severidad técnica según la facilidad de acceso, los privilegios requeridos y el impacto sobre confidencialidad, integridad y disponibilidad. La versión 4.0 incorpora métricas suplementarias y una mejor contextualización ambiental, pero sigue siendo una medida de severidad teórica, no de probabilidad real.</li><li><strong>EPSS (<em>Exploit Prediction Scoring System</em>):</strong> estima la probabilidad porcentual de que una vulnerabilidad catalogada sea observada en actividad hostil durante los próximos 30 días. Permite diferenciar fallos críticos con alta exposición real de fallos severos en papel pero raramente abusados.</li><li><strong>CWE (<em>Common Weakness Enumeration</em>):</strong> clasifica la causa raíz del defecto en familias estructurales —como <em>Validación de Entrada</em> o <em>Exposición de Información Sensible</em>— para corregir patrones arquitectónicos completos y no solo síntomas aislados.</li></ol>
+<div class="tabla"><table>
+<thead><tr>
+<th>Prioridad</th>
+<th>Severidad (CVSS)</th>
+<th>Probabilidad (EPSS)</th>
+<th>Exposición del activo</th>
+<th>Acción recomendada</th>
+</tr></thead><tbody>
+<tr><td><strong>Crítica (P1)</strong></td><td>Alta / Crítica</td><td>Elevada</td><td>Expuesto a red externa</td><td>Remediación inmediata y verificación</td></tr>
+<tr><td><strong>Alta (P2)</strong></td><td>Alta / Crítica</td><td>Baja</td><td>Red interna segmentada</td><td>Planificar parcheo en el ciclo corto</td></tr>
+<tr><td><strong>Media (P3)</strong></td><td>Media</td><td>Moderada</td><td>Servicio interno autenticado</td><td>Mitigar por configuración y monitorear</td></tr>
+<tr><td><strong>Baja (P4)</strong></td><td>Baja / Informativa</td><td>Muy baja</td><td>Laboratorio o entorno aislado</td><td>Documentar en inventario de deuda técnica</td></tr>
+</tbody></table></div>
+<h2 id="cap-2-1-4-osint-corporativo-y-seguridad-de-la-cadena-de-suministro-supply-chain">4. OSINT corporativo y seguridad de la Cadena de Suministro (<em>Supply Chain</em>)</h2>
+<p>En una auditoría realista o ejercicio de Red Team autorizado, la superficie de una organización supera sus servidores web directos: abarca <strong>registros públicos (OSINT)</strong> y <strong>dependencias externas (<em>Supply Chain</em>)</strong>:</p>
+<ul><li><strong>OSINT Corporativo estructurado:</strong></li><li><em>Infraestructura pública:</em> bloques ASN/BGP, registros WHOIS, registros DNS (<code>MX</code>, <code>TXT</code> SPF que revelan proveedores SaaS), y logs públicos de <strong>Certificate Transparency (CT)</strong> (<code>crt.sh</code>) para descubrir subdominios emitidos.</li><li><em>Registros organizacionales y exposición inadvertida:</em> metadatos olvidados en documentos públicos (autoría, rutas internas), repositorios públicos de código de empleados (donde jamás deben subirse claves API ni archivos <code>.env</code>) y exposición involuntaria de detalles tecnológicos en ofertas laborales.</li><li><strong>Ataques y riesgos en la Cadena de Suministro (<em>Supply Chain Attacks</em>):</strong></li><li><em>Dependencias de software:</em> paquetes comprometidos en registros públicos (<code>npm</code>, <code>PyPI</code>), <em>typosquatting</em> de librerías y <strong>confusión de dependencias</strong> (<em>Dependency Confusion</em>: cuando un gestor instala un paquete público homónimo en lugar del paquete interno privado).</li><li><em>Actualizaciones firmadas y CI/CD:</em> el incidente de SolarWinds mostró cómo comprometer el servidor de compilación permite distribuir código malicioso firmado legítimamente. <strong>Mitigación:</strong> fijar hashes criptográficos en <em>lockfiles</em> (<code>requirements.txt --require-hashes</code>, <code>package-lock.json</code>), generar <strong>SBOM</strong> (<em>Software Bill of Materials</em>), verificar firmas digitales con <strong>Sigstore/Cosign</strong> y aislar corredores de CI/CD.</li></ul>
+<h2 id="cap-2-1-ejemplo-paso-a-paso-inventario-controlado-en-laboratorio-local">Ejemplo paso a paso: inventario controlado en laboratorio local</h2>
+<p>En este recorrido vas a iniciar la aplicación educativa local incluida en <code>laboratorios/app_lab_educativa.py</code> (puerto <code>5050</code> en <code>127.0.0.1</code>) y levantar un inventario técnico reproducible con Nmap.</p>
+<h3 id="cap-2-1-paso-1-levantar-el-servicio-de-laboratorio">Paso 1: levantar el servicio de laboratorio</h3>
+<p>En una terminal aislada, ejecutá la aplicación didáctica:</p>
+<pre><code class="lenguaje-bash">python3 laboratorios/app_lab_educativa.py</code></pre>
+<pre><code class="lenguaje-text"> * Serving Flask app 'app_lab_educativa'
+ * Debug mode: off
+ * Running on http://127.0.0.1:5050</code></pre>
+<h3 id="cap-2-1-paso-2-escaneo-focalizado-con-deteccion-de-version-y-registro-en-archivo">Paso 2: escaneo focalizado con detección de versión y registro en archivo</h3>
+<p>Desde una segunda terminal, ejecutá un escaneo TCP Connect (<code>-sT</code>) sin privilegios, solicitando identificación de versión (<code>-sV</code>), cabeceras HTTP seguras y guardado en los tres formatos (<code>-oA</code>):</p>
+<pre><code class="lenguaje-bash">nmap -sT -sV -T4 --script="http-title,http-headers" -p 5050,8000 -oA evidencia_lab_local 127.0.0.1</code></pre>
+<p>Salida esperada comentada:</p>
+<pre><code class="lenguaje-text">Starting Nmap 7.95 ( https://nmap.org )
+Nmap scan report for localhost (127.0.0.1)
+Host is up (0.00018s latency).
+
+PORT     STATE  SERVICE VERSION
+5050/tcp open   http    Werkzeug httpd 3.0.x (Python 3.12)
+|_http-title: Lab Web Local
+| http-headers:
+|   Server: Werkzeug/3.0.x Python/3.12
+|   Content-Type: text/html; charset=utf-8
+|_  Connection: close
+8000/tcp closed http-alt
+
+Service detection performed.
+Nmap done: 1 IP address (1 host up) scanned in 6.42 seconds</code></pre>
+<h3 id="cap-2-1-paso-3-analisis-tecnico-del-hallazgo">Paso 3: análisis técnico del hallazgo</h3>
+<p>Observá tres detalles clave en la salida:</p>
+<ul><li>El puerto <code>5050/tcp</code> figura <code>open</code> y expone la cabecera <code>Server: Werkzeug/3.0.x Python/3.12</code>. En producción, un servidor de desarrollo como Werkzeug nunca debe exponerse directamente; se despliega detrás de un servidor WSGI (como Gunicorn) y un proxy inverso que oculte detalles internos.</li><li>El puerto <code>8000/tcp</code> aparece <code>closed</code>, lo cual confirma conectividad TCP (el host respondió <code>RST</code>) sin servicio escuchando.</li><li>Los archivos <code>evidencia_lab_local.nmap</code>, <code>evidencia_lab_local.xml</code> y <code>evidencia_lab_local.gnmap</code> quedan listos para auditar cambios futuros mediante <code>ndiff</code>.</li></ul>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>Para reducir la superficie descubrible en entornos reales, aplicá estas medidas estructurales:</p>
+<ul><li><strong>Principio de mínima exposición:</strong> cerrá puertos administrativos en interfaces públicas y aislá servicios internos mediante firewall basado en listas blancas.</li><li><strong>Higiene de metadatos:</strong> deshabilitá banners detallados en proxies inversos, revisá registros DNS periódicamente y aplicá SPF/DMARC estrictos.</li><li><strong>Gestión continua de activos y dependencias:</strong> contrastá escaneos internos autorizados contra tu inventario oficial y mantené un SBOM actualizado para detectar componentes vulnerables de terceros antes de su explotación.</li><li><strong>Detección en red:</strong> monitoreá patrones anómalos de conexión secuencial hacia múltiples puertos desde un mismo origen en logs de firewall o sistemas IDS/IPS para identificar actividad de reconocimiento no autorizada.</li></ul></aside>
+<h2 id="cap-2-1-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>Ejecutá <code>laboratorios/app_lab_educativa.py</code> en tu entorno local y realizá un inventario estructurado de tus servicios de prueba siguiendo buenas prácticas de evidencia:</p>
+<ol><li>Verificá con <code>ss -tulpn</code> (Linux) o <code>Get-NetTCPConnection -State Listen</code> (PowerShell) qué puertos locales están escuchando realmente en <code>127.0.0.1</code>.</li><li>Corré un escaneo Nmap controlado sobre <code>127.0.0.1</code> en el rango <code>5000-5100</code> con <code>-sT -sV -oA lab_inventario</code>.</li><li>Compará la salida de Nmap contra la lista obtenida desde el sistema operativo y clasificá cada hallazgo usando la matriz de priorización (severidad, exposición y causa raíz CWE).</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un archivo <code>reporte_recon_lab.md</code> de una página que contenga:</p>
+<ol><li>Tabla con los servicios detectados en <code>127.0.0.1</code> (puerto, estado, versión observada y proceso real asociado).</li><li>Diferencia entre dos hallazgos priorizados (por ejemplo, exposición de banner de servidor de desarrollo vs. puerto cerrado esperado).</li><li>Tres recomendaciones concretas de endurecimiento aplicables antes de pasar el servicio a producción.</li></ol></aside>
+<h2 id="cap-2-1-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué el reconocimiento pasivo precede siempre al escaneo activo en una auditoría profesional?</strong> Porque permite mapear la huella pública, los rangos autorizados y los servicios expuestos sin generar tráfico exploratorio ni riesgo operativo sobre la infraestructura objetivo, mejorando la precisión del alcance antes de cualquier prueba activa.</p>
+<p><strong>2. ¿Qué diferencia técnica existe entre un escaneo Nmap <code>-sS</code> y un escaneo <code>-sT</code>?</strong> El escaneo <code>-sS</code> envía paquetes SYN y analiza respuestas SYN-ACK o RST sin completar el handshake TCP de tres vías (requiere privilegios elevados para paquetes crudos), mientras que <code>-sT</code> utiliza la llamada estándar <code>connect()</code> del sistema operativo completando la conexión y funciona sin privilegios de administrador.</p>
+<p><strong>3. ¿Por qué no conviene priorizar vulnerabilidades basándose únicamente en la puntuación CVSS base?</strong> Porque CVSS base mide severidad técnica en abstracto, sin reflejar si el activo está expuesto en red ni qué probabilidad real existe de explotación activa; combinarlo con EPSS, contexto ambiental y causa raíz CWE evita desperdiciar esfuerzo en hallazgos de bajo riesgo efectivo.</p>
+<p><strong>4. ¿Qué aporta el formato <code>-oA</code> al ejecutar Nmap en una evaluación formal?</strong> Genera simultáneamente salida legible para revisión humana (<code>.nmap</code>), salida estructurada para herramientas o comparación diferencial con <code>ndiff</code> (<code>.xml</code>) y salida apta para filtrado rápido en consola (<code>.gnmap</code>), asegurando trazabilidad y reproducibilidad.</p>
+<p><strong>5. ¿Qué enseñanza arquitectónica comparten el fallo histórico de WEP y la manipulación de memoria en clientes locales?</strong> Ambos demuestran que la seguridad nunca puede descansar en suposiciones frágiles ni en controles exclusivos del extremo no confiable: los protocolos criptográficos deben cumplir garantías modernas probadas y toda regla de negocio crítica debe validarse siempre en el servidor.</p>
+<h2 id="cap-2-1-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Diferencio con claridad reconocimiento pasivo (DNS, CT, RDAP, SPF/DMARC) de enumeración activa en laboratorio.</li><li>☐ Sé seleccionar opciones seguras de Nmap (<code>-sT</code>, <code>-sS</code>, <code>-sV</code>, <code>-sC</code>, <code>-oA</code>) e interpretar estados <code>open</code>, <code>closed</code> y <code>filtered</code>.</li><li>☐ Puedo justificar la prioridad de un hallazgo combinando CVSS, EPSS, exposición real y categoría CWE.</li><li>☐ Generé y verifiqué el entregable local sobre <code>127.0.0.1</code> sin ejecutar escaneos contra terceros.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Cuando puedas inventariar tu servicio local en <code>127.0.0.1</code>, explicar cada línea de la salida de Nmap y clasificar tus hallazgos con criterios reproducibles, estás listo para pasar al <strong>Capítulo 2.2: Enumeración web, fuzzing con ffuf y análisis de JavaScript</strong>.</p></aside>
+<h2 id="cap-2-1-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>NIST Special Publication 800-115: <em>Technical Guide to Information Security Testing and Assessment</em> (https://csrc.nist.gov/pubs/sp/800/115/final)</li><li>Nmap Reference Guide — <em>Port Scanning Techniques &amp; Nmap Scripting Engine</em> (https://nmap.org/book/man.html)</li><li>FIRST — <em>Common Vulnerability Scoring System (CVSS v3.1 / v4.0)</em> y <em>Exploit Prediction Scoring System (EPSS)</em> (https://www.first.org/cvss/ y https://www.first.org/epss/)</li><li>IETF RFC 7208 (<em>Sender Policy Framework</em>), RFC 7489 (<em>DMARC</em>) y RFC 6962 (<em>Certificate Transparency</em>)</li><li>MITRE CWE — <em>Common Weakness Enumeration</em> (https://cwe.mitre.org/)</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 10 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Network Enumeration with Nmap</td><td>Easy</td><td>Offensive</td><td>12</td></tr><tr><td>OSINT: Corporate Recon</td><td>Hard</td><td>Offensive</td><td>23</td></tr><tr><td>Penetration Testing Process</td><td>Fundamental</td><td>General</td><td>15</td></tr><tr><td>Vulnerability Assessment</td><td>Easy</td><td>Offensive</td><td>17</td></tr><tr><td>Footprinting</td><td>Medium</td><td>Offensive</td><td>21</td></tr><tr><td>Supply Chain Attacks</td><td>Hard</td><td>Offensive</td><td>18</td></tr><tr><td>Introduction to Penetration Testing</td><td>Fundamental</td><td>Offensive</td><td>21</td></tr><tr><td>Pentest in a Nutshell</td><td>Easy</td><td>Offensive</td><td>24</td></tr><tr><td>Red Team Mindset</td><td>Medium</td><td>Offensive</td><td>10</td></tr><tr><td>Threat Planning and Reconnaissance</td><td>Hard</td><td>Offensive</td><td>12</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="09-criptografia-tls-y-pki.html">← 1.9 Criptografía aplicada, certificados X.509, PKI y seguridad TLS</a></div><div><a href="11-enumeracion-web-y-fuzzing.html">2.2 Enumeración web, fuzzing con ffuf y análisis de JavaScript →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

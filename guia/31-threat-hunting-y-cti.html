@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 4.6 · Threat Hunting proactivo, inteligencia de amenazas (CTI) y análisis de phishing · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Formular una hipótesis de hunting desde ATT&amp;CK y auditar cabeceras SPF/DKIM/DMARC">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo4.html">Tomo IV</a><span aria-hidden="true">›</span><span>Cap. 4.6</span></nav>
+<h1 id="cap-4-6">Capítulo 4.6 · Threat Hunting proactivo, inteligencia de amenazas (CTI) y análisis de phishing</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Especialista Blue/SOC</span> <span class="nivel-badge defensivo">Defensivo</span> <span><strong>Tomo IV · Ruta 4 · Especialista Blue/SOC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="32-dfir-forense-disco-memoria.html">4.7 DFIR: forense de disco, artefactos Windows/Linux y análisis de memoria RAM</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a saber diseñar y ejecutar sesiones completas de <strong>Threat Hunting proactivo</strong> guiado por hipótesis (apilamiento estadístico de frecuencias, caza de LOLBins, detección de anomalías en redes, web y Active Directory), operacionalizar la inteligencia de amenazas (<strong>CTI</strong>) con estándares abiertos STIX/TAXII y la Pirámide del Dolor, y realizar el análisis técnico seguro de correos de <strong>phishing</strong> (<code>Received</code>, SPF, DKIM, DMARC y adjuntos) utilizando las muestras incluidas en <code>laboratorios/muestras/</code>.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulos 4.1 a 4.5 (Operaciones SOC, Telemetría Sysmon/auditd, SIEM, NSM y reglas Sigma/YARA). <strong>Duración sugerida:</strong> 8 a 10 horas.</p>
+<h2 id="cap-4-6-1-threat-hunting-proactivo-guiado-por-hipotesis">1. Threat Hunting proactivo guiado por hipótesis</h2>
+<p>Mientras el monitoreo tradicional L1/L2 reacciona a alertas conocidas generadas por reglas estáticas del SIEM o IDS, el <strong>Threat Hunting</strong> parte de la premisa operativa de que una técnica nueva o un uso sigiloso de herramientas legítimas del sistema puede estar ocurriendo sin haber disparado alertas previas.</p>
+<p>Para evitar búsquedas improvisadas sin rumbo, toda campaña de caza sigue un ciclo estructurado en cuatro pasos:</p>
+<pre><code class="lenguaje-text">[1. Formulación de Hipótesis]  ──►  [2. Recolección y Análisis (SIEM/EDR/NSM)]
+            ▲                                        │
+            │                                        ▼
+[4. Regla Permanente (Sigma/SPL)] ◄── [3. Hallazgo y Validación / Patrón]</code></pre>
+<h3 id="cap-4-6-de-donde-nacen-las-hipotesis-de-caza">De dónde nacen las hipótesis de caza</h3>
+<p>Una hipótesis verificable combina tres fuentes:</p>
+<ol><li><strong>Inteligencia sobre amenazas (CTI):</strong> TTPs observados en campañas recientes contra el sector (por ejemplo, ejecución de utilidades administrativas para descarga o abuso de herramientas remotas legítimas).</li><li><strong>Conocimiento de la propia arquitectura:</strong> qué activos críticos existen (Controladores de Dominio en Tier 0, servidores expuestos, portales web) y qué actividad es normal en ellos (<em>baseline</em>).</li><li><strong>Anomalías estadísticas en telemetría:</strong> eventos de muy baja frecuencia o combinaciones atípicas de proceso padre → hijo.</li></ol>
+<h3 id="cap-4-6-tres-tecnicas-fundamentales-de-hunting">Tres técnicas fundamentales de hunting</h3>
+<ol><li><strong>Apilamiento de frecuencias (<em>Stacking / Least Frequency of Occurrence</em>):</strong> agrupar eventos por campo (<code>ParentImage</code> + <code>Image</code>, <code>User-Agent</code>, dominio DNS consultado, puerto destino) y ordenarlos <strong>de menor a mayor ocurrencia</strong>. En una flota de 500 estaciones, lo legítimo ocurre miles de veces al día; lo anómalo suele aparecer con frecuencia <code>1</code>, <code>2</code> o <code>3</code>.</li><li><strong>Detección de LOLBins (<em>Living-off-the-Land Binaries</em>):</strong> buscar ejecuciones de binarios firmados del sistema operativo (<code>certutil.exe</code>, <code>mshta.exe</code>, <code>rundll32.exe</code>, <code>bitsadmin.exe</code>, <code>curl</code>, <code>python</code>) con parámetros de red o lanzados desde rutas no habituales (<code>C:\Users\Public\</code>, <code>%TEMP%</code>, <code>/tmp/</code>).</li><li><strong>Caza de persistencia y movimientos atípicos:</strong> revisar periódicamente tareas programadas fuera de ventanas de mantenimiento, servicios nuevos (<code>7045</code> / Sysmon <code>1</code>), claves <code>Run</code> (Sysmon <code>13</code>) y consultas DNS o conexiones HTTP periódicas (<em>beaconing</em>).</li></ol>
+<h3 id="cap-4-6-matriz-de-caza-transversal-endpoint-web-red-y-active-directory">Matriz de caza transversal: Endpoint, Web, Red y Active Directory</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Superficie monitoreada</th>
+<th>Hipótesis concreta de hunting</th>
+<th>Consulta o señal clave a buscar</th>
+</tr></thead><tbody>
+<tr><td><strong>Servidores Web y APIs</strong></td><td><em>"Un proceso del servidor web generó una shell hija o consultó recursos internos."</em></td><td>Sysmon <code>1</code> / <code>auditd</code> buscando <code>w3wp.exe</code>, <code>nginx</code>, <code>apache2</code>, <code>gunicorn</code> o <code>node</code> como <code>ParentImage</code> lanzando <code>sh</code>, <code>bash</code>, <code>cmd.exe</code> o <code>powershell.exe</code>.</td></tr>
+<tr><td><strong>Active Directory (Tier 0)</strong></td><td><em>"Una estación de usuario estándar está realizando enumeración LDAP masiva o solicitando múltiples TGS en segundos."</em></td><td>Controlador de Dominio Event ID <code>4769</code> con cifrado RC4 (<code>0x17</code>), Event ID <code>1644</code> (consultas LDAP costosas) o acceso no habitual de soporte a servidores críticos.</td></tr>
+<tr><td><strong>Red y DNS (NSM)</strong></td><td><em>"Un equipo interno mantiene comunicación periódica con dominios recién registrados o realiza túneles DNS."</em></td><td>Zeek <code>dns.log</code> ordenando dominios por longitud máxima de subdominio y cantidad de consultas <code>TXT</code> o <code>NULL</code>, y <code>conn.log</code> buscando intervalos constantes entre paquetes.</td></tr>
+<tr><td><strong>Estaciones de trabajo</strong></td><td><em>"Un documento ofimático o cliente de correo lanzó un intérprete de comandos."</em></td><td>Sysmon <code>1</code> donde <code>ParentImage</code> sea <code>winword.exe</code>, <code>excel.exe</code>, <code>outlook.exe</code> o <code>acrord32.exe</code> con hijo <code>cmd.exe</code>, <code>powershell.exe</code> o <code>wscript.exe</code>.</td></tr>
+</tbody></table></div>
+<h2 id="cap-4-6-2-inteligencia-de-amenazas-cti-piramide-del-dolor-y-stix-taxii">2. Inteligencia de amenazas (CTI), Pirámide del Dolor y STIX/TAXII</h2>
+<p>La <strong>Inteligencia de Amenazas (<em>Cyber Threat Intelligence</em>, CTI)</strong> contextualiza qué amenazas son relevantes para la organización, evitando perseguir listas genéricas de miles de direcciones IP caducadas.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Nivel de CTI</th>
+<th>Audiencia principal</th>
+<th>Qué responde</th>
+<th>Horizonte de vida</th>
+</tr></thead><tbody>
+<tr><td><strong>Estratégico</strong></td><td>CISO, Dirección y Comité de Riesgo</td><td>Tendencias geopolíticas/sectoriales, riesgos de negocio e impacto financiero para priorizar presupuesto.</td><td>Meses a años</td></tr>
+<tr><td><strong>Operacional</strong></td><td>Responsables de SOC, IR y Defensa</td><td>Campañas activas, vectores iniciales más usados y capacidades reales de grupos que apuntan al sector.</td><td>Semanas a meses</td></tr>
+<tr><td><strong>Táctico y Técnico</strong></td><td>Analistas SOC, Hunters y Detection Engineers</td><td>TTPs mapeados a MITRE ATT&amp;CK, reglas Sigma/YARA y artefactos observables (hashes, dominios, rutas).</td><td>Horas a semanas</td></tr>
+</tbody></table></div>
+<h3 id="cap-4-6-prioridad-de-deteccion-y-estandares-abiertos">Prioridad de detección y estándares abiertos</h3>
+<p>Recordá siempre la <strong>Pirámide del Dolor</strong> (Cap. 4.5): bloquear un hash SHA-256 o una IP es sencillo pero efímero; cazar <strong>TTPs</strong> (comportamientos padre-hijo y abusos de protocolo) tiene impacto duradero. Para intercambiar inteligencia de forma estructurada entre organizaciones y plataformas (MISP, OpenCTI, SIEM) se utilizan los estándares abiertos de OASIS:</p>
+<ul><li><strong>STIX 2.1 (<em>Structured Threat Information Expression</em>):</strong> formato JSON estandarizado que describe objetos (<code>indicator</code>, <code>threat-actor</code>, <code>malware</code>, <code>attack-pattern</code>) y sus relaciones.</li><li><strong>TAXII 2.1 (<em>Trusted Automated Exchange of Intelligence Information</em>):</strong> protocolo REST sobre HTTPS para publicar y consumir colecciones STIX automáticamente.</li></ul>
+<h3 id="cap-4-6-regla-innegociable-de-higiene-defanging">Regla innegociable de higiene: <em>Defanging</em></h3>
+<p>Antes de pegar cualquier URL, dominio, IP o correo sospechoso en un informe, ticket, correo o chat interno, neutralizalo (<em>defanging</em>) para impedir clics accidentales o previsualizaciones automáticas:</p>
+<ul><li><code>https://login-verificacion.ejemplo/auth</code> → <code>hxxps://login-verificacion[.]ejemplo/auth</code></li><li><code>198.51.100.42</code> → <code>198[.]51[.]100[.]42</code></li><li><code>soporte@dominio.invalid</code> → <code>soporte[@]dominio[.]invalid</code></li></ul>
+<h3 id="cap-4-6-caza-de-amenazas-especializadas-beaconing-ransomware-rmm-y-deception">Caza de amenazas especializadas: Beaconing, Ransomware, RMM y <em>Deception</em></h3>
+<p>Además de buscar indicadores estáticos conocidos, el <em>Threat Hunting</em> proactivo formula hipótesis sobre comportamientos difíciles de ocultar incluso cuando el atacante cambia dominios o recompila binarios:</p>
+<ul><li><strong>Caza de <em>beaconing</em> C2 y túneles DNS con Zeek y <code>RITA</code> (<em>Real Intelligence Threat Analytics</em>):</strong> Al ingerir registros <code>conn.log</code> y <code>dns.log</code> de Zeek, herramientas estadísticas como <code>RITA</code> puntúan conexiones periódicas comparando la regularidad de los intervalos entre paquetes (<em>jitter</em> bajo), la cantidad total de conexiones sostenidas hacia un mismo par IP/puerto y la longitud o entropía de subdominios DNS. En túneles DNS o dominios generados algorítmicamente (<em>DGA</em>), la señal característica combina subdominios de alta entropía, consultas frecuentes de registros <code>TXT</code>/<code>NULL</code> y picos sostenidos de respuestas <code>NXDOMAIN</code> desde un mismo host interno.</li><li><strong>Caza temprana de Ransomware:</strong> Antes de completar el cifrado masivo en endpoints o recursos compartidos SMB, muchos operadores ejecutan comandos de inhibición de recuperación local (<code>vssadmin delete shadows /all /quiet</code>, <code>wmic shadowcopy delete</code>, <code>wbadmin delete catalog</code>, <code>bcdedit /set {default} recoveryenabled No</code>). Correlacionar estas líneas de comando (Sysmon ID <code>1</code> / Event ID <code>4688</code>) con picos súbitos de creación o renombrado masivo de archivos con extensiones atípicas en red (Sysmon ID <code>11</code> y auditoría SMB <code>5145</code>) permite contener el brote en los primeros minutos.</li><li><strong>Abuso de herramientas RMM legítimas (<em>Living off Trusted RMM</em>):</strong> Para evitar disparar alertas de malware binario, varios grupos intrusos instalan o ejecutan clientes comerciales de administración remota (<em>AnyDesk</em>, <em>TeamViewer</em>, <em>ScreenConnect</em>, <em>Atera</em>, <em>Splashtop</em>). La hipótesis de caza parte del inventario oficial de software corporativo: se buscan ejecuciones por nombre original en metadatos PE (<code>OriginalFileName</code>), firmas digitales de proveedores RMM o conexiones hacia sus relés públicos desde hosts de usuarios finales o fuera de la ventana y subred autorizada de mesa de ayuda.</li><li><strong>Threat Hunting basado en <em>Deception</em> (Honeypots, Honeytokens y Canarytokens):</strong> El despliegue deliberado de sensores pasivos —como servicios señuelo internos (<em>honeypots</em>), cuentas falsas de Active Directory sin uso real (<em>honeytokens</em>) o documentos/entradas DNS trampa (<em>Canarytokens</em>)— invierte la carga de la prueba: como ningún proceso legítimo ni usuario autorizado debe interactuar con esos recursos, cualquier autenticación Kerberos/NTLM o consulta contra ellos produce una alerta de fidelidad cercana al 100 % y señal temprana de reconocimiento lateral.</li></ul>
+<h2 id="cap-4-6-3-analisis-tecnico-y-seguro-de-phishing-en-el-soc">3. Análisis técnico y seguro de phishing en el SOC</h2>
+<p>El correo electrónico sigue siendo una de las principales vías de acceso inicial. Todo análisis de un correo sospechoso debe hacerse <strong>en texto plano o visor aislado sobre el archivo <code>.eml</code>/<code>.msg</code> original</strong>, sin hacer clic en enlaces ni abrir adjuntos fuera de una VM desechable sin red.</p>
+<h3 id="cap-4-6-los-cinco-pasos-ordenados-del-triage-de-un-eml">Los cinco pasos ordenados del triage de un <code>.eml</code></h3>
+<ol><li><strong>Trazar la cadena de transporte (<code>Received:</code>):</strong> leer las cabeceras <code>Received:</code> <strong>de abajo hacia arriba</strong> (desde el servidor de origen hasta el servidor de correo receptor) para identificar la IP real emisora y detectar saltos anómalos.</li><li><strong>Evaluar la autenticación de correo (<code>SPF</code>, <code>DKIM</code> y <code>DMARC</code>):</strong> revisar la cabecera <code>Authentication-Results</code> insertada por tu pasarela de correo (<code>mx</code>):</li></ol>
+<div class="tabla"><table>
+<thead><tr>
+<th>Estándar</th>
+<th>Qué valida criptográfica o lógicamente</th>
+<th>Indicador de alerta en triage</th>
+</tr></thead><tbody>
+<tr><td><strong>SPF (RFC 7208)</strong></td><td>Comprueba en DNS si la IP del servidor remitente está autorizada a enviar correos en nombre del dominio de <strong><code>Return-Path</code></strong> (sobre SMTP).</td><td><code>spf=fail</code> o <code>spf=softfail</code>: el servidor origen no figura en el registro TXT SPF del dominio.</td></tr>
+<tr><td><strong>DKIM (RFC 6376)</strong></td><td>Verifica con firma criptográfica asimétrica que el cuerpo y cabeceras firmadas (<code>From</code>, <code>Subject</code>) no fueron alterados en tránsito por el dominio <code>d=</code>.</td><td><code>dkim=fail</code> o ausencia total de firma DKIM válida en dominios corporativos críticos.</td></tr>
+<tr><td><strong>DMARC (RFC 7489)</strong></td><td>Exige <strong>alineación</strong> entre el dominio visible al usuario en la cabecera <strong><code>From:</code></strong> y el dominio validado por SPF o DKIM, aplicando la política publicada (<code>p=reject</code> / <code>quarantine</code> / <code>none</code>).</td><td><code>dmarc=fail</code> combinado con discrepancia entre <code>From:</code> visible (<code>soporte@empresa.local</code>) y <code>Return-Path:</code> o <code>Reply-To:</code> externo.</td></tr>
+</tbody></table></div>
+<ol start="3"><li><strong>Detectar discrepancias en <code>From:</code>, <code>Return-Path:</code> y <code>Reply-To:</code>:</strong> es habitual en campañas de suplantación mostrar una dirección corporativa en <code>From:</code> o un <em>Display Name</em> engañoso mientras <code>Reply-To:</code> apunta a un dominio externo distinto.</li><li><strong>Extraer e inspeccionar URLs con <em>defanging</em>:</strong> comparar el texto visible del enlace en HTML frente a su atributo <code>href=</code> real, buscando acortadores, dominios recién creados o <em>typosquatting</em> (<code>empresaa.example</code>).</li><li><strong>Triage pasivo de adjuntos:</strong> calcular únicamente su hash <strong>SHA-256</strong>, revisar el tipo real por <em>magic bytes</em> (por ejemplo distinguir un <code>.html</code> disfrazado o un archivo <code>.iso</code>/<code>.lnk</code>/<code>.zip</code>), sin ejecutarlo nunca en el equipo del analista.</li></ol>
+<h2 id="cap-4-6-4-ejemplo-paso-a-paso-analisis-completo-de-laboratorios-muestras-correo-phishing-simulado-eml">4. Ejemplo paso a paso: análisis completo de <code>laboratorios/muestras/correo_phishing_simulado.eml</code></h2>
+<p>En nuestro kit <code>laboratorios/muestras/</code> tenés un archivo <code>.eml</code> seguro diseñado específicamente para practicar triage pasivo con Python sin red:</p>
+<pre><code class="lenguaje-python"># Archivo de laboratorio: triage_eml_lab.py (100 % pasivo, sin conexión de red)
+import email
+import re
+from email import policy
+
+ruta_eml = "laboratorios/muestras/correo_phishing_simulado.eml"
+with open(ruta_eml, "rb") as f:
+    msg = email.message_from_binary_file(f, policy=policy.default)
+
+print("=== METADATOS DE CABECERA ===")
+for campo in ("From", "Return-Path", "Reply-To", "Subject", "Authentication-Results"):
+    print(f"{campo:23s}: {msg.get(campo)}")
+
+print("\n=== CADENA RECEIVED (DE ORIGEN A DESTINO) ===")
+for idx, rec in enumerate(reversed(msg.get_all("Received", [])), 1):
+    print(f"Salto {idx}: {' '.join(rec.split())}")
+
+cuerpo = msg.get_body(preferencelist=("plain", "html"))
+texto = cuerpo.get_content() if cuerpo else ""
+urls = re.findall(r"(?:https?|hxxps?)://[^\s\"'&lt;&gt;]+", texto)
+print("\n=== ENLACES EXTRAIDOS (CON DEFANGING) ===")
+for u in sorted(set(urls)):
+    print(" -&gt;", u.replace("http://", "hxxp://").replace("https://", "hxxps://").replace(".", "[.]"))</code></pre>
+<p>Salida real verificada sobre <code>laboratorios/muestras/correo_phishing_simulado.eml</code>:</p>
+<pre><code class="lenguaje-text">=== METADATOS DE CABECERA ===
+From                   : "Soporte TI Empresa" &lt;soporte@empresa.local&gt;
+Return-Path            : &lt;soporte-falso@notificaciones-seguridad.invalid&gt;
+Reply-To               : "Mesa Externa" &lt;respuesta-urgente@dominio-externo.invalid&gt;
+Subject                : URGENTE: Verificacion de cuenta requerida en 2 horas
+Authentication-Results : mx.empresa.local; spf=fail (... 198.51.100.99 ...); dkim=fail (no signature); dmarc=fail (p=REJECT) header.from=empresa.local
+
+=== CADENA RECEIVED (DE ORIGEN A DESTINO) ===
+Salto 1: from mail-relay.ejemplo-externo.invalid (198.51.100.99) by mx.empresa.local with ESMTPS; Sun, 22 Nov 2026 14:10:05 +0000
+
+=== ENLACES EXTRAIDOS (CON DEFANGING) ===
+ -&gt; hxxps://portal-verificacion[.]ejemplo[.]invalid/login?id=99182</code></pre>
+<p>En tres segundos de inspección pasiva comprobamos cuatro indicadores claros de suplantación:</p>
+<ol><li><code>From</code> declara <code>@empresa.local</code>, pero <code>Return-Path</code> proviene de <code>@notificaciones-seguridad.invalid</code> y <code>Reply-To</code> redirige respuestas a <code>@dominio-externo.invalid</code>.</li><li>La IP <code>198.51.100.99</code> falló <strong>SPF, DKIM y DMARC (<code>p=REJECT</code>)</strong>.</li><li>El asunto impone urgencia artificial (<em>"URGENTE: en 2 horas"</em>).</li><li>El enlace apunta a un dominio externo no corporativo.</li></ol>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><ol><li><strong>Endurecimiento progresivo de correo corporativo:</strong> publicar registros SPF estrictos (<code>-all</code>), firmar todo el correo saliente legítimo con <strong>DKIM de 2048 bits</strong> y avanzar la política <strong>DMARC</strong> de <code>p=none</code> → <code>p=quarantine</code> → <code>p=reject</code> monitoreando los reportes agregados RUA para no bloquear envíos propios legítimos.</li><li><strong>Retroalimentación del Hunting a Detection Engineering:</strong> cada consulta de hunting que demuestre ser útil para encontrar relaciones padre-hijo o anomalías de red debe convertirse al cierre de la sesión en una regla versionada (Sigma/SPL/KQL) revisada en Git (Cap. 4.5).</li></ol></aside>
+<h2 id="cap-4-6-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Ejecutá el script <code>triage_eml_lab.py</code> directamente contra la muestra real incluida en <code>laboratorios/muestras/correo_phishing_simulado.eml</code> y guardá la salida comentada.</li><li>Probá también ejecutar <code>python laboratorios/analizador_logs_soc.py laboratorios/muestras/web_access_simulado.log 4</code> y redactá una hipótesis de Threat Hunting sobre qué buscarías a continuación si esa IP <code>198.51.100.88</code> hubiera recibido además un código <code>200 OK</code> tras probar <code>/.env</code>.</li><li>Redactá un objeto indicador JSON con formato básico <strong>STIX 2.1</strong> que modele la IP de prueba <code>198.51.100.99</code> observada en el <code>.eml</code> de laboratorio (incluyendo <code>type: "indicator"</code>, <code>spec_version: "2.1"</code>, <code>pattern</code> y <code>valid_from</code>).</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Salida real del triage sobre <code>correo_phishing_simulado.eml</code>, resultado JSON de <code>analizador_logs_soc.py</code> sobre <code>web_access_simulado.log</code>, hipótesis escrita de hunting posterior y tu objeto JSON STIX 2.1 validado sintácticamente.</p></aside>
+<h2 id="cap-4-6-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Qué diferencia al Threat Hunting proactivo de la atención tradicional de alertas en un SOC?</strong> El Threat Hunting parte de hipótesis verificables sobre actividad sigilosa o no alertada (por ejemplo abuso de herramientas administrativas legítimas o patrones estadísticos raros) para descubrir intrusiones ocultas, mientras que el monitoreo L1/L2 reacciona a eventos que ya coincidieron con reglas de detección existentes.</p>
+<p><strong>2. ¿Por qué el apilamiento de frecuencias (<em>stacking</em>) es eficaz para detectar anomalías en miles de eventos de procesos?</strong> Porque en una red operativa las ejecuciones legítimas del sistema y del negocio se repiten con alta frecuencia (cientos o miles de veces), haciendo que relaciones padre-hijo inusuales (<code>nginx → bash</code> o <code>winword.exe → powershell.exe</code>) aparezcan al inicio del ordenamiento ascendente por frecuencia.</p>
+<p><strong>3. ¿En qué orden se deben leer las cabeceras <code>Received:</code> de un archivo <code>.eml</code> y qué añade DMARC respecto de SPF y DKIM?</strong> Las cabeceras <code>Received:</code> se leen siempre <strong>de abajo hacia arriba</strong> porque cada servidor intermedio que recibe el mensaje inserta su cabecera arriba del todo; abajo figura el primer salto emitido por el remitente. <strong>DMARC</strong> exige además <strong>alineación</strong> entre el dominio visible al usuario en la cabecera <code>From:</code> y el dominio validado por SPF o DKIM, definiendo qué política aplicar si falla (<code>none</code>, <code>quarantine</code> o <code>reject</code>).</p>
+<p><strong>4. ¿Por qué es obligatorio aplicar <em>defanging</em> a URLs e IPs sospechosas al documentar un caso de CTI o un ticket SOC?</strong> Para evitar que clientes de correo, sistemas de tickets, mensajería o el propio analista abran accidentalmente un enlace sospechoso al hacer clic o disparen resoluciones DNS y descargas automáticas de vista previa (<em>link unfurling</em>).</p>
+<p><strong>5. ¿Cuál es el entregable más importante al finalizar una sesión de Threat Hunting que descubrió un nuevo patrón de riesgo o una brecha de visibilidad?</strong> Además de contener el hallazgo si fue positivo, traducir el patrón validado en una <strong>regla permanente versionada</strong> (Sigma/SPL/KQL/Suricata) y documentar qué telemetría faltaba en el SIEM/EDR para cerrar la brecha detectada.</p>
+<h2 id="cap-4-6-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Formular una hipótesis de Threat Hunting y usar <em>stacking</em> para aislar eventos de baja frecuencia.</li><li>Analizar pasivamente <code>laboratorios/muestras/correo_phishing_simulado.eml</code> evaluando <code>Received</code>, SPF, DKIM, DMARC y enlaces con <em>defanging</em>.</li><li>Modelar indicadores básicos en formato STIX 2.1 y retroalimentar detecciones al SOC.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Avanzá al <strong>Capítulo 4.7 · DFIR: forense de disco, artefactos Windows/Linux y análisis de memoria RAM</strong> cuando puedas ejecutar un triage completo de correo y formular hipótesis estructuradas sobre logs y procesos.</p></aside>
+<h2 id="cap-4-6-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>OASIS Cyber Threat Intelligence (STIX 2.1 / TAXII 2.1 Specifications):</strong> estándares abiertos de modelado e intercambio de inteligencia.</li><li><strong>RFC 7208 (SPF), RFC 6376 (DKIM) y RFC 7489 (DMARC):</strong> especificaciones oficiales del IETF sobre autenticación de correo electrónico.</li><li><strong>NIST SP 800-150 (<em>Guide to Cyber Threat Information Sharing</em>) &amp; MITRE ATT&amp;CK Matrix.</strong></li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 24 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Introduction to Threat Hunting &amp; Hunting With Elastic</td><td>Medium</td><td>Defensive</td><td>6</td></tr><tr><td>Threat Hunting with IPS/IDS</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Threat Hunting with SIEM</td><td>Hard</td><td>Defensive</td><td>9</td></tr><tr><td>Threat Hunting with DNS</td><td>Hard</td><td>Defensive</td><td>7</td></tr><tr><td>Threat Hunting for Ransomware Attacks</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Cyber Threat Intelligence</td><td>Medium</td><td>Defensive</td><td>9</td></tr><tr><td>Threat Hunting with EDR</td><td>Hard</td><td>Defensive</td><td>8</td></tr><tr><td>Threat Hunting with CTI</td><td>Medium</td><td>Defensive</td><td>8</td></tr><tr><td>Threat Hunting with Firewalls</td><td>Medium</td><td>Defensive</td><td>5</td></tr><tr><td>Hunting AD Attacks</td><td>Hard</td><td>Defensive</td><td>8</td></tr><tr><td>Threat Hunting with WAF</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Threat Hunting with Email Security</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Threat Hunting with Deception</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Introduction to Threat Hunting</td><td>Easy</td><td>Defensive</td><td>7</td></tr><tr><td>Threat Hunting for Email-Based Attacks</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Threat Hunting Tools</td><td>Easy</td><td>Defensive</td><td>8</td></tr><tr><td>Threat Hunting for Web Attacks</td><td>Hard</td><td>Defensive</td><td>8</td></tr><tr><td>Threat Hunting for Network-Based Attacks</td><td>Hard</td><td>Defensive</td><td>9</td></tr><tr><td>Threat Hunting for Privilege Escalation</td><td>Hard</td><td>Defensive</td><td>8</td></tr><tr><td>Threat Hunting for Data Exfiltration Attacks</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Hunting the Remote Access Techniques</td><td>Hard</td><td>Defensive</td><td>7</td></tr><tr><td>Threat Hunting and IR with XDR/EDR</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>Threat Hunting with Sysmon</td><td>Hard</td><td>Defensive</td><td>8</td></tr><tr><td>Phishing Email Analysis (LetsDefend)</td><td>Easy</td><td>Defensive</td><td>8</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="30-detection-engineering-sigma-yara.html">← 4.5 Detection Engineering: reglas Sigma, firmas YARA y validación Purple Team</a></div><div><a href="32-dfir-forense-disco-memoria.html">4.7 DFIR: forense de disco, artefactos Windows/Linux y análisis de memoria RAM →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

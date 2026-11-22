@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 2.5 · Autenticación, sesiones, JWT, OAuth y control de acceso (IDOR/BOLA) · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar tokens JWT/sesiones y corregir fallos de autorización por objeto">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo2.html">Tomo II</a><span aria-hidden="true">›</span><span>Cap. 2.5</span></nav>
+<h1 id="cap-2-5">Capítulo 2.5 · Autenticación, sesiones, JWT, OAuth y control de acceso (IDOR/BOLA)</h1>
+<div class="meta-nivel"><span class="nivel-badge intermedio">Intermedio</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo II · Ruta 2 · Intermedio</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="15-ssrf-xxe-ssti-archivos.html">2.6 LFI/Path Traversal, File Upload, SSRF, XXE, SSTI y deserialización</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al terminar este capítulo vas a dominar la arquitectura de los sistemas de autenticación y autorización web: diseñar flujos de inicio de sesión resistentes a enumeración y fuerza bruta, gestionar el ciclo de vida seguro de sesiones, auditar la estructura criptográfica y los <em>claims</em> de JSON Web Tokens (JWT, RFC 7519), comprender los flujos de delegación OAuth 2.0 / OpenID Connect con PKCE, y erradicar fallos de control de acceso horizontal y vertical (IDOR, BOLA y BFLA) aplicándolos sobre <code>laboratorios/app_lab_educativa.py</code>.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 1.8 (HTTP y cookies) y Capítulo 2.4 (Seguridad del lado del cliente). <strong>Duración sugerida:</strong> 7 a 9 horas.</p>
+<h2 id="cap-2-5-1-autenticacion-frente-a-autorizacion">1. Autenticación frente a Autorización</h2>
+<p>Aunque suelen mencionarse juntos, <strong>autenticación (AuthN)</strong> y <strong>autorización (AuthZ)</strong> resuelven dos problemas completamente distintos y deben evaluarse por separado en toda auditoría:</p>
+<ul><li><strong>Autenticación (<em>¿Quién sos?</em>):</strong> verifica la identidad declarada por un usuario o servicio mediante uno o varios factores (contraseña almacenada con Argon2id, código TOTP/WebAuthn MFA, certificado cliente) y emite una credencial temporal de sesión.</li><li><strong>Autorización (<em>¿Qué tenés permiso para hacer y sobre qué datos?</em>):</strong> verifica en <strong>cada petición posterior</strong> si esa identidad ya autenticada posee permisos para ejecutar la función solicitada (<em>control vertical</em>) y para acceder al registro u objeto específico (<em>control horizontal</em>).</li></ul>
+<p>Un sistema puede tener una autenticación criptográficamente impecable con MFA y, sin embargo, ser totalmente vulnerable si una vez iniciada la sesión un usuario normal puede consultar <code>/ticket-seguro/2</code> y leer los datos de otro cliente.</p>
+<h2 id="cap-2-5-2-seguridad-en-flujos-de-autenticacion-y-gestion-de-sesiones">2. Seguridad en flujos de autenticación y gestión de sesiones</h2>
+<p>Al auditar un sistema de inicio de sesión, recuperación de cuenta y manejo de sesiones (OWASP ASVS V2 y V3), existen cuatro debilidades clásicas que debés verificar y corregir:</p>
+<h3 id="cap-2-5-1-enumeracion-de-usuarios-por-diferencias-en-respuestas-o-tiempos">1. Enumeración de usuarios por diferencias en respuestas o tiempos</h3>
+<p>Si el formulario de login o de recuperación de clave responde <code>"El usuario no existe"</code> cuando el correo no está registrado y <code>"Contraseña incorrecta"</code> cuando sí existe, regala un oráculo perfecto para listar todas las cuentas válidas del sistema.</p>
+<ul><li><strong>Mitigación:</strong> devolver siempre un mensaje uniforme (<code>"Credenciales inválidas"</code> o <code>"Si el correo está registrado, recibirás un enlace en los próximos minutos"</code>) y ejecutar una verificación de hash ficticia de tiempo constante cuando el usuario no exista, evitando también diferencias medibles de tiempo de respuesta (<em>timing side-channel</em>).</li></ul>
+<h3 id="cap-2-5-2-ausencia-de-limites-de-tasa-rate-limiting-y-proteccion-ante-fuerza-bruta">2. Ausencia de límites de tasa (Rate Limiting) y protección ante fuerza bruta</h3>
+<p>Sin un control de tasa por cuenta y por dirección IP/red, un servicio de autenticación queda expuesto a adivinación automatizada de contraseñas o <em>password spraying</em> (probar una misma contraseña común contra cientos de usuarios).</p>
+<ul><li><strong>Mitigación:</strong> aplicar <em>rate limiting</em> progresivo con retroceso exponencial (<em>exponential backoff</em>), exigir autenticación multifactor resistente a phishing (FIDO2 / WebAuthn o TOTP) y evitar bloqueos permanentes de cuenta que puedan abusarse para provocar una denegación de servicio contra usuarios legítimos.</li></ul>
+<h3 id="cap-2-5-3-ciclo-de-vida-inseguro-del-identificador-de-sesion">3. Ciclo de vida inseguro del identificador de sesión</h3>
+<p>Un identificador de sesión tradicional en cookie debe ser una cadena aleatoria generada con un generador criptográficamente seguro (<code>secrets.token_urlsafe(32)</code> en Python, con al menos 128 bits de entropía) cuyo estado real viva en el servidor (base de datos o Redis).</p>
+<ul><li><strong>Reglas obligatorias del ciclo de vida:</strong></li></ul>
+<ol><li><strong>Rotar el ID de sesión inmediatamente después del login</strong> (previene <em>Session Fixation</em>).</li><li><strong>Invalidar la sesión en el servidor al cerrar sesión (<em>Logout</em>)</strong>, no solo borrar la cookie en el navegador.</li><li><strong>Definir tiempos de expiración absolutos y por inactividad</strong> (<em>idle timeout</em>).</li></ol>
+<h2 id="cap-2-5-3-anatomia-y-auditoria-de-json-web-tokens-jwt-rfc-7519">3. Anatomía y auditoría de JSON Web Tokens (JWT — RFC 7519)</h2>
+<p>En arquitecturas de APIs modernas es habitual reemplazar o complementar las sesiones en memoria del servidor por <strong>JSON Web Tokens (JWT)</strong>. Un JWT es una cadena compuesta por tres bloques codificados en <strong>Base64URL</strong> separados por puntos (<code>Header.Payload.Signature</code>):</p>
+<pre><code class="lenguaje-text">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbmEiLCJyb2xlIjoiYW5hbGlzdGEiLCJleHAiOjE3OTUzOTAwMDB9.FirmaCriptograficaBase64Url
+└────────────── Header ──────────────┘ └─────────────────────── Payload ───────────────────────┘ └─────── Signature ───────┘</code></pre>
+<ol><li><strong>Header (Cabecera):</strong> declara el tipo de token (<code>"typ": "JWT"</code>) y el algoritmo criptográfico empleado para firmarlo (<code>"alg": "HS256"</code>, <code>"RS256"</code>, <code>"ES256"</code>).</li><li><strong>Payload (Cuerpo o <em>Claims</em>):</strong> contiene las afirmaciones sobre la identidad y validez del token:</li></ol>
+<ul><li><code>sub</code> (<em>Subject</em>): identificador único del usuario.</li><li><code>iss</code> (<em>Issuer</em>): quién emitió el token.</li><li><code>aud</code> (<em>Audience</em>): para qué servicio o API fue emitido.</li><li><code>iat</code> (<em>Issued At</em>) y <code>exp</code> (<em>Expiration Time</em>): marcas de tiempo Unix de emisión y vencimiento.</li></ul>
+<ol start="3"><li><strong>Signature (Firma):</strong> garantiza la <strong>integridad y autenticidad</strong> del Header y del Payload.</li></ol>
+<aside class="callout peligro"><p class="callout-titulo">Recordatorio crítico: un JWT firmado (JWS) NO está cifrado</p><p>La codificación Base64URL de un JWT estándar es 100 % reversible por cualquiera que vea el token. La firma impide que alguien <strong>modifique</strong> el contenido sin conocer la clave secreta o privada, pero no oculta los datos. Nunca guardes secretos, contraseñas ni datos personales sensibles dentro del payload de un JWT.</p></aside>
+<h3 id="cap-2-5-fallos-criticos-en-implementaciones-de-jwt-y-como-corregirlos">Fallos críticos en implementaciones de JWT y cómo corregirlos</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Defecto de implementación</th>
+<th>Por qué ocurre</th>
+<th>Mitigación de ingeniería (RFC 8725)</th>
+</tr></thead><tbody>
+<tr><td><strong>Aceptación del algoritmo <code>none</code></strong></td><td>La biblioteca obedece el campo <code>"alg": "none"</code> enviado en el header del propio token y da por válida una firma vacía.</td><td>Pasar siempre una lista fija y explícita de algoritmos permitidos al verificar: <code>jwt.decode(token, clave, algorithms=["HS256"])</code>.</td></tr>
+<tr><td><strong>Secretos HMAC (<code>HS256</code>) cortos o predecibles</strong></td><td>Firmar con una clave simétrica débil como <code>"secreto123"</code> permite que cualquiera que obtenga un token pruebe diccionarios offline hasta hallar la clave.</td><td>Generar secretos HMAC con <code>secrets.token_bytes(32)</code> (256 bits reales de entropía aleatoria) o usar firma asimétrica (<code>RS256</code> / <code>ES256</code>).</td></tr>
+<tr><td><strong>Confusión de algoritmo (<code>RS256</code> → <code>HS256</code>)</strong></td><td>El servidor usa par de claves pública/privada RSA, pero acepta <code>"alg": "HS256"</code> en el header y usa su propia clave pública RSA como si fuera un secreto simétrico HMAC.</td><td>Fijar estrictamente <code>algorithms=["RS256"]</code> y usar objetos de clave tipados que prohíban usar una clave pública RSA en una función HMAC.</td></tr>
+<tr><td><strong>Falta de validación de <code>exp</code>, <code>iss</code> o <code>aud</code></strong></td><td>El backend verifica la firma pero no comprueba si el token venció o si fue emitido para otro microservicio.</td><td>Exigir <code>require=["exp", "iss", "aud", "sub"]</code> en la configuración del validador JWT.</td></tr>
+<tr><td><strong>Inyección en cabecera <code>kid</code> (<em>Key ID</em>)</strong></td><td>El servidor toma el campo <code>"kid"</code> del header sin validar y lo concatena en una ruta de archivo (<code>../</code>) o consulta SQL para buscar la clave de firma.</td><td>Validar <code>kid</code> contra un mapa cerrado en memoria de claves activas (nunca construir rutas ni queries SQL desde <code>kid</code>).</td></tr>
+</tbody></table></div>
+<h2 id="cap-2-5-4-fundamentos-de-seguridad-en-oauth-2-0-openid-connect-oidc-y-saml-2-0">4. Fundamentos de seguridad en OAuth 2.0, OpenID Connect (OIDC) y SAML 2.0</h2>
+<p><strong>OAuth 2.0 (RFC 6749 y RFC 9700)</strong> es un estándar de delegación de autorización, sobre el cual <strong>OpenID Connect (OIDC)</strong> construye una capa de autenticación federada (SSO). En el flujo moderno recomendado (<strong>Authorization Code Flow con PKCE</strong>):</p>
+<ol><li>La aplicación cliente redirige al usuario al Proveedor de Identidad (IdP) enviando su <code>client_id</code>, la <code>redirect_uri</code>, un parámetro aleatorio anti-CSRF llamado <strong><code>state</code></strong> y un desafío criptográfico <strong><code>code_challenge</code> (PKCE, RFC 7636)</strong>.</li><li>Tras autenticarse el usuario, el IdP redirige el navegador a <code>redirect_uri</code> entregando un código efímero de un solo uso (<code>code</code>) y devolviendo el mismo <code>state</code>.</li><li>El cliente verifica que <code>state</code> coincida con su sesión y canjea el <code>code</code> por los tokens enviando el <code>code_verifier</code> original.</li></ol>
+<p><strong>Los tres controles obligatorios al auditar OAuth 2.0:</strong></p>
+<ul><li><strong>Comparación exacta byte a byte de <code>redirect_uri</code>:</strong> nunca permitir comodines ni coincidencias parciales de prefijo en las URLs de retorno registradas, para impedir que el código de autorización sea redirigido a una ruta no confiable.</li><li><strong>Validación estricta del parámetro <code>state</code>:</strong> vinculada a la sesión del navegador para impedir ataques de inicio de sesión forzado (<em>Login CSRF</em>).</li><li><strong>Uso obligatorio de PKCE (<code>S256</code>):</strong> incluso en clientes confidenciales, tal como establece las mejores prácticas actuales del IETF (RFC 9700).</li></ul>
+<h3 id="cap-2-5-seguridad-de-saml-2-0-sso-empresarial-en-xml">Seguridad de SAML 2.0 (SSO Empresarial en XML)</h3>
+<p>En entornos corporativos (<em>Single Sign-On</em>), <strong>SAML 2.0</strong> transmite aserciones de identidad firmadas en formato XML (<code>&lt;saml:Assertion&gt;</code>). Al heredar XML + firma digital, presenta tres riesgos propios que deben auditarse y monitorearse:</p>
+<ul><li><strong>XXE en el parser SAML:</strong> si el <em>Service Provider (SP)</em> procesa la aserción XML sin desactivar entidades DTD antes de validar la firma, queda expuesto a lectura de archivos o SSRF.</li><li><strong>XML Signature Wrapping (XSW):</strong> ocurre cuando el módulo criptográfico valida una etiqueta <code>&lt;Signature&gt;</code> válida colocada en un elemento del documento XML, pero la lógica de negocio lee el usuario (<code>&lt;NameID&gt;</code>) de otro bloque XML no firmado añadido en otra rama. <strong>Mitigación:</strong> validar la firma sobre todo el árbol canónico exacto usado posteriormente por la aplicación y rechazar documentos con múltiples aserciones o elementos <code>ID</code> duplicados.</li><li><strong>Autenticación por comentarios en XML / Manipulación de <code>NameID</code>:</strong> asegurarse de normalizar nodos de texto completos tras verificar la firma y detectar en el SIEM aserciones SAML con múltiples nodos <code>&lt;Assertion&gt;</code> o firmas ausentes.</li></ul>
+<h2 id="cap-2-5-5-control-de-acceso-idor-bola-bfla-y-http-verb-tampering">5. Control de acceso: IDOR, BOLA, BFLA y HTTP Verb Tampering</h2>
+<p>Los fallos de autorización encabezan tanto el <strong>OWASP Top 10 Web (A01:2021 Broken Access Control)</strong> como el <strong>OWASP API Security Top 10 (API1:2023 BOLA y API5:2023 BFLA)</strong>:</p>
+<ol><li><strong>Control de acceso horizontal — IDOR (<em>Insecure Direct Object Reference</em>) / BOLA (<em>Broken Object Level Authorization</em>):</strong></li></ol>
+<p>Ocurre cuando un usuario autenticado <code>ana</code> cambia el identificador de un recurso en la URL, en el cuerpo JSON o en una consulta GraphQL (por ejemplo, de <code>/tickets/1</code> a <code>/tickets/2</code>) y el servidor devuelve o modifica el objeto de <code>carlos</code> porque solo verificó que la sesión estuviera iniciada, pero <strong>olvidó comprobar que el objeto solicitado perteneciera a <code>ana</code></strong>.</p>
+<ol start="2"><li><strong>Control de acceso vertical — BFLA (<em>Broken Function Level Authorization</em>) y <em>HTTP Verb Tampering</em>:</strong></li></ol>
+<p>Ocurre cuando un usuario con rol estándar (<code>analista</code>) invoca un endpoint administrativo (<code>POST /api/admin/usuarios/crear</code> o <code>DELETE /api/logs</code>) y el servidor ejecuta la acción porque solo comprobó autenticación general en lugar de verificar el rol específico. Una variante clásica es <strong>HTTP Verb Tampering</strong>: cuando una regla de control de acceso bloquea explícitamente solo <code>GET</code> y <code>POST</code> hacia <code>/admin</code>, pero el servidor procesa igualmente una petición <code>HEAD</code>, <code>PUT</code> o un método personalizado sin activar el filtro de autorización. <strong>Mitigación:</strong> denegar todo por defecto y definir reglas de autorización independientes del método HTTP.</p>
+<h2 id="cap-2-5-6-ejemplo-paso-a-paso-verificacion-anti-idor-en-laboratorios-app-lab-educativa-py">6. Ejemplo paso a paso: verificación anti-IDOR en <code>laboratorios/app_lab_educativa.py</code></h2>
+<p>Revisemos la implementación del endpoint <code>/ticket-seguro/&lt;int:ticket_id&gt;</code> en nuestro archivo <code>laboratorios/app_lab_educativa.py</code>:</p>
+<pre><code class="lenguaje-python">@app.route("/ticket-seguro/&lt;int:ticket_id&gt;")
+def ticket_seguro(ticket_id):
+    usuario_actual = request.args.get("user", "").strip().lower()
+    cur = DB.cursor()
+    # PATRÓN SEGURO ANTI-IDOR / ANTI-BOLA:
+    # La consulta exige simultáneamente el ID del recurso Y el propietario autenticado (owner = ?)
+    cur.execute(
+        "SELECT id, owner, titulo, detalle FROM tickets WHERE id = ? AND owner = ?",
+        (ticket_id, usuario_actual),
+    )
+    row = cur.fetchone()
+    if not row:
+        return jsonify({"error": "Acceso denegado o recurso inexistente"}), 403
+    return jsonify({"id": row[0], "owner": row[1], "titulo": row[2], "detalle": row[3]})</code></pre>
+<p>Probemos ambos escenarios en consola con <code>curl</code>:</p>
+<pre><code class="lenguaje-bash"># Caso 1: Ana solicita su propio ticket (ID 1) -&gt; Acceso permitido (HTTP 200)
+curl -i "http://127.0.0.1:5050/ticket-seguro/1?user=ana"
+
+# Caso 2: Ana intenta solicitar el ticket de Carlos (ID 2) -&gt; Acceso bloqueado (HTTP 403)
+curl -i "http://127.0.0.1:5050/ticket-seguro/2?user=ana"</code></pre>
+<p>Salida verificada en el laboratorio:</p>
+<pre><code class="lenguaje-text"># Respuesta Caso 1:
+HTTP/1.1 200 OK
+{"detalle":"Reglas de salida verificadas","id":1,"owner":"ana","titulo":"Revisión firewall"}
+
+# Respuesta Caso 2:
+HTTP/1.1 403 Forbidden
+{"error":"Acceso denegado o recurso inexistente"}</code></pre>
+<p>Observá dos decisiones de diseño importantes:</p>
+<ol><li>La restricción <code>AND owner = ?</code> está integrada en la propia consulta parametrizada a la base de datos: ni siquiera se carga en memoria de la aplicación un registro ajeno.</li><li>El mensaje de error <code>"Acceso denegado o recurso inexistente"</code> es idéntico tanto si el ticket <code>2</code> pertenece a otro usuario como si se consulta el ticket <code>9999</code> que no existe, evitando confirmar la existencia de identificadores privados.</li></ol>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><ol><li><strong>Autorización declarativa y centralizada:</strong> nunca dependas de que cada desarrollador recuerde escribir un <code>if</code> manual suelto. Usá decoradores o middlewares de políticas (<code>@requiere_rol("admin")</code>) para el control vertical y filtros de ámbito por propietario (<code>repositorio.obtener_por_id_y_propietario(id, usuario_actual.id)</code>) para el control horizontal.</li><li><strong>Los UUIDs no reemplazan el control de acceso:</strong> cambiar identificadores numéricos (<code>1, 2, 3</code>) por UUIDv4 (<code>8f3c...</code>) dificulta la enumeración secuencial, pero si el servidor no verifica la propiedad del recurso, sigue existiendo una vulnerabilidad BOLA/IDOR cada vez que un UUID se comparta en logs, URLs o referencias cruzadas.</li><li><strong>Pruebas automatizadas de matriz de permisos en CI/CD:</strong> toda suite de tests de una API debe incluir pruebas que ejecuten cada endpoint con tres identidades: anónimo (esperando <code>401</code>), usuario estándar accediendo a un recurso de otro usuario (esperando <code>403</code>/<code>404</code>) y propietario legítimo (esperando <code>200</code>).</li></ol></aside>
+<h2 id="cap-2-5-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Con <code>laboratorios/app_lab_educativa.py</code> corriendo en <code>127.0.0.1:5050</code>, escribí un script en Python <code>auditar_autorizacion.py</code> que pruebe automáticamente la matriz de acceso de <code>/ticket-seguro/1</code> y <code>/ticket-seguro/2</code> con los usuarios <code>ana</code>, <code>carlos</code> y sin usuario, verificando con <code>assert</code> que solo las combinaciones propietarias devuelvan código <code>200</code>.</li><li>Agregá en tu script una función que decodifique (usando <code>base64.urlsafe_b64decode</code> y <code>json.loads</code>) las dos primeras partes (<code>Header</code> y <code>Payload</code>) de un JWT de ejemplo y compruebe que <code>"alg"</code> esté dentro de <code>("HS256", "RS256", "ES256")</code> y que el campo <code>"exp"</code> sea mayor que el tiempo Unix actual (<code>time.time()</code>).</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>El script <code>auditar_autorizacion.py</code> con la matriz de pruebas de control de acceso horizontal pasando al 100 % y el validador estructural de cabeceras y claims JWT.</p></aside>
+<h2 id="cap-2-5-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué es necesario rotar el identificador de sesión (emitir un nuevo ID de cookie) inmediatamente después de que un usuario se autentica con éxito?</strong> Para prevenir ataques de fijación de sesión (<em>Session Fixation</em>). Si el servidor reutiliza el mismo ID de sesión que existía antes del login, cualquier actor que hubiera logrado fijar o conocer ese ID previo pasaría a controlar la sesión autenticada del usuario.</p>
+<p><strong>2. Si los datos de un JSON Web Token (JWT) estándar llevan una firma criptográfica válida (<code>HS256</code> o <code>RS256</code>), ¿es seguro guardar información confidencial dentro de su payload?</strong> No. Un JWT firmado (JWS) garantiza integridad y autenticidad (nadie puede alterarlo sin invalidar la firma), pero su contenido está simplemente codificado en Base64URL, por lo que cualquiera que tenga acceso al token puede decodificarlo y leer el JSON en texto claro.</p>
+<p><strong>3. ¿En qué consiste la vulnerabilidad de confusión de algoritmo (<code>RS256</code> a <code>HS256</code>) en JWT y cómo se previene en una línea de código?</strong> Ocurre cuando un servidor diseñado para verificar firmas asimétricas <code>RS256</code> con su clave pública RSA acepta un token cuyo header declara <code>"alg": "HS256"</code> y utiliza esa misma clave pública (conocida por todos) como secreto simétrico HMAC. Se previene especificando de forma explícita y cerrada el algoritmo permitido en el servidor, por ejemplo <code>algorithms=["RS256"]</code>.</p>
+<p><strong>4. ¿Por qué reemplazar identificadores numéricos secuenciales (<code>/factura/104</code>) por identificadores UUIDv4 (<code>/factura/a3f1...</code>) no corrige por sí solo una vulnerabilidad IDOR/BOLA?</strong> Porque un UUID solo hace que el identificador sea difícil de adivinar por fuerza bruta, pero no verifica permisos. Si un UUID queda registrado en la cabecera <code>Referer</code>, en logs compartidos o en otra respuesta de la API, cualquier usuario autenticado podría acceder al recurso ajeno si el servidor no comprueba explícitamente la propiedad (<code>WHERE id = ? AND owner_id = ?</code>).</p>
+<p><strong>5. ¿Qué función cumplen el parámetro <code>state</code> y la extensión <code>PKCE</code> en un flujo OAuth 2.0?</strong> El parámetro <code>state</code> vincula la petición de autorización inicial con la sesión del navegador del usuario, previniendo ataques de CSRF sobre el inicio de sesión. <code>PKCE</code> (<em>Proof Key for Code Exchange</em>) vincula criptográficamente el código de autorización (<code>code</code>) con el cliente que inició el flujo mediante un <code>code_verifier</code>, impidiendo que un código interceptado en la redirección pueda ser canjeado por otro actor.</p>
+<h2 id="cap-2-5-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Explicar la diferencia entre autenticación y autorización horizontal (IDOR/BOLA) y vertical (BFLA).</li><li>Auditar un JWT verificando algoritmo, longitud de clave y claims obligatorios (<code>exp</code>, <code>iss</code>, <code>aud</code>, <code>sub</code>).</li><li>Implementar consultas de acceso a datos que filtren siempre por la identidad del propietario autenticado.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con la autenticación y el control de acceso claros, el siguiente paso es dominar las vulnerabilidades de procesamiento de archivos, peticiones salientes del servidor y motores de plantillas: avanzá al <strong>Capítulo 2.6 · LFI/Path Traversal, File Upload, SSRF, XXE, SSTI y deserialización</strong>.</p></aside>
+<h2 id="cap-2-5-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>RFC 7519 (JSON Web Token) y RFC 8725 (JSON Web Token Best Current Practices):</strong> especificación y reglas de validación criptográfica segura para JWT.</li><li><strong>RFC 6749 (OAuth 2.0), RFC 7636 (PKCE) y RFC 9700 (OAuth 2.0 Security Best Current Practice):</strong> estándares oficiales de delegación y autenticación federada.</li><li><strong>OWASP Top 10 (A01:2021 Broken Access Control &amp; A07:2021 Identification and Authentication Failures).</strong></li><li><strong>OWASP API Security Top 10 (2023) — API1:2023 Broken Object Level Authorization (BOLA) &amp; API5:2023 Broken Function Level Authorization (BFLA).</strong></li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 7 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Login Brute Forcing</td><td>Easy</td><td>Offensive</td><td>13</td></tr><tr><td>Broken Authentication</td><td>Medium</td><td>Offensive</td><td>14</td></tr><tr><td>Session Security</td><td>Medium</td><td>Offensive</td><td>14</td></tr><tr><td>Attacking Authentication Mechanisms</td><td>Medium</td><td>Offensive</td><td>20</td></tr><tr><td>JWT Attacks and Detection</td><td>Hard</td><td>Defensive</td><td>8</td></tr><tr><td>SAML Vulnerabilities and Detection</td><td>Medium</td><td>Defensive</td><td>7</td></tr><tr><td>Authentication and Authorization</td><td>Medium</td><td>General</td><td>8</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="13-xss-csrf-cors-cliente.html">← 2.4 Seguridad del lado del cliente: XSS, CSRF, CORS y CSP</a></div><div><a href="15-ssrf-xxe-ssti-archivos.html">2.6 LFI/Path Traversal, File Upload, SSRF, XXE, SSTI y deserialización →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

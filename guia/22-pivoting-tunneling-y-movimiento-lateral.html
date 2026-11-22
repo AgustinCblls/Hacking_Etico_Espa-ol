@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 3.5 · Pivoting, tunneling, movimiento lateral y microsegmentación · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Construir túneles SSH/SOCKS5 en lab multirred y definir reglas de firewall">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo3.html">Tomo III</a><span aria-hidden="true">›</span><span>Cap. 3.5</span></nav>
+<h1 id="cap-3-5">Capítulo 3.5 · Pivoting, tunneling, movimiento lateral y microsegmentación</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Avanzado</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo III · Ruta 3 · Avanzado</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="23-active-directory-arquitectura-y-enumeracion.html">3.6 Active Directory: arquitectura, LDAP, PowerView y BloodHound</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender cómo se diseñan y auditan redes corporativas segmentadas, cómo funcionan los túneles de capa de aplicación y transporte (reenvío de puertos local <code>-L</code>, remoto <code>-R</code> y proxy dinámico SOCKS5 <code>-D</code> sobre SSH, así como <code>netsh interface portproxy</code> en Windows) para administrar o evaluar subredes internas en un laboratorio multirred, cómo operan los protocolos de administración remota corporativa (SMB, WinRM, WMI, MMC/DCOM y RDP) y cómo implementar una arquitectura defensiva de <strong>microsegmentación</strong> y detección de túneles en el SOC.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 1.2 (Redes TCP/IP), Capítulo 1.7 (Protocolos de red) y Capítulos 3.3–3.4 (Seguridad en Linux y Windows). <strong>Duración sugerida:</strong> 8 a 10 horas.</p>
+<h2 id="cap-3-5-1-arquitectura-de-redes-segmentadas-y-el-concepto-de-salto-pivoting">1. Arquitectura de redes segmentadas y el concepto de salto (Pivoting)</h2>
+<p>En cualquier organización medianamente madura —y en todo laboratorio realista de infraestructura— las redes no son planas. Los activos se dividen en zonas o subredes aisladas por firewalls internos y listas de control de acceso (ACLs) según su función y nivel de criticidad:</p>
+<pre><code class="lenguaje-text">[Estación de Auditoría / Admin] (192.168.56.10)
+             │
+             │  Subred A (192.168.56.0/24 - Zona de Acceso / Bastión)
+             ▼
+[Servidor Bastión Dual-Homed]
+  • eth0: 192.168.56.20
+  • eth1: 10.10.20.20
+             │
+             │  Subred B (10.10.20.0/24 - Red Interna de Aplicación / Dominio)
+             ▼
+[Servidor Interno de Base de Datos / DC] (10.10.20.50 — No enrutable directo desde Subred A)</code></pre>
+<p>Un equipo <strong>dual-homed</strong> (como un servidor bastión, un salto de administración o un contenedor conectado a dos redes virtuales en Docker/VirtualBox) posee interfaces en dos subredes distintas.</p>
+<p>Desde la perspectiva de la administración de sistemas y de las pruebas de penetración autorizadas en entornos segmentados, el <strong>reenvío de puertos (<em>Port Forwarding</em>)</strong> y el <strong>encapsulamiento (<em>Tunneling / Pivoting</em>)</strong> permiten encaminar conexiones técnicas a través de un host intermedio autorizado hacia una subred interna que no tiene ruta directa desde el exterior. Desde la perspectiva de la defensa (<strong>Blue Team / Arquitectura de Red</strong>), comprender exactamente cómo funcionan estos túneles es indispensable para diseñar reglas de microsegmentación y detectar flujos laterales anómalos.</p>
+<h2 id="cap-3-5-2-reenvio-de-puertos-y-tuneles-con-openssh">2. Reenvío de puertos y túneles con OpenSSH</h2>
+<p>El cliente y servidor <strong>OpenSSH</strong> (presente de forma nativa tanto en Linux como en Windows 10/11 y Windows Server modernos) incluye tres modos de reenvío cifrado sobre una única conexión TCP/22 autenticada:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Modo OpenSSH</th>
+<th>Sintaxis del comando</th>
+<th>Dónde abre el puerto de escucha</th>
+<th>Caso de uso en laboratorio o administración</th>
+</tr></thead><tbody>
+<tr><td><strong>Local Port Forwarding (<code>-L</code>)</strong></td><td><code>ssh -N -L 127.0.0.1:8445:10.10.20.50:445 usuario@192.168.56.20</code></td><td>En tu <strong>máquina local</strong> (<code>127.0.0.1:8445</code>).</td><td>Acceder desde tu estación local a un único puerto específico (<code>10.10.20.50:445</code>) de la subred interna a través del bastión <code>192.168.56.20</code>.</td></tr>
+<tr><td><strong>Dynamic Port Forwarding (<code>-D</code>)</strong></td><td><code>ssh -N -D 127.0.0.1:1080 usuario@192.168.56.20</code></td><td>En tu <strong>máquina local</strong> como proxy <strong>SOCKS4/SOCKS5</strong> (<code>127.0.0.1:1080</code>).</td><td>Enrutar cualquier herramienta compatible con SOCKS5 (navegador, <code>curl --socks5</code>, scripts Python) hacia múltiples hosts y puertos de la Subred B.</td></tr>
+<tr><td><strong>Remote Port Forwarding (<code>-R</code>)</strong></td><td><code>ssh -N -R 127.0.0.1:9000:10.10.20.50:80 usuario@192.168.56.10</code></td><td>En el <strong>servidor SSH destino</strong> al que se conecta el comando.</td><td>Cuando las reglas de firewall solo permiten iniciar conexiones SSH salientes desde el bastión hacia la estación de administración.</td></tr>
+</tbody></table></div>
+<h3 id="cap-3-5-reglas-de-higiene-al-usar-tuneles-ssh-en-laboratorio">Reglas de higiene al usar túneles SSH en laboratorio</h3>
+<ol><li><strong>Vincular siempre el puerto reenviado a <code>127.0.0.1</code>:</strong> escribí explícitamente <code>-L 127.0.0.1:8080:...</code> o <code>-D 127.0.0.1:1080</code>. Así garantizás que solo tu propia estación de trabajo pueda usar el túnel local.</li><li><strong>Usar <code>-N</code> (no ejecutar comando remoto):</strong> cuando solo necesitás el túnel de red, la bandera <code>-N</code> abre el canal cifrado sin reservar una shell interactiva innecesaria en el bastión.</li><li><strong>Salto nativo con <code>ProxyJump</code> (<code>-J</code>):</strong> para administrar un servidor Linux interno a través de un bastión SSH oficial, OpenSSH ofrece el flag <code>-J</code> que encadena la autenticación de extremo a extremo sin copiar claves privadas al bastión intermedio:</li></ol>
+<pre><code class="lenguaje-bash"># Conexión SSH directa al host interno 10.10.20.50 saltando por el bastión 192.168.56.20
+ssh -J admin_lab@192.168.56.20 admin_interno@10.10.20.50</code></pre>
+<h3 id="cap-3-5-uso-de-un-proxy-socks5-local-con-herramientas-de-consola">Uso de un proxy SOCKS5 local con herramientas de consola</h3>
+<p>Cuando levantás un proxy SOCKS5 local en <code>127.0.0.1:1080</code> con <code>ssh -N -D 127.0.0.1:1080</code>:</p>
+<ul><li><strong><code>curl</code> nativo:</strong> <code>curl --socks5-hostname 127.0.0.1:1080 http://10.10.20.50:8080/</code> (la variante <code>--socks5-hostname</code> resuelve también los nombres DNS a través del túnel en el extremo remoto).</li><li><strong><code>proxychains4</code> en Linux:</strong> intercepta las llamadas a la biblioteca estándar de sockets (<code>connect()</code>) de programas TCP para redirigirlos por el puerto SOCKS configurado en <code>/etc/proxychains4.conf</code> (<code>socks5 127.0.0.1 1080</code>). Recordá que un proxy SOCKS transporta conexiones <strong>TCP</strong> completas (por eso con Nmap a través de SOCKS solo funcionan conexiones TCP completas <code>-sT -Pn</code>, nunca paquetes crudos ICMP ni SYN scan <code>-sS</code>).</li></ul>
+<h2 id="cap-3-5-3-reenvio-de-puertos-en-windows-y-tuneles-de-capa-de-transporte-red">3. Reenvío de puertos en Windows y túneles de capa de transporte/red</h2>
+<p>En entornos Windows, el subsistema de red nativo permite inspeccionar y configurar reglas de reenvío TCP IPv4/IPv6 mediante la utilidad administrativa <strong><code>netsh interface portproxy</code></strong>:</p>
+<pre><code class="lenguaje-powershell"># Listar todas las reglas de reenvío de puertos configuradas en un host Windows (clave en auditorías y DFIR)
+netsh interface portproxy show all
+
+# Ejemplo en laboratorio: reenviar tráfico del puerto local 8080 hacia 10.10.20.50:80
+netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=8080 connectaddress=10.10.20.50 connectport=80
+
+# Eliminar la regla al finalizar la prueba de laboratorio
+netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=8080</code></pre>
+<aside class="callout nota"><p class="callout-titulo">Rastro en el Registro de Windows de <code>netsh portproxy</code></p><p>Toda regla creada con <code>netsh interface portproxy</code> queda almacenada de forma persistente en la clave del Registro: <code>HKLM\SYSTEM\CurrentControlSet\Services\PortProxy\v4tov4\tcp</code> y es ejecutada por el servicio <code>iphlpsvc</code> (<em>IP Helper</em>). En una investigación SOC/DFIR (Tomo IV), auditar esta clave del Registro y el Event ID <code>5156</code> de Windows Filtering Platform permite detectar de inmediato si alguien configuró un reenvío de puertos interno en un servidor Windows.</p></aside>
+<p>Además de SSH y <code>netsh</code>, en laboratorios de infraestructura se estudian tres herramientas y arquitecturas adicionales:</p>
+<ol><li><strong>Túneles TCP/UDP encapsulados sobre HTTP/WebSockets (como <em>Chisel</em>, <code>socat</code> y <code>plink.exe</code> en Windows):</strong> útiles en laboratorios para comprender cómo redirigir puertos o cómo una conexión WebSocket persistente (<code>HTTP/1.1 101 Switching Protocols</code>) puede multiplexar un canal SOCKS5, y por qué los proxies corporativos deben inspeccionar conexiones WebSockets de larga duración.</li><li><strong>Túneles basados en interfaz virtual TUN/TAP (como <em>Ligolo-ng</em> o WireGuard/OpenVPN):</strong> en lugar de usar un proxy SOCKS en capa de aplicación con <code>proxychains</code>, crean una interfaz de red virtual <code>tun0</code> en el sistema operativo local y agregan una ruta (<code>ip route add 10.10.20.0/24 dev tun0</code>), permitiendo que el kernel enrute paquetes de forma nativa.</li><li><strong>Frameworks de Comando y Control modulares (ej. <em>Sliver C2</em>) y detección de <em>beaconing</em> con <code>RITA</code>:</strong> en ejercicios de Red Team autorizados, los operadores estudian canales cifrados (HTTPS/mTLS/DNS) con intervalos de comunicación (<em>jitter</em>) para validar si los controles NSM los detectan. Desde el lado defensivo (<strong>Blue Team</strong>), herramientas abiertas como <strong><code>RITA</code> (<em>Real Intelligence Threat Analysis</em>)</strong> ingieren logs de <strong>Zeek</strong> (<code>conn.log</code>, <code>dns.log</code>) para identificar automáticamente conexiones periódicas (<em>beaconing</em>) y canales DNS encubiertos.</li></ol>
+<h2 id="cap-3-5-4-protocolos-de-administracion-remota-y-movimiento-lateral-en-redes-corporativas">4. Protocolos de administración remota y movimiento lateral en redes corporativas</h2>
+<p>En una red empresarial Windows/Linux, los administradores —y los auditores durante ejercicios autorizados— interactúan entre equipos utilizando cinco protocolos estándar que debés conocer tanto en su operación legítima como en su telemetría defensiva:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Protocolo / Servicio</th>
+<th>Puertos estándar</th>
+<th>Mecanismo técnico</th>
+<th>Telemetría de detección en el host destino</th>
+</tr></thead><tbody>
+<tr><td><strong>SSH (OpenSSH)</strong></td><td><code>TCP/22</code></td><td>Sesión de consola cifrada, ejecución remota de comandos y transferencia SFTP/SCP.</td><td><code>/var/log/auth.log</code> o <code>journalctl -u ssh</code> (Linux); Event Log <code>OpenSSH/Operational</code> Event ID <code>4</code> (Windows).</td></tr>
+<tr><td><strong>SMB y Recursos Administrativos (<code>ADMIN$</code>, <code>C$</code>, <code>IPC$</code>)</strong></td><td><code>TCP/445</code></td><td>Acceso a archivos y RPC sobre <em>Named Pipes</em> (<code>svcctl</code> para crear/iniciar servicios remotos).</td><td>Event ID <code>4624</code> (Logon Type <code>3</code> — Network), Event ID <code>5140</code>/<code>5145</code> (acceso a recurso compartido), Event ID <code>7045</code> (nuevo servicio instalado).</td></tr>
+<tr><td><strong>WinRM / PowerShell Remoting</strong></td><td><code>TCP/5985</code> (HTTP cifrado con Kerberos/NTLM) y <code>TCP/5986</code> (HTTPS)</td><td>Protocolo WS-Management (<code>Enter-PSSession</code>, <code>Invoke-Command</code>); lanza el proceso hijo <code>wsmprovhost.exe</code> en el destino.</td><td>Event ID <code>4624</code> (Logon Type <code>3</code>), <code>Microsoft-Windows-WinRM/Operational</code> (ID <code>6</code>, <code>91</code>) y <code>PowerShell/Operational</code> (<code>4104</code>) bajo <code>wsmprovhost.exe</code>.</td></tr>
+<tr><td><strong>WMI / CIM Remoto</strong></td><td><code>TCP/135</code> (RPC Endpoint Mapper) + puertos dinámicos altos (<code>49152–65535</code>)</td><td>Invocación de métodos de gestión remota; el comando ejecutado nace como proceso hijo de <strong><code>WmiPrvSE.exe</code></strong>.</td><td>Sysmon Event ID <code>1</code> / Security <code>4688</code> mostrando <code>ParentImage: C:\Windows\System32\wbem\WmiPrvSE.exe</code>.</td></tr>
+<tr><td><strong>RDP (Remote Desktop Protocol)</strong></td><td><code>TCP/3389</code></td><td>Sesión gráfica interactiva remota en Windows.</td><td>Event ID <code>4624</code> (<strong>Logon Type <code>10</code></strong> — RemoteInteractive) y <code>TerminalServices-LocalSessionManager/Operational</code> (ID <code>21</code>, <code>24</code>, <code>25</code>).</td></tr>
+</tbody></table></div>
+<h3 id="cap-3-5-suite-impacket-y-huella-operativa-en-movimiento-lateral">Suite <code>Impacket</code> y huella operativa en movimiento lateral</h3>
+<p>En evaluaciones prácticas de infraestructura y Active Directory (como <strong>PEN-200 / OSCP</strong>), la suite en Python <strong>Impacket</strong> permite probar movimiento lateral desde una estación Linux utilizando contraseñas, hashes NT (<strong>Pass-the-Hash</strong> con <code>-hashes LM:NT</code>) o tickets Kerberos en caché (<code>-k -no-pass</code> con <code>KRB5CCNAME</code>):</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Herramienta Impacket</th>
+<th>Canal utilizado</th>
+<th>Huella y artefacto generado en el destino</th>
+<th>Impacto en ruido / OPSEC</th>
+</tr></thead><tbody>
+<tr><td><strong><code>psexec.py</code></strong></td><td>SMB (<code>445</code>) + SCM (<code>svcctl</code>)</td><td>Sube un binario aleatorio a <code>ADMIN$</code>, crea e inicia un servicio nuevo (<strong>Event ID <code>7045</code></strong> + <code>Sysmon ID 11</code>).</td><td><strong>Muy ruidoso</strong>; dispara alertas inmediatas de servicio nuevo y AV sobre el ejecutable temporal.</td></tr>
+<tr><td><strong><code>smbexec.py</code></strong></td><td>SMB (<code>445</code>) + SCM sin binario propio</td><td>Crea un servicio efímero que invoca <code>cmd.exe /Q /c ...</code> redirigiendo la salida a un archivo en <code>C$\__output</code>.</td><td><strong>Alto ruido</strong> (<code>7045</code> + creación de <code>cmd.exe</code> bajo <code>services.exe</code>).</td></tr>
+<tr><td><strong><code>wmiexec.py</code></strong></td><td>RPC (<code>135</code>) + WMI (<code>49152+</code>) + SMB</td><td>Ejecuta comandos vía WMI sin crear servicio; procesos nacen bajo <strong><code>WmiPrvSE.exe</code></strong> y escribe salida temporal en <code>ADMIN$</code>.</td><td><strong>Moderado</strong>; evita <code>7045</code>, preferido en evaluaciones frente a <code>psexec.py</code>.</td></tr>
+<tr><td><strong><code>atexec.py</code></strong></td><td>RPC (<code>135</code>) + Task Scheduler (<code>atsvc</code>)</td><td>Crea y ejecuta una tarea programada única (<code>Event ID 4698</code>) bajo <code>svchost.exe</code> (<code>Schedule</code>).</td><td><strong>Moderado</strong>; deja traza clara de creación de tarea programada.</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Ejemplo en laboratorio autorizado: sesión semi-interactiva vía WMI pasando hash NT (sin contraseña en claro)
+impacket-wmiexec DOMINIO/admin_lab@10.10.20.30 -hashes :31d6cfe0d16ae931b73c59d7e0c089c0
+
+# Alternativa por Kerberos usando un ticket .ccache obtenido previamente en laboratorio
+export KRB5CCNAME=/tmp/admin_lab.ccache
+impacket-wmiexec -k -no-pass DOMINIO/admin_lab@srv02.lab.local</code></pre>
+<h3 id="cap-3-5-metodologia-assumed-breach-en-cadenas-multi-salto">Metodología <em>Assumed Breach</em> en cadenas multi-salto</h3>
+<p>A diferencia del pentest perimetral tradicional donde se empieza desde Internet sin credenciales, el enfoque <strong><em>Assumed Breach</strong></em> (muy común en PEN-200 y auditorías internas) parte suponiendo que un adversario ya obtuvo acceso inicial en una estación de usuario o un par usuario/contraseña de dominio, y mide hasta dónde logra avanzar mediante movimiento lateral y escalada:</p>
+<ol><li><strong>Triage inicial del primer nodo:</strong> recolectar interfaces de red (<code>ipconfig /all</code>, <code>arp -a</code>), sesiones activas, variables de entorno y archivos de configuración en busca de nuevas subredes internas y credenciales locales o de dominio.</li><li><strong>Despliegue de túnel hacia la red interna:</strong> levantar un pivote nativo (<strong><code>Ligolo-ng</code></strong> mediante interfaz <code>tun0</code> o <strong><code>Chisel</code></strong> SOCKS5 sobre <code>proxychains4</code>) para que las herramientas en la estación del auditor alcancen la segunda subred sin necesidad de instalar todo en la víctima.</li><li><strong>Enumeración de Active Directory a través del túnel:</strong> lanzar recolectores de <strong><code>BloodHound</code></strong> y comprobaciones puntuales con <strong><code>NetExec</code> (<code>nxc smb</code>)</strong> para identificar en qué servidores tiene permisos administrativos locales la cuenta comprometida (<code>(Pwn3d!)</code>) y qué rutas llevan hacia usuarios con mayor privilegio.</li><li><strong>Salto lateral y cosecha incremental:</strong> conectarse al siguiente servidor mediante <code>wmiexec.py</code>, <code>Evil-WinRM</code> o RDP (con credenciales válidas o Pass-the-Hash), analizar qué nuevas credenciales o tickets de otras cuentas residen en ese servidor y repetir el ciclo hasta validar la ruta completa al Tier 0.</li></ol>
+<h2 id="cap-3-5-5-ejemplo-paso-a-paso-laboratorio-de-dos-subredes-con-docker-y-tunel-local">5. Ejemplo paso a paso: laboratorio de dos subredes con Docker y túnel local</h2>
+<p>Podemos simular una arquitectura de dos subredes aisladas en nuestra propia máquina en menos de dos minutos usando redes bridge de Docker o el reenvío local de SSH/Python:</p>
+<pre><code class="lenguaje-bash"># 1. Verificar qué puertos escuchan solo en loopback (127.0.0.1) dentro de un servidor Linux del lab
+ss -tulnp | grep "127.0.0.1"</code></pre>
+<p>Salida típica cuando un servicio interno (como una consola de administración o base de datos PostgreSQL/Redis) solo escucha localmente dentro del servidor bastión:</p>
+<pre><code class="lenguaje-text">tcp   LISTEN 0   128   127.0.0.1:5432   0.0.0.0:*   users:(("postgres",pid=1142,fd=6))
+tcp   LISTEN 0   128   127.0.0.1:9000   0.0.0.0:*   users:(("python3",pid=1380,fd=4))</code></pre>
+<p>Si desde un escaneo externo con Nmap sobre la IP <code>192.168.56.20</code> del servidor bastión solo se veía abierto <code>TCP/22</code>, al autenticarnos por SSH y consultar <code>ss -tulnp</code> descubrimos el servicio interno en <code>127.0.0.1:9000</code>. Para inspeccionarlo desde el navegador de nuestra estación de trabajo sin exponer el puerto <code>9000</code> a toda la red LAN:</p>
+<pre><code class="lenguaje-bash"># 2. Abrir un túnel SSH local desde nuestra estación hacia el loopback del servidor de laboratorio
+ssh -N -L 127.0.0.1:9000:127.0.0.1:9000 usuario_lab@192.168.56.20
+
+# 3. En otra terminal local, consultar el servicio a través del túnel cifrado
+curl -i http://127.0.0.1:9000/</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación (Microsegmentación)</p><ol><li><strong>Bloquear la comunicación horizontal entre estaciones de trabajo (<em>Workstation-to-Workstation Blocking</em>):</strong> en una red corporativa ninguna PC de usuario final tiene motivo para conectarse por SMB (<code>445</code>), WinRM (<code>5985</code>), RPC (<code>135</code>) o RDP (<code>3389</code>) a la PC de otro usuario final. Configurar el Firewall de Windows mediante GPO para permitir esos puertos <strong>únicamente desde la subred dedicada de servidores de administración (PAW / Jump Hosts)</strong> corta de raíz el 90 % del movimiento lateral.</li><li><strong>Restringir el reenvío de puertos en servidores SSH bastión:</strong> en <code>/etc/ssh/sshd_config</code>, si un servidor SSH no actúa oficialmente como bastión de salto, configurá <code>AllowTcpForwarding no</code>, <code>GatewayPorts no</code> y <code>PermitTunnel no</code>, o limitá los destinos permitidos con la directiva <code>PermitOpen 10.10.20.50:443</code>.</li><li><strong>Auditar reglas <code>portproxy</code> y conexiones de larga duración en NSM:</strong> monitoreá cambios en <code>HKLM\SYSTEM\CurrentControlSet\Services\PortProxy</code> y configurá Zeek/Suricata para alertar sobre sesiones SSH o WebSockets internas de larga duración con alto volumen de bytes entre zonas de distinta criticidad.</li></ol></aside>
+<h2 id="cap-3-5-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>En tu VM de laboratorio o entorno local, ejecutá <code>ss -tulnp</code> (Linux) o <code>Get-NetTCPConnection -State Listen</code> (Windows PowerShell) y clasificá todos los puertos en escucha en dos columnas: los que escuchan únicamente en <code>127.0.0.1</code> / <code>::1</code> (solo accesibles localmente o mediante reenvío local) y los que escuchan en <code>0.0.0.0</code> / <code>::</code> (expuestos a la red).</li><li>En una VM Windows de laboratorio, ejecutá <code>netsh interface portproxy show all</code> y consultá con PowerShell la clave <code>Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\PortProxy\v4tov4\tcp" -ErrorAction SilentlyContinue</code> para verificar que no existan reenvíos ocultos.</li><li>Redactá una política de firewall de host (en sintaxis <code>nftables</code>/<code>ufw</code> para Linux y <code>New-NetFirewallRule</code> para Windows) que permita la administración remota (<code>22</code>, <code>445</code>, <code>5985</code>, <code>3389</code>) exclusivamente desde una subred de administración <code>10.10.99.0/24</code>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Tabla de inventario de servicios en escucha (<code>127.0.0.1</code> vs <code>0.0.0.0</code>), salida de verificación de <code>portproxy</code> y los comandos de microsegmentación para firewall de Linux y Windows.</p></aside>
+<h2 id="cap-3-5-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Cuál es la diferencia práctica entre un reenvío de puerto local SSH (<code>ssh -L</code>) y un reenvío dinámico SOCKS5 (<code>ssh -D</code>)?</strong> El reenvío local <code>-L</code> mapea un puerto local hacia un <strong>único host y puerto destino fijo</strong> (por ejemplo <code>10.10.20.50:445</code>). En cambio, el reenvío dinámico <code>-D</code> levanta un servidor proxy <strong>SOCKS5</strong> local que permite que las aplicaciones clientes elijan dinámicamente a qué dirección IP y puerto de la red remota desean conectarse en cada petición.</p>
+<p><strong>2. ¿Por qué al usar Nmap a través de un proxy SOCKS5 (con <code>proxychains</code>) es necesario utilizar escaneo de conexión TCP completa (<code>-sT -Pn</code>) en lugar de escaneo SYN (<code>-sS</code>) o ping ICMP?</strong> Porque el protocolo SOCKS5 opera en la capa de sesión/transporte estableciendo conexiones TCP completas mediante la llamada al sistema <code>connect()</code> desde el extremo remoto del túnel; no transporta paquetes IP crudos (<em>raw sockets</em>) ni paquetes ICMP ni medios handshakes SYN.</p>
+<p><strong>3. Si un servidor de aplicaciones interno escucha únicamente en <code>127.0.0.1:9000</code>, ¿por qué no aparece al escanear la IP de red del servidor desde otra máquina, y cómo puede un administrador acceder a él de forma segura?</strong> No aparece desde afuera porque el socket está vinculado exclusivamente a la interfaz loopback (<code>127.0.0.1</code>), por lo que el kernel descarta cualquier paquete dirigido a ese puerto que entre por la tarjeta de red física (<code>eth0</code>). Un administrador autenticado por SSH puede acceder de forma cifrada mediante <code>ssh -N -L 127.0.0.1:9000:127.0.0.1:9000 usuario@servidor</code>.</p>
+<p><strong>4. ¿Qué procesos padre en Windows revelan en los logs de creación de procesos (Event ID <code>4688</code> o Sysmon Event ID <code>1</code>) que un comando fue ejecutado remotamente mediante WinRM frente a WMI?</strong> Una ejecución remota por <strong>WinRM / PowerShell Remoting</strong> crea los procesos hijos bajo <strong><code>wsmprovhost.exe</code></strong>, mientras que una ejecución remota invocada a través de <strong>WMI</strong> crea los procesos hijos bajo <strong><code>WmiPrvSE.exe</code></strong>.</p>
+<p><strong>5. ¿Cómo reduce la microsegmentación de estaciones de trabajo (<em>Workstation-to-Workstation Blocking</em>) el impacto de una intrusión en una red corporativa?</strong> Al bloquear en el firewall local de cada estación de trabajo las conexiones entrantes SMB (<code>445</code>), WinRM (<code>5985/5986</code>), RPC (<code>135</code>) y RDP (<code>3389</code>) provenientes de otras estaciones de usuario final (permitiéndolas solo desde la subred de administración), un equipo comprometido no puede propagarse horizontalmente hacia las computadoras de otros empleados aunque disponga de credenciales locales compartidas.</p>
+<h2 id="cap-3-5-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Distinguir cuándo usar <code>ssh -L</code>, <code>ssh -R</code>, <code>ssh -D</code> y <code>ssh -J</code> (<code>ProxyJump</code>).</li><li>Identificar puertos internos vinculados a <code>127.0.0.1</code> frente a <code>0.0.0.0</code>.</li><li>Reconocer la huella en red y en procesos locales de SSH, SMB, WinRM, WMI y RDP, y diseñar reglas de microsegmentación.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con el dominio de redes segmentadas y protocolos de administración remota, estás listo para entrar al corazón de las redes corporativas empresariales: avanzá al <strong>Capítulo 3.6 · Active Directory: arquitectura, LDAP, PowerView y BloodHound</strong>.</p></aside>
+<h2 id="cap-3-5-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>Manual oficial de OpenSSH (<code>man ssh</code> y <code>man sshd_config</code>):</strong> documentación de <code>-L</code>, <code>-R</code>, <code>-D</code>, <code>-J</code> (<code>ProxyJump</code>) y directivas <code>AllowTcpForwarding</code> / <code>PermitOpen</code>.</li><li><strong>RFC 1928 (SOCKS Protocol Version 5):</strong> especificación del protocolo de proxy SOCKS5.</li><li><strong>Microsoft Learn — Netsh Interface Portproxy &amp; Windows Filtering Platform:</strong> administración y auditoría de reglas de reenvío TCP en Windows.</li><li><strong>NSA / CISA — Network Segmentation and Zero Trust Architecture Guidance:</strong> principios de microsegmentación y aislamiento de redes de administración.</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 5 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Pivoting, Tunneling, and Port Forwarding</td><td>Medium</td><td>Offensive</td><td>18</td></tr><tr><td>Intro to C2 Operations with Sliver</td><td>Hard</td><td>Offensive</td><td>19</td></tr><tr><td>Windows Lateral Movement</td><td>Medium</td><td>Offensive</td><td>14</td></tr><tr><td>Threat Hunting for C2 with RITA</td><td>Hard</td><td>Defensive</td><td>9</td></tr><tr><td>RDP Lateral Movement Detection</td><td>Hard</td><td>Defensive</td><td>7</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="21-escalada-privilegios-windows.html">← 3.4 Escalada de privilegios en Windows y endurecimiento de endpoints</a></div><div><a href="23-active-directory-arquitectura-y-enumeracion.html">3.6 Active Directory: arquitectura, LDAP, PowerView y BloodHound →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

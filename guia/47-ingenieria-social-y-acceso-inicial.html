@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 6.7 · Ingeniería social controlada, OSINT humano y simulaciones éticas de phishing · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Planificar una campaña autorizada de concientización con métricas humanas, pretexting ético y mitigaciones">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo6.html">Tomo VI</a><span aria-hidden="true">›</span><span>Cap. 6.7</span></nav>
+<h1 id="cap-6-7">Capítulo 6.7 · Ingeniería social controlada, OSINT humano y simulaciones éticas de phishing</h1>
+<div class="meta-nivel"><span class="nivel-badge intermedio">Ingeniería Ofensiva y OPSEC</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo VI · Ruta 6 · Ingeniería Ofensiva y OPSEC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="48-mobile-arquitectura-android-estatico.html">7.1 Seguridad Mobile I: arquitectura Android/iOS y análisis estático (OWASP MASTG)</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender la Ingeniería Social como una disciplina sociotécnica estructurada alrededor de principios cognitivos verificables; vas a saber cómo se modela la exposición mediante OSINT humano corporativo y metadatos; vas a distinguir los vectores controlados (<em>spear phishing</em>, <em>smishing</em>, <em>vishing</em> y <em>pretexting</em>); y vas a poder diseñar programas éticos de simulación de phishing y concientización con métricas de madurez orientadas al SOC, respaldados por controles técnicos resistentes a phishing como FIDO2/WebAuthn y DMARC <code>p=reject</code>.</p></aside>
+<h2 id="cap-6-7-la-ingenieria-social-como-disciplina-sociotecnica">La Ingeniería Social como disciplina sociotécnica</h2>
+<p>Durante años se repitió el cliché de que "el usuario es el eslabón más débil de la seguridad". En seguridad moderna, ese enfoque es contraproducente e impreciso: el ser humano no es un fallo de software, sino un <strong>componente cognitivo que opera bajo presión de productividad</strong>, diseñando atajos mentales (heurísticas) para resolver tareas cotidianas. La <strong>Ingeniería Social</strong> estudia sistemáticamente cómo esos atajos pueden ser inducidos para provocar decisiones que sortean controles técnicos perimetrales.</p>
+<p>Desde el marco académico de la psicología de la persuasión formulado por <strong>Robert Cialdini</strong>, existen disparadores cognitivos concretos que explican por qué un mensaje o llamada logra suspender el análisis crítico de una persona incluso cuando conoce las políticas básicas de seguridad:</p>
+<ol><li><strong>Autoridad</strong>: las personas tienden a obedecer o priorizar pedidos que parecen provenir de una figura jerárquica, legal o técnica legítima (Gerencia General, RRHH, Mesa de Ayuda de IT, Auditoría Interna o un organismo fiscalizador). Cuando el remitente aparente proyecta autoridad, el receptor teme las consecuencias de demorar la respuesta.</li><li><strong>Urgencia</strong>: la presión temporal artificial ("su cuenta de correo será suspendida en 90 minutos", "cierre contable hoy a las 17:00") reduce deliberadamente la ventana de verificación fuera de banda y empuja hacia la acción impulsiva.</li><li><strong>Escasez</strong>: la percepción de oportunidad limitada ("quedan 4 licencias disponibles", "beneficio de actualización vigente solo hasta el mediodía") activa aversión a la pérdida y acelera el clic sin inspección previa del dominio.</li><li><strong>Reciprocidad</strong>: cuando el emisor entrega primero un supuesto favor, una ayuda técnica no solicitada ("detectamos un error en tu acceso VPN y ya preparamos el ticket para ahorrarte el trámite") o un recurso útil, genera una deuda psicológica implícita que facilita la cooperación posterior.</li><li><strong>Prueba social</strong>: la validación por pares ("el 85% de tu gerencia ya completó la migración al nuevo portal de beneficios") reduce la duda individual al presentar la acción riesgosa como un comportamiento ya aceptado por el grupo de pertenencia.</li></ol>
+<p>Un escenario sólido rara vez depende de un solo principio: suele combinar <strong>Autoridad + Urgencia + Prueba social</strong> (por ejemplo, un aviso supuestamente enviado por IT indicando que todo el departamento ya actualizó su certificado antes del corte de las 18:00). Comprender esta matriz permite al equipo de defensa entrenar a la organización para reconocer <em>patrones emocionales de manipulación</em>, no solo errores ortográficos.</p>
+<h2 id="cap-6-7-osint-humano-corporativo-y-superficie-de-exposicion">OSINT humano corporativo y superficie de exposición</h2>
+<p>Antes de diseñar un escenario de evaluación autorizada o auditar la exposición externa de una organización, se realiza <strong>OSINT humano corporativo</strong> (<em>Open Source Intelligence</em>) utilizando exclusivamente información de acceso público, sin interacción intrusiva con los sistemas privados del objetivo.</p>
+<p>Los cuatro vectores de recolección pasiva más relevantes para modelar el riesgo de acceso inicial son:</p>
+<ol><li><strong>Nomenclatura de correos electrónicos</strong>: a partir de comunicados de prensa, repositorios públicos de código, notas técnicas o perfiles profesionales, se deduce el patrón estándar de direcciones (<code>nombre.apellido@empresa.example</code>, <code>n.apellido@empresa.example</code>). Conocer la convención permite estimar qué tan fácil resulta para un tercero enumerar buzones ejecutivos o de áreas sensibles.</li><li><strong>Organigramas, jerarquías y eventos corporativos</strong>: redes profesionales y memorias anuales revelan quién reporta a quién, qué gerencias tienen aprobaciones financieras, qué empleados ingresaron recientemente (quienes aún no conocen los canales internos reales y suelen temer desobedecer a un superior) y qué procesos de fusión, adquisición o cambio de marca están en curso.</li><li><strong>Ecosistema de proveedores y herramientas</strong>: las búsquedas laborales publicadas por la propia empresa suelen detallar su pila tecnológica exacta ("experiencia excluyente en Okta, Microsoft 365, SAP Concur, Jira y VPN Cisco"). Sumado a casos de éxito publicados por terceros (estudios contables, aseguradoras de riesgos del trabajo, servicios de paquetería o SaaS de firma electrónica), esto permite construir pretextos altamente contextualizados.</li><li><strong>Metadatos en documentos públicos (FOCA y ExifTool)</strong>: archivos PDF, DOCX o XLSX publicados en sitios web corporativos (licitaciones, manuales de proveedores, balances) frecuentemente conservan metadatos residuales valiosos:</li></ol>
+<ul><li>Nombres de usuario reales de Active Directory en rutas locales (<code>C:\Users\mfernandez\Documents\...</code>).</li><li>Versiones exactas de software de oficina o generadores de PDF.</li><li>Nombres de servidores internos de impresión o recursos compartidos SMB.</li><li>Herramientas abiertas como <strong>ExifTool</strong> (multiplataforma CLI) y <strong>FOCA</strong> (<em>Fingerprinting Organizations with Collected Archives</em>) automatizan la extracción de estos metadatos para auditar qué información interna se filtra inadvertidamente al exterior.</li></ul>
+<ol start="5"><li><strong>Fugas previas de credenciales (<em>breaches</em>) y exposición accidental</strong>: la auditoría defensiva verifica mediante servicios de inteligencia de amenazas autorizados si correos corporativos aparecieron en filtraciones históricas de sitios de terceros (donde los empleados pudieron haberse registrado con su correo laboral) o en commits públicos accidentales. En una evaluación ética, <strong>nunca se descargan ni comercializan bases filtradas ilícitas ni se reutilizan contraseñas reales sin autorización específica</strong>; se cuantifica el riesgo de reutilización de credenciales para forzar rotaciones y habilitar MFA resistente a phishing.</li></ol>
+<h2 id="cap-6-7-vectores-controlados-spear-phishing-smishing-vishing-y-pretexting">Vectores controlados: <em>spear phishing</em>, <em>smishing</em>, <em>vishing</em> y <em>pretexting</em></h2>
+<p>En ejercicios de Red Teaming o programas de concientización, los vectores se clasifican por el canal de comunicación y el nivel de personalización:</p>
+<ul><li><strong><em>Spear phishing</strong></em>: a diferencia del phishing masivo genérico, consiste en correos electrónicos altamente dirigidos a un grupo acotado o rol específico (por ejemplo, Analistas de Cuentas a Pagar o Administradores Cloud), referenciando proyectos, proveedores o nomenclatura interna real recolectada mediante OSINT.</li><li><strong><em>Smishing</strong></em>: phishing ejecutado a través de SMS o plataformas de mensajería instantánea corporativa/personal (WhatsApp, Teams, Slack, Telegram). Suele explotar notificaciones breves de urgencia (entregas de paquetería corporativa, alertas de inicio de sesión, solicitud de código MFA) en pantallas móviles donde inspeccionar URLs largas resulta incómodo.</li><li><strong><em>Vishing</strong></em> (<em>Voice Phishing</em>): ingeniería social por canal de voz (telefonía tradicional, VoIP o llamadas de conferencias). Un escenario clásico es la suplantación de la mesa de ayuda solicitando aprobar una notificación <em>push</em> de MFA o leer un código temporal durante una supuesta "incidencia crítica en la VPN". Hoy incluye el riesgo emergente de síntesis o clonación de voz asistida por IA sobre ejecutivos con exposición mediática.</li><li><strong><em>Pretexting</strong></em>: es el diseño integral de una historia, identidad y contexto verosímil (<em>pretexto</em>) que sostiene toda la interacción. Un buen pretexto para auditoría autorizada tiene coherencia interna: un motivo lógico para el contacto, un dominio o número consistente con el rol declarado, conocimiento del vocabulario interno del área objetivo y un guion de salida limpio que no genere pánico ni disrupción operativa.</li></ul>
+<div class="tabla"><table>
+<thead><tr>
+<th>Vector</th>
+<th>Canal principal</th>
+<th>Disparador psicológico típico</th>
+<th>Señal técnica o conductual de detección</th>
+</tr></thead><tbody>
+<tr><td><strong><em>Spear phishing</strong></em></td><td>Correo electrónico corporativo</td><td>Autoridad + Urgencia laboral</td><td>Fallo DMARC/SPF, dominio <em>lookalike</em> reciente, etiqueta externa</td></tr>
+<tr><td><strong><em>Smishing</strong></em></td><td>SMS / Mensajería móvil</td><td>Escasez + Urgencia operativa</td><td>Acortadores de URL, dominios móviles no corporativos, falta de MDM</td></tr>
+<tr><td><strong><em>Vishing</strong></em></td><td>Teléfono / VoIP / Llamada</td><td>Autoridad técnica (IT) + Reciprocidad</td><td>Solicitud de códigos MFA o aprobación <em>push</em>; sin ticket previo verificable</td></tr>
+<tr><td><strong><em>Pretexting</strong></em></td><td>Multicanal (voz + correo + chat)</td><td>Prueba social + Autoridad</td><td>Inconsistencias al verificar identidad fuera de banda en directorio real</td></tr>
+</tbody></table></div>
+<h2 id="cap-6-7-diseno-etico-y-ejecucion-de-campanas-autorizadas-de-simulacion">Diseño ético y ejecución de campañas autorizadas de simulación</h2>
+<p>Ejecutar simulaciones de phishing en una organización sin un marco ético estricto destruye la confianza entre los empleados y el equipo de seguridad. Una campaña mal diseñada genera resentimiento y hace que las personas oculten incidentes reales por miedo a represalias.</p>
+<h3 id="cap-6-7-reglas-eticas-irrenunciables">Reglas éticas irrenunciables</h3>
+<aside class="callout peligro"><p class="callout-titulo">Reglas estrictas para simulaciones autorizadas</p><ol><li><strong>Autorización formal y privacidad</strong>: toda campaña requiere aprobación ejecutiva escrita, alcance exacto (departamentos excluidos si corresponde) y revisión legal/DPO de protección de datos personales.</li><li><strong>Cero humillación pública</strong>: está estrictamente prohibido publicar listas de "quiénes cayeron", aplicar sanciones disciplinarias automáticas por un primer clic o utilizar señuelos ridiculizantes. La cultura debe ser de aprendizaje y refuerzo positivo.</li><li><strong>Prohibición de pretextos traumatizantes</strong>: nunca simular notificaciones de despidos masivos, emergencias médicas familiares, accidentes o catástrofes. El objetivo es entrenar criterio laboral, no causar angustia personal.</li><li><strong>Landing pages educativas sin guardar contraseñas reales</strong>: si una simulación incluye un portal de inicio de sesión ficticio para medir el ingreso de credenciales, el formulario <strong>JAMÁS debe transmitir, registrar ni almacenar la contraseña tipeada</strong>. El campo de contraseña debe limpiarse o ignorarse en el navegador antes de enviar únicamente un token anónimo de evento (<code>campaign_id</code> + <code>event=submitted</code>), redirigiendo inmediatamente a una página educativa clara que muestre las señales que delataban la simulación.</li></ol></aside>
+<h3 id="cap-6-7-metricas-de-madurez-de-una-campana">Métricas de madurez de una campaña</h3>
+<p>Medir únicamente "porcentaje de clics" ofrece una visión incompleta y punitiva. Un programa maduro evalúa cuatro indicadores complementarios, inspirados en guías como el <strong>NIST Phish Scale</strong> (que además pondera la dificultad objetiva de cada señuelo):</p>
+<ol><li><strong>Tasa de apertura (<em>Open Rate</em>)</strong>: porcentaje de destinatarios que cargaron el píxel de seguimiento. <em>Limitación técnica</em>: muchos clientes modernos bloquean imágenes remotas por defecto o usan proxies de privacidad (como Apple Mail Privacy Protection), por lo que esta métrica es orientativa y puede subestimar o inflar lecturas.</li><li><strong>Tasa de clic (<em>Click Rate</em>)</strong>: porcentaje de usuarios que hicieron clic en el enlace simulado respecto al total de correos entregados. Conviene filtrar clics automáticos generados por <em>sandboxes</em> de correo o escáneres de enlaces (<em>link scanners</em>) que pre-visitan URLs antes que el usuario.</li><li><strong>Tasa de ingreso simulado (<em>Submit / Credential Entry Rate</em>)</strong>: porcentaje que completó la acción final en la <em>landing page</em> educativa (siempre sin capturar secretos reales). Mide la vulnerabilidad efectiva cuando falla el filtrado técnico.</li><li><strong>Tasa de reporte al SOC (<em>Report Rate</em>) y Tiempo Medio de Reporte</strong>: es <strong>la métrica positiva más importante del programa</strong>. Mide qué porcentaje de usuarios detectó la anomalía y presionó el botón de reporte al SOC, y cuántos minutos pasaron desde el envío del correo hasta el primer reporte. Cuando la tasa de reporte supera ampliamente a la tasa de clic y el tiempo de alerta temprana cae por debajo de pocos minutos, el factor humano pasa de ser superficie de ataque a funcionar como <strong>sensor distribuido de detección</strong>.</li></ol>
+<div class="tabla"><table>
+<thead><tr>
+<th>Métrica de campaña</th>
+<th>Cálculo base</th>
+<th>Interpretación madura</th>
+<th>Riesgo o sesgo de medición</th>
+</tr></thead><tbody>
+<tr><td><strong>Tasa de apertura</strong></td><td><code>aperturas_unicas / entregados</code></td><td>Referencia general de visibilidad</td><td>Píxeles bloqueados por cliente o pre-cargados por proxy</td></tr>
+<tr><td><strong>Tasa de clic</strong></td><td><code>clics_humanos / entregados</code></td><td>Mide exposición inicial ante el señuelo</td><td>Falsos clics de <em>URL rewriting</em> y <em>sandboxes</em> antiphishing</td></tr>
+<tr><td><strong>Tasa de ingreso simulado</strong></td><td><code>envios_simulados / entregados</code></td><td>Mide riesgo de compromiso sin FIDO2</td><td>Riesgo ético grave si el formulario llegara a loguear datos</td></tr>
+<tr><td><strong>Tasa de reporte al SOC</strong></td><td><code>reportes_validos / entregados</code></td><td><strong>KPI principal de resiliencia humana</strong></td><td>Baja si el proceso de reporte es lento o punitivo</td></tr>
+</tbody></table></div>
+<h2 id="cap-6-7-defensas-tecnicas-y-humanas-contra-acceso-inicial">Defensas técnicas y humanas contra acceso inicial</h2>
+<p>Ninguna campaña de concientización reemplaza a los controles criptográficos y de infraestructura. La postura defensiva efectiva combina <strong>eliminación técnica del impacto del engaño</strong> con <strong>detección humana rápida</strong>:</p>
+<ol><li><strong>Autenticación FIDO2 / WebAuthn resistente a phishing</strong>: a diferencia de contraseñas, códigos SMS o tokens TOTP de 6 dígitos —que pueden ser capturados en tiempo real por un proxy inverso tipo <em>Adversary-in-the-Middle</em> (AiTM)—, los autenticadores <strong>FIDO2 / WebAuthn</strong> (llaves de hardware o <em>passkeys</em> vinculadas a plataforma) realizan una firma criptográfica vinculada al <strong>origen exacto (<code>RP ID</code> / dominio TLS)</strong> verificado por el navegador. Si el usuario cae en un dominio proxy fraudulento (<code>login-empresa-auth.example</code> en lugar de <code>login.empresa.example</code>), la llave criptográfica simplemente <strong>no firma la aserción</strong> para ese origen, neutralizando técnicamente el robo de sesión por phishing.</li><li><strong>DMARC <code>p=reject</code> respaldado por SPF y DKIM</strong>:</li></ol>
+<ul><li><strong>SPF (<em>Sender Policy Framework</em>)</strong>: lista qué IPs/servidores están autorizados a enviar correo en nombre de un dominio en el <code>Return-Path</code>.</li><li><strong>DKIM (<em>DomainKeys Identified Mail</em>)</strong>: firma criptográficamente cabeceras y cuerpo del mensaje para garantizar integridad y autenticidad del dominio firmante.</li><li><strong>DMARC (<em>Domain-based Message Authentication, Reporting, and Conformance</em>)</strong>: exige <strong>alineación</strong> entre el dominio visible en la cabecera <code>From:</code> y el dominio validado por SPF/DKIM. Configurar <code>p=none</code> solo monitorea; una postura madura exige <strong><code>p=reject</code></strong> (con <code>pct=100</code> y reportes agregados <code>rua=</code> hacia el SOC) para que los servidores receptores rechacen directamente intentos de suplantación exacta del dominio corporativo.</li></ul>
+<ol start="3"><li><strong>Etiquetado externo (<em>External Email Banner</em>) y monitoreo de dominios <em>lookalike</strong></em>: agregar una etiqueta visual automática y consistente a todo correo originado fuera del tenant corporativo ayuda a detectar rápidamente intentos de suplantación de nombres ejecutivos (<em>CEO Fraud</em>) enviados desde dominios gratuitos o tipográficos (<code>emp1esa.example</code>), complementado con alertas tempranas sobre registros de certificados TLS y dominios recién creados parecidos a la marca.</li><li><strong>Protocolos de verificación fuera de banda (<em>Out-of-band</em>) y botón de reporte conectado al SOAR</strong>: toda solicitud de cambio de cuenta bancaria, transferencia urgente o restablecimiento de MFA debe validarse por un canal independiente previamente conocido (nunca respondiendo al mismo hilo ni llamando al número incluido en el correo sospechoso). Y el botón de reporte en el cliente de correo debe enviar el mensaje con cabeceras completas al flujo SOAR/SOC para purgar copias similares en otros buzones en minutos.</li></ol>
+<h2 id="cap-6-7-vectores-client-side-en-escritorio-windows-enfoque-pen-200-y-defensa-en-endpoint">Vectores <em>Client-Side</em> en escritorio Windows (enfoque PEN-200 y defensa en endpoint)</h2>
+<p>Cuando un perímetro no expone servicios vulnerables externos, las evaluaciones prácticas estilo <strong>PEN-200</strong> modelan escenarios donde un usuario interno abre un archivo en su estación Windows, desencadenando la conexión inicial hacia la red interna del laboratorio:</p>
+<ul><li><strong>Archivos <code>.Library-ms</code> y servicio <code>WebClient</code> (WebDAV):</strong> una Biblioteca de Windows (<code>.Library-ms</code>) es un documento XML legítimo que define rutas de carpetas mostradas en el Explorador. Si su etiqueta <code>&lt;url&gt;</code> apunta a una ruta WebDAV (<code>http://servidor-lab/carpeta</code>) o recurso SMB, al abrir el archivo el Explorador intenta conectarse automáticamente por HTTP/WebDAV (si el servicio <code>WebClient</code> está activo) o por SMB (<code>TCP/445</code>), exponiendo el listado remoto o enviando autenticación Net-NTLMv2 si no está restringido. <strong>Mitigación:</strong> bloquear tráfico SMB saliente (<code>TCP/445</code>) en el firewall perimetral, deshabilitar <code>WebClient</code> en endpoints que no utilicen SharePoint/WebDAV legado y filtrar adjuntos <code>.Library-ms</code> y <code>.searchConnector-ms</code> en el gateway de correo.</li><li><strong>Accesos directos manipulados (<code>.lnk</code>) y contenedores de disco (<code>.iso</code> / <code>.img</code>):</strong> un archivo <code>.lnk</code> puede invocar intérpretes nativos (<code>cmd.exe</code>, <code>powershell.exe</code>, <code>mshta.exe</code>) pasando argumentos en la línea de comando mientras muestra el icono de un documento PDF o carpeta inofensiva. <strong>Mitigación:</strong> mostrar siempre extensiones reales, bloquear archivos <code>.lnk</code>, <code>.iso</code> y <code>.vhd</code> entrantes en correo, y crear alertas en SIEM cuando <code>explorer.exe</code> genere procesos hijos de línea de comandos con banderas codificadas (<code>-enc</code>) o de descarga.</li><li><strong>Macros VBA en documentos Office y protección <em>Mark-of-the-Web (MotW)</em>:</strong> en escenarios clásicos, un documento con macro <code>AutoOpen()</code> / <code>Document_Open()</code> invoca a <code>WScript.Shell</code> dejando el árbol característico <code>winword.exe</code> → <code>cmd.exe</code> / <code>powershell.exe</code>. Hoy Microsoft bloquea por defecto las macros provenientes de archivos marcados con el <em>Alternate Data Stream</em> <strong><code>Zone.Identifier</code> (<code>ZoneId=3</code>)</strong> (<em>Mark-of-the-Web</em>), pero contenedores comprimidos mal filtrados pueden perder esa marca si se extraen sin propagarla. Por eso resulta obligatorio reforzar la defensa con <strong>Attack Surface Reduction (ASR)</strong> de Microsoft Defender activando las reglas <em>"Block all Office applications from creating child processes"</em> y <em>"Block Win32 API calls from Office macros"</em>.</li></ul>
+<h2 id="cap-6-7-verificacion-defensiva-en-laboratorio">Verificación defensiva en laboratorio</h2>
+<p>En tu entorno de laboratorio podés automatizar controles preventivos tanto sobre la postura de autenticación de correo como sobre la fuga de metadatos en documentos salientes.</p>
+<p>El siguiente script en <strong>Python</strong> audita un archivo <code>.eml</code> de laboratorio (o un ejemplo de cabeceras) verificando la presencia de resultados <code>SPF</code>, <code>DKIM</code> y <code>DMARC</code> junto con discrepancias entre el dominio visible <code>From</code> y el <code>Return-Path</code> o dominios externos:</p>
+<pre><code class="lenguaje-python">import email
+from email import policy
+from email.utils import parseaddr
+import re
+
+
+def extraer_dominio(direccion: str) -&gt; str:
+    _, correo = parseaddr(direccion)
+    if "@" in correo:
+        return correo.split("@", 1)[1].lower().strip("&gt; ")
+    return ""
+
+
+def auditar_eml_laboratorio(contenido_eml: str, dominio_corporativo: str):
+    """
+    Inspecciona cabeceras de un correo de laboratorio para detectar
+    senales basicas de suplantacion y estado de DMARC/SPF/DKIM.
+    """
+    msg = email.message_from_string(contenido_eml, policy=policy.default)
+    dom_from = extraer_dominio(msg.get("From", ""))
+    dom_reply = extraer_dominio(msg.get("Reply-To", ""))
+    dom_ret = extraer_dominio(msg.get("Return-Path", ""))
+    auth_res = msg.get("Authentication-Results", "")
+
+    hallazgos = []
+
+    if dom_reply and dom_from and dom_reply != dom_from:
+        hallazgos.append(f"Discrepancia From ({dom_from}) vs Reply-To ({dom_reply})")
+
+    if dom_ret and dom_from and not dom_ret.endswith(dom_from):
+        hallazgos.append(f"Desalineacion From ({dom_from}) vs Return-Path ({dom_ret})")
+
+    dmarc_match = re.search(r"dmarc=(\w+)", auth_res, re.IGNORECASE)
+    dmarc_estado = dmarc_match.group(1).lower() if dmarc_match else "ausente"
+    if dmarc_estado != "pass":
+        hallazgos.append(f"DMARC no aprobado (estado={dmarc_estado})")
+
+    if dom_from != dominio_corporativo.lower() and dominio_corporativo.lower().split(".")[0] in dom_from:
+        hallazgos.append(f"Posible dominio lookalike respecto a {dominio_corporativo}: {dom_from}")
+
+    return {
+        "subject": msg.get("Subject", ""),
+        "from_domain": dom_from,
+        "dmarc_status": dmarc_estado,
+        "alertas": hallazgos,
+    }
+
+
+if __name__ == "__main__":
+    eml_prueba = """From: Gerencia Finanzas &lt;finanzas@empresa-lab.example&gt;
+Reply-To: tesoreria@soporte-externo.example
+Return-Path: &lt;bounce@mailer-tercero.example&gt;
+Subject: Urgente: validacion de proveedor antes de las 17:00
+Authentication-Results: mx.empresa.example; spf=fail; dkim=none; dmarc=fail action=reject
+
+Estimado, complete la validacion antes del cierre.
+"""
+    resultado = auditar_eml_laboratorio(eml_prueba, "empresa.example")
+    print("[AUDITORIA EML]", resultado)</code></pre>
+<p>Para prevenir la fuga de metadatos corporativos antes de publicar documentos PDF o DOCX en un portal web público, podés auditar archivos de salida en laboratorio mediante <strong>ExifTool</strong> o revisar la configuración de correo en <strong>PowerShell</strong>:</p>
+<pre><code class="lenguaje-powershell"># Verificacion defensiva en laboratorio: auditoria de metadatos con ExifTool
+# y chequeo de politica DMARC via DNS sobre un dominio de prueba autorizado
+$dominio = "ejemplo.org"
+$registroDmarc = Resolve-DnsName -Name "_dmarc.$dominio" -Type TXT -ErrorAction SilentlyContinue
+
+if ($registroDmarc) {
+    $txt = ($registroDmarc | Select-Object -ExpandProperty Strings) -join ""
+    Write-Host "Registro DMARC encontrado: $txt" -ForegroundColor Cyan
+    if ($txt -match "p=reject") {
+        Write-Host "[OK] Politica estricta p=reject configurada." -ForegroundColor Green
+    } elseif ($txt -match "p=quarantine") {
+        Write-Host "[AVISO] Politica intermedia p=quarantine; evaluar migrar a p=reject." -ForegroundColor Yellow
+    } else {
+        Write-Host "[ALERTA] Politica en monitoreo (p=none); no bloquea suplantacion." -ForegroundColor Red
+    }
+} else {
+    Write-Host "[ALERTA] No se encontro registro _dmarc para $dominio" -ForegroundColor Red
+}</code></pre>
+<h2 id="cap-6-7-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En tu entorno de laboratorio local (sin enviar correos reales hacia terceros ni consultar dominios fuera de tu alcance autorizado):</p>
+<ol><li><strong>Diseñá una ficha de pretexto ético</strong>: redactá un escenario de simulación interna para un equipo ficticio de Finanzas identificando explícitamente qué <strong>2 o 3 principios de Cialdini</strong> intervienen, qué datos ficticios de OSINT lo hacen verosímil y qué <strong>3 señales observables</strong> debería notar el empleado para reportarlo al SOC (por ejemplo, dominio externo, urgencia artificial, discrepancia en <code>Reply-To</code>).</li><li><strong>Auditá un <code>.eml</code> simulado</strong>: guardá un correo de prueba en texto plano con cabeceras <code>From</code>, <code>Reply-To</code>, <code>Return-Path</code> y <code>Authentication-Results</code>, ejecutá el script <code>auditar_eml_laboratorio</code> en Python y verificá cómo detecta desalineación de dominios y fallos DMARC.</li><li><strong>Verificá metadatos en documentos de prueba</strong>: creá un documento <code>.docx</code> o <code>.pdf</code> de prueba en tu laboratorio, inspeccionalo con <code>exiftool archivo_prueba.pdf</code> (o propiedades de archivo) para observar qué usuario, software y fechas quedan embebidos, y documentá cómo sanitizarlos (<code>exiftool -all= archivo_prueba.pdf</code>) antes de una publicación externa.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Entregá un documento de diseño Purple Team que incluya: (a) la ficha de pretexto ético con principios de Cialdini, indicadores de detección para el usuario y verificación de que la <em>landing page</em> educativa nunca captura contraseñas reales; (b) la salida del script Python auditando un <code>.eml</code> con fallo DMARC y <code>Reply-To</code> discrepante; y (c) el listado de metadatos observados y limpiados en un archivo de prueba.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>La mitigación integral frente a la Ingeniería Social exige desplazar el peso desde la memoria del usuario hacia controles verificables: exigir <strong>FIDO2 / WebAuthn</strong> para eliminar la utilidad de portales proxy AiTM; publicar <strong>SPF + DKIM + DMARC <code>p=reject</code></strong>; aplicar <strong>etiquetado visible de correos externos</strong> y filtrado de dominios <em>lookalike</em>; sanitizar metadatos antes de publicar documentos corporativos; y sostener un programa de concientización <strong>sin humillación pública</strong> centrado en incrementar la <strong>tasa de reporte al SOC</strong> y reducir el tiempo de respuesta.</p></aside>
+<h2 id="cap-6-7-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Cómo operan conjuntamente los principios de Autoridad y Urgencia de Cialdini en un incidente típico de acceso inicial?</strong> La autoridad reduce el cuestionamiento del receptor frente a quien supuestamente ordena la acción (por ejemplo, Gerencia o IT), mientras que la urgencia artificial acorta el tiempo disponible para realizar una verificación fuera de banda, induciendo a tomar un atajo riesgoso antes de analizar las señales técnicas del mensaje.</p>
+<p><strong>2. ¿Qué información crítica de infraestructura interna suele filtrarse mediante herramientas como FOCA o ExifTool sobre documentos publicados en la web corporativa?</strong> Suelen exponerse nombres reales de usuarios de Active Directory en rutas locales, versiones exactas de suites ofimáticas o generadores PDF, direcciones de servidores internos de impresión o compartición de archivos y nombres de autores que revelan la nomenclatura corporativa de correos.</p>
+<p><strong>3. ¿Cuál es la regla técnica obligatoria respecto a las contraseñas en una <em>landing page</em> educativa durante una campaña autorizada de phishing?</strong> La página de simulación jamás debe transmitir, registrar ni almacenar en servidor la contraseña real ingresada por el usuario; debe descartar o ignorar el contenido del campo secreto antes de cualquier envío, registrando únicamente un evento anónimo de simulación completada para mostrar la guía educativa inmediata.</p>
+<p><strong>4. ¿Por qué la tasa de reporte al SOC se considera una métrica de madurez superior a la tasa de apertura o de clic?</strong> Porque la tasa de apertura está distorsionada por bloqueos de imágenes y proxies, y la tasa de clic solo mide error pasivo; en cambio, la tasa de reporte (junto con el tiempo medio hasta el primer reporte) mide la capacidad activa de los usuarios para detectar anomalías y alertar al SOC a tiempo para purgar una campaña real antes de que escale.</p>
+<p><strong>5. ¿Por qué FIDO2/WebAuthn resiste ataques de phishing con proxy inverso (<em>Adversary-in-the-Middle</em>) donde TOTP o SMS fallan?</strong> Porque un código TOTP o SMS puede ser retransmitido en tiempo real por un proxy atacante al servidor legítimo, mientras que FIDO2/WebAuthn vincula criptográficamente la firma de autenticación al dominio exacto (<code>RP ID</code> / origen) verificado por el navegador, impidiendo que la credencial produzca una firma válida sobre el dominio fraudulento del proxy.</p>
+<h2 id="cap-6-7-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de continuar con los siguientes módulos de respuesta ante incidentes y análisis forense, asegurate de poder responder con precisión:</p>
+<ul><li>Qué cinco principios de Cialdini estructuran los pretextos y cómo se contrarrestan operativamente.</li><li>Qué diferencia hay entre DMARC <code>p=none</code>, <code>p=quarantine</code> y <code>p=reject</code>, y qué protege FIDO2 frente a proxies AiTM.</li><li>Qué reglas éticas rigen una campaña autorizada de simulación y por qué la tasa de reporte al SOC es su indicador central.</li></ul></aside>
+<h2 id="cap-6-7-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>NISTIR 8292 / <strong>NIST Phish Scale</strong>: metodología abierta para calificar la dificultad de señuelos de phishing y analizar tasas de clic y reporte.</li><li>W3C &amp; FIDO Alliance — Especificación abierta <strong>WebAuthn / FIDO2</strong> (<em>Phishing-Resistant MFA</em>).</li><li>IETF RFC 7489 (DMARC), RFC 7208 (SPF) y RFC 6376 (DKIM) — Estándares abiertos de autenticación de correo electrónico.</li><li>MITRE ATT&amp;CK — <code>T1566</code> (<em>Phishing</em>), <code>T1598</code> (<em>Phishing for Information</em>), <code>T1589</code> (<em>Gather Victim Identity Information</em>).</li><li><strong>ExifTool</strong> (Phil Harvey) y <strong>FOCA</strong> — Documentación técnica sobre inspección y sanitización de metadatos en documentos.</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="46-evasion-conceptual-av-edr-y-cargas.html">← 6.6 Arquitectura AV/EDR, límites de AMSI/ETW, unhooking, PPID spoofing y detección</a></div><div><a href="48-mobile-arquitectura-android-estatico.html">7.1 Seguridad Mobile I: arquitectura Android/iOS y análisis estático (OWASP MASTG) →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

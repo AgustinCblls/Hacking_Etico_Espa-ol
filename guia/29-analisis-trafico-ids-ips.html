@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 4.4 · Network Security Monitoring: Wireshark, Zeek y reglas IDS/IPS Suricata · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Investigar un PCAP malicioso simulado y escribir una regla Suricata verificada">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo4.html">Tomo IV</a><span aria-hidden="true">›</span><span>Cap. 4.4</span></nav>
+<h1 id="cap-4-4">Capítulo 4.4 · Network Security Monitoring: Wireshark, Zeek y reglas IDS/IPS Suricata</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Especialista Blue/SOC</span> <span class="nivel-badge defensivo">Defensivo</span> <span><strong>Tomo IV · Ruta 4 · Especialista Blue/SOC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="30-detection-engineering-sigma-yara.html">4.5 Detection Engineering: reglas Sigma, firmas YARA y validación Purple Team</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a dominar los fundamentos de Network Security Monitoring (NSM), la inspección de capturas PCAP con Wireshark y <code>tshark</code>, la lectura de metadatos estructurados de Zeek (<code>conn.log</code>, <code>dns.log</code>, <code>http.log</code>, <code>ssl.log</code>) y el diseño y afinado de reglas IDS/IPS en Suricata dentro de un laboratorio aislado.</p></aside>
+<p><strong>Prerrequisitos:</strong> Manejo de TCP/IP, DNS, HTTP y TLS, además de nociones de SIEM y alertas (Capítulos 4.1 a 4.3). <strong>Duración sugerida:</strong> 3 horas de estudio y práctica con capturas PCAP locales.</p>
+<h2 id="cap-4-4-1-fundamentos-de-nsm-y-diseno-seguro-de-red">1. Fundamentos de NSM y diseño seguro de red</h2>
+<p>El <strong>Monitoreo de Seguridad de Red (NSM)</strong> complementa la telemetría de endpoints porque observa todo lo que circula por el cable, incluidos dispositivos sin agente (IoT, impresoras, routers o equipos no administrados). Para que un sensor NSM funcione sin degradar la red, se ubica en puntos estratégicos de la arquitectura —borde perimetral, frontera de <strong>DMZ</strong> y enlaces entre VLANs segmentadas— recibiendo una copia del tráfico mediante un <strong>Network TAP</strong> o puerto espejo (<strong>SPAN</strong>).</p>
+<h3 id="cap-4-4-captura-completa-pcap-frente-a-metadatos-de-flujo-netflow-zeek">Captura completa (PCAP) frente a metadatos de flujo (NetFlow / Zeek)</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Enfoque de captura</th>
+<th>Qué almacena</th>
+<th>Ventaja principal</th>
+<th>Limitación operativa</th>
+</tr></thead><tbody>
+<tr><td><strong>Full PCAP</strong></td><td>Encabezados y carga útil completa de cada paquete</td><td>Máximo detalle forense: permite reconstruir archivos y sesiones exactas.</td><td>Consumo muy alto de disco; retención típica de horas o pocos días.</td></tr>
+<tr><td><strong>NetFlow / IPFIX</strong></td><td>Resumen de sesiones (IPs, puertos, bytes, paquetes, duración)</td><td>Muy liviano; permite retener meses de historial y detectar anomalías de volumen.</td><td>No inspecciona capa de aplicación ni nombres de dominio.</td></tr>
+<tr><td><strong>Zeek (NSM)</strong></td><td>Metadatos enriquecidos por protocolo (<code>conn</code>, <code>dns</code>, <code>http</code>, <code>ssl</code>)</td><td>Equilibrio óptimo entre contexto de protocolo, escalabilidad y búsqueda rápida.</td><td>No sustituye el PCAP cuando hace falta extraer el binario íntegro.</td></tr>
+</tbody></table></div>
+<p>En la capa de prevención, un <strong>IDS</strong> (<em>Intrusion Detection System</em>) opera de forma pasiva (fuera de banda) generando alertas sin alterar el tráfico, mientras que un <strong>IPS</strong> (<em>Intrusion Prevention System</em>) opera en línea (<em>inline</em>) con capacidad de descartar paquetes (<code>drop</code>) en tiempo real, lo cual exige un afinado riguroso para no interrumpir servicios críticos.</p>
+<h2 id="cap-4-4-2-investigacion-intermedia-con-wireshark-y-tshark">2. Investigación intermedia con Wireshark y tshark</h2>
+<p><strong>Wireshark</strong> (interfaz gráfica) y <strong><code>tshark</code></strong> (versión de consola) permiten examinar capturas <code>.pcap</code> en profundidad. En análisis real conviene usar <code>tshark</code> para resumir miles de paquetes y pasar a Wireshark solo cuando necesitás reconstruir una sesión puntual (<em>Follow TCP/HTTP Stream</em>).</p>
+<h3 id="cap-4-4-consultas-clave-para-http-dns-tls-sni-ja3-y-beaconing">Consultas clave para HTTP, DNS, TLS (SNI / JA3) y beaconing</h3>
+<p>Aunque gran parte del tráfico moderno viaja cifrado con TLS, los metadatos de negociación siguen aportando visibilidad valiosa: el campo <strong>SNI</strong> (<em>Server Name Indication</em>) revela el dominio solicitado en el <em>Client Hello</em>, y la huella <strong>JA3</strong> resume la combinación de versión TLS, cifrados y extensiones del cliente para identificar perfiles inusuales.</p>
+<pre><code class="lenguaje-bash"># 1. Listar conversaciones TCP principales por volumen
+tshark -r captura_lab.pcap -q -z conv,tcp
+
+# 2. Extraer consultas DNS y respuestas para detectar dominios anómalos
+tshark -r captura_lab.pcap -Y "dns.flags.response == 0" -T fields -e frame.time_epoch -e ip.src -e dns.qry.name
+
+# 3. Inspeccionar nombres de servidor TLS (SNI) y cabeceras HTTP
+tshark -r captura_lab.pcap -Y "tls.handshake.extensions_server_name" -T fields -e ip.src -e ip.dst -e tls.handshake.extensions_server_name
+tshark -r captura_lab.pcap -Y "http.request" -T fields -e ip.src -e http.host -e http.request.uri -e http.user_agent
+
+# 4. Exportar objetos HTTP transferidos en claro hacia una carpeta temporal
+tshark -r captura_lab.pcap --export-objects http,./objetos_extraidos/</code></pre>
+<h3 id="cap-4-4-deteccion-conceptual-de-beaconing-periodico">Detección conceptual de beaconing periódico</h3>
+<p>El <em>beaconing</em> ocurre cuando un host comprometido consulta periódicamente a un servidor externo en intervalos regulares (por ejemplo, cada 60 segundos con pequeña variación o <em>jitter</em>). Para identificarlo, revisá la diferencia de tiempo (<code>delta</code>) entre conexiones repetidas hacia el mismo par <code>ip.dst:tcp.dstport</code>: intervalos muy uniformes con transferencias pequeñas y recurrentes merecen investigación prioritaria.</p>
+<h2 id="cap-4-4-3-interpretacion-de-logs-estructurados-de-zeek">3. Interpretación de logs estructurados de Zeek</h2>
+<p><strong>Zeek</strong> procesa tráfico en vivo o archivos <code>.pcap</code> y genera registros tabulados (o JSON) vinculados entre sí por un identificador único de conexión (<code>uid</code>), lo que permite cruzar protocolos en segundos.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Archivo Zeek</th>
+<th>Qué registra</th>
+<th>Campos clave para análisis</th>
+</tr></thead><tbody>
+<tr><td><code>conn.log</code></td><td>Todas las sesiones TCP, UDP e ICMP</td><td><code>uid</code>, <code>id.orig_h</code>, <code>id.resp_h</code>, <code>id.resp_p</code>, <code>duration</code>, <code>orig_bytes</code>, <code>resp_bytes</code>, <code>conn_state</code></td></tr>
+<tr><td><code>dns.log</code></td><td>Consultas y respuestas DNS</td><td><code>uid</code>, <code>query</code>, <code>qtype_name</code>, <code>rcode_name</code>, <code>answers</code></td></tr>
+<tr><td><code>http.log</code></td><td>Solicitudes y respuestas HTTP</td><td><code>uid</code>, <code>method</code>, <code>host</code>, <code>uri</code>, <code>user_agent</code>, <code>status_code</code></td></tr>
+<tr><td><code>ssl.log</code></td><td>Negociaciones TLS/SSL y certificados</td><td><code>uid</code>, <code>version</code>, <code>server_name</code>, <code>subject</code>, <code>issuer</code>, <code>validation_status</code></td></tr>
+</tbody></table></div>
+<p>Procesar un PCAP en tu laboratorio con Zeek y consultar columnas con <code>zeek-cut</code> toma un único comando:</p>
+<pre><code class="lenguaje-bash"># Procesar captura local con Zeek
+zeek -C -r captura_lab.pcap
+
+# Consultar conexiones salientes con mayor cantidad de bytes enviados
+cat conn.log | zeek-cut uid id.orig_h id.resp_h id.resp_p duration orig_bytes resp_bytes | sort -k6 -nr | head -n 10
+
+# Cruzar dominios consultados en DNS y SNI observados en TLS
+cat dns.log | zeek-cut uid id.orig_h query rcode_name | head -n 10
+cat ssl.log | zeek-cut uid id.orig_h id.resp_h server_name validation_status | head -n 10</code></pre>
+<h2 id="cap-4-4-4-anatomia-y-escritura-de-reglas-ids-ips-en-suricata">4. Anatomía y escritura de reglas IDS/IPS en Suricata</h2>
+<p><strong>Suricata</strong> es un motor IDS/IPS de alto rendimiento que inspecciona paquetes y flujos de aplicación usando firmas declarativas. Toda regla se compone de dos partes: <strong>encabezado (header)</strong> y <strong>opciones</strong> entre paréntesis.</p>
+<pre><code class="lenguaje-text">[acción] [protocolo] [ip_origen] [puerto_origen] [dirección] [ip_destino] [puerto_destino] (opciones;)</code></pre>
+<p>Elementos estructurales esenciales de las opciones:</p>
+<ul><li><code>msg</code>: descripción legible de la alerta en el log <code>eve.json</code>.</li><li><code>flow</code>: dirección y estado de la sesión (por ejemplo, <code>established,to_server</code>), vital para evitar falsos positivos en paquetes sueltos.</li><li><code>content</code>: cadena literal o hexadecimal buscada con gran eficiencia (motor de coincidencia rápida).</li><li><code>pcre</code>: expresión regular compatible con Perl, usada solo después de un <code>content</code> para no penalizar rendimiento.</li><li><code>sid</code> y <code>rev</code>: identificador numérico único de la regla (rango <code>&gt;= 1000000</code> para reglas locales) y número de revisión.</li></ul>
+<h3 id="cap-4-4-ejemplos-de-reglas-locales-y-afinado">Ejemplos de reglas locales y afinado</h3>
+<pre><code class="lenguaje-text"># Regla 1 (IDS - alert): Detectar User-Agent de prueba automatizado hacia un servicio interno HTTP
+alert http $HOME_NET any -&gt; $EXTERNAL_NET any (msg:"LAB-SEC HTTP User-Agent inusual detectado"; flow:established,to_server; http.user_agent; content:"LabScanner"; nocase; sid:1000001; rev:1;)
+
+# Regla 2 (IDS - alert): Detectar descarga de script por HTTP con patrón de extensión mediante content + pcre
+alert http any any -&gt; $HOME_NET any (msg:"LAB-SEC Descarga de script por HTTP sin cifrar"; flow:established,to_client; http.response_body; content:"#!/bin/"; pcre:"/^#!\/bin\/(ba)?sh/m"; sid:1000002; rev:1;)</code></pre>
+<p>Para validar sintaxis y probar tus reglas sobre un PCAP sin tocar producción:</p>
+<pre><code class="lenguaje-bash"># Validar reglas locales y ejecutar Suricata en modo offline sobre un PCAP
+sudo suricata -T -c /etc/suricata/suricata.yaml -S ./reglas_lab.rules
+suricata -r captura_lab.pcap -S ./reglas_lab.rules -l ./salida_suricata/</code></pre>
+<p>Para <strong>afinar falsos positivos</strong> sin desactivar una firma entera, utilizá <code>threshold.config</code> (por ejemplo, <code>suppress</code> por IP de un servidor de monitoreo autorizado o <code>threshold</code> por frecuencia) y actualizá el número <code>rev</code> en cada cambio documentado.</p>
+<h3 id="cap-4-4-comparativa-rapida-con-snort-anomalias-l2-l3-y-correlacion-perimetral">Comparativa rápida con Snort, anomalías L2/L3 y correlación perimetral</h3>
+<p>En entornos reales un analista NSM combina el análisis de paquetes con la telemetría de dispositivos de borde y herramientas complementarias:</p>
+<ul><li><strong>Sintaxis Snort frente a Suricata:</strong> Ambos motores comparten estructura clásica (<code>acción proto src_ip src_port -&gt; dst_ip dst_port (opciones)</code>), pero <strong>Snort 2/3</strong> utiliza inspectores y modificadores clásicos como <code>uricontent</code> / <code>http_uri</code>, mientras que <strong>Suricata</strong> ofrece <em>sticky buffers</em> más expresivos (<code>http.uri; content:"...";</code>, <code>http.user_agent;</code>, <code>tls.sni;</code>), multihilo nativo y registro unificado <code>eve.json</code>. El archivo local <a href="../laboratorios/suricata_lab.rules"><code>laboratorios/suricata_lab.rules</code></a> incluye cuatro reglas listas para estudiar filtros <code>flow</code>, <code>pcre</code>, firmas <code>MZ</code> en transferencia y <code>threshold</code>.</li><li><strong>Anomalías de Capa 2 y Capa 3 (<em>ARP Spoofing</em>, <em>IP Spoofing</em> y fragmentación):</strong></li><li><strong><em>ARP Spoofing</em> y <em>ARP Scanning</em>:</strong> Ráfagas de respuestas <em>ARP Reply</em> no solicitadas o cambios súbitos de correspondencia IP→MAC (en especial hacia la puerta de enlace) se observan en Wireshark filtrando <code>arp.duplicate-address-detected</code> o <code>arp.opcode == 2</code> sin <code>opcode == 1</code> previo, y se mitigan con <em>Dynamic ARP Inspection</em> (<code>DAI</code>) y <code>DHCP Snooping</code> en switches gestionados.</li><li><strong><em>IP Spoofing</em> y fragmentación evasiva:</strong> Paquetes entrantes en interfaces WAN con direcciones origen RFC 1918 o de la subred interna, o fragmentos IP solapados (<em>tiny fragments</em> para dividir cabeceras TCP entre fragmentos), se bloquean mediante filtrado de entrada/salida (<em>BCP 38 / uRPF</em>) y reensamblado estricto (<code>stream</code> / <code>frag3</code>) en el IDS/IPS antes de evaluar firmas.</li><li><strong>Extracción automática de artefactos con <em>NetworkMiner</em>:</strong> Frente a capturas PCAP extensas, herramientas forenses pasivas como <code>NetworkMiner</code> reconstruyen automáticamente sesiones por host, archivos transferidos por HTTP/SMB, credenciales en texto claro, certificados TLS y parámetros DNS/OS fingerprinting sin necesidad de extraer flujos manualmente.</li><li><strong>Correlación con Firewall, VPN, Proxy y WAF:</strong> Un hallazgo de red cobra contexto completo al cruzar los tres niveles temporales: la sesión permitida/bloqueada en el <strong>Firewall</strong> o túnel <strong>VPN</strong> (usuario autenticado y origen externo), la URI completa y el código HTTP registrados por el <strong>Proxy</strong> corporativo o <strong>WAF</strong> (payload bloqueado o permitido en capa 7), y la conversación íntegra preservada en PCAP/Zeek para verificar si hubo respuesta exitosa o exfiltración.</li></ul>
+<h2 id="cap-4-4-ejemplo-paso-a-paso-correlacion-pcap-zeek-suricata-en-laboratorio">Ejemplo paso a paso: Correlación PCAP → Zeek → Suricata en laboratorio</h2>
+<p>En este recorrido analizamos una captura local (<code>trafico_prueba.pcap</code>) donde un host de laboratorio realiza consultas periódicas a un servidor web interno de pruebas.</p>
+<p><strong>Paso 1:</strong> Revisar el resumen temporal con <code>tshark</code> para detectar periodicidad.</p>
+<pre><code class="lenguaje-bash">tshark -r trafico_prueba.pcap -Y "http.request" -T fields -e frame.time_relative -e ip.src -e ip.dst -e http.host -e http.user_agent</code></pre>
+<pre><code class="lenguaje-text"># Salida comentada en laboratorio
+0.000000   192.168.56.20  192.168.56.10  lab-srv.local  LabScanner/1.0
+30.012410  192.168.56.20  192.168.56.10  lab-srv.local  LabScanner/1.0
+60.004920  192.168.56.20  192.168.56.10  lab-srv.local  LabScanner/1.0
+# Intervalo constante de ~30 s entre peticiones: indicador claro de beaconing periódico.</code></pre>
+<p><strong>Paso 2:</strong> Procesar con Zeek y verificar la sesión en <code>http.log</code> y <code>conn.log</code> mediante el mismo <code>uid</code>.</p>
+<pre><code class="lenguaje-bash">zeek -C -r trafico_prueba.pcap
+cat http.log | zeek-cut uid id.orig_h id.resp_h host uri user_agent status_code</code></pre>
+<pre><code class="lenguaje-text"># Salida comentada (Zeek)
+CHhAvVGS1DHFjwGM9  192.168.56.20  192.168.56.10  lab-srv.local  /check  LabScanner/1.0  200
+# El uid permite pivotar directamente hacia conn.log para medir bytes transferidos y duración.</code></pre>
+<p><strong>Paso 3:</strong> Probar la regla Suricata <code>sid:1000001</code> y revisar la alerta estructurada en <code>eve.json</code>.</p>
+<pre><code class="lenguaje-bash">suricata -r trafico_prueba.pcap -S ./reglas_lab.rules -l ./salida_suricata/
+grep '"event_type":"alert"' ./salida_suricata/eve.json | head -n 1</code></pre>
+<pre><code class="lenguaje-text"># Salida comentada (eve.json resumido)
+{"timestamp":"2026-11-22T16:10:01Z","event_type":"alert","src_ip":"192.168.56.20","dest_ip":"192.168.56.10","alert":{"signature_id":1000001,"signature":"LAB-SEC HTTP User-Agent inusual detectado"}}
+# La firma coincidió sin falsos positivos y quedó lista para ingerirse en Splunk o Elastic.</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>Una arquitectura NSM eficaz reduce drásticamente el tiempo de exposición frente a tácticas padre como <strong>Comando y Control</strong>, <strong>Exfiltración</strong> y <strong>Descubrimiento</strong>:</p>
+<ul><li><strong>Segmentación y control de egresos:</strong> Restringí el tráfico saliente desde servidores críticos mediante listas permitidas y proxy autenticado; la visibilidad en egress es tan importante como el perímetro de entrada.</li><li><strong>Complemento endpoint + red:</strong> Ningún sensor es suficiente solo: TLS moderno oculta el contenido en red, pero la combinación de Zeek (<code>ssl.log</code>/<code>dns.log</code>), alertas Suricata y telemetría Sysmon cierra el circuito completo.</li><li><strong>Migración gradual de IDS a IPS:</strong> Validá toda firma nueva en modo <code>alert</code> durante un período de observación antes de pasarla a <code>drop</code> para prevenir bloqueos de tráfico legítimo.</li></ul></aside>
+<h2 id="cap-4-4-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>En tu red Host-Only, levantá un servidor HTTP local simple (<code>python3 -m http.server 8080</code>) en una VM y realizá desde otra VM tres peticiones periódicas separadas por 15 segundos con <code>curl -A "LabScanner/1.0" http://&lt;IP_SERVIDOR&gt;:8080/</code> mientras capturás el tráfico con <code>tcpdump -i &lt;interfaz&gt; -w trafico_prueba.pcap</code>. Luego analizá el archivo con <code>tshark</code>, Zeek y tu regla local en Suricata.</p>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Generá un informe breve <code>nsm_laboratorio.md</code> que incluya:</p>
+<ol><li>Salida de <code>tshark</code> mostrando la periodicidad temporal de las peticiones HTTP.</li><li>Fragmento de <code>conn.log</code> y <code>http.log</code> generados por Zeek correlacionados mediante el campo <code>uid</code>.</li><li>Una regla propia de Suricata (<code>sid &gt;= 1000000</code>) validada con <code>suricata -T</code> y la alerta correspondiente en <code>eve.json</code>.</li><li>Explicación breve de cómo suprimirías un falso positivo de esa regla si un escáner interno autorizado usara el mismo encabezado.</li></ol></aside>
+<h2 id="cap-4-4-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué los equipos NSM combinan metadatos de Zeek con captura PCAP de retención corta en lugar de guardar todo en PCAP indefinidamente?</strong> Porque el PCAP completo consume demasiado almacenamiento para retener semanas o meses de tráfico, mientras que los logs estructurados de Zeek ocupan una fracción mínima, permiten búsquedas rápidas en el SIEM y señalan qué ventana puntual revisar en PCAP.</p>
+<p><strong>2. ¿Qué información útil puede extraerse del tráfico TLS sin descifrar el contenido de la sesión?</strong> Se pueden analizar metadatos del <em>handshake</em>, como el dominio indicado en SNI, la versión de TLS, los datos del certificado (emisor, vigencia, validez) y huellas de cliente como JA3, además de la cadencia temporal y el volumen de bytes.</p>
+<p><strong>3. ¿Cuál es la función del campo <code>uid</code> en los registros de Zeek?</strong> Actúa como clave única de correlación de una conexión específica, permitiendo enlazar en segundos su resumen de red en <code>conn.log</code> con sus detalles de aplicación en <code>dns.log</code>, <code>http.log</code> o <code>ssl.log</code>.</p>
+<p><strong>4. ¿Por qué en una regla Suricata conviene combinar <code>content</code> antes de aplicar <code>pcre</code>?</strong> Porque <code>content</code> utiliza el motor de búsqueda rápida de cadenas literales para filtrar la inmensa mayoría de los paquetes con mínimo consumo de CPU, reservando la evaluación costosa de expresiones regulares (<code>pcre</code>) solo a los paquetes prefiltrados.</p>
+<p><strong>5. ¿Cuál es el riesgo principal de habilitar reglas nuevas directamente en modo IPS (<code>drop</code>) sin fase previa en modo IDS (<code>alert</code>)?</strong> Un error en la lógica de la regla o una excepción no contemplada puede bloquear tráfico operativo legítimo y provocar una interrupción autoinducida del servicio (<em>self-DoS</em>).</p>
+<h2 id="cap-4-4-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Diferenciás cuándo usar PCAP completo, NetFlow y logs estructurados de Zeek.</li><li>☐ Ejecutaste filtros en <code>tshark</code> para inspeccionar DNS, HTTP, SNI y periodicidad temporal.</li><li>☐ Procesaste una captura local con Zeek y correlacionaste registros mediante <code>uid</code>.</li><li>☐ Escribiste, validaste (<code>suricata -T</code>) y probaste una regla Suricata sobre un archivo PCAP.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con los cuatro capítulos de esta Parte A completados, ya contás con el ciclo operativo completo de defensa y monitoreo: procesos SOC y respuesta a incidentes, telemetría de endpoints Windows/Linux, correlación SIEM en Splunk/Elastic y análisis de red con Wireshark, Zeek y Suricata.</p></aside>
+<h2 id="cap-4-4-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>Zeek Official Documentation — <em>Log Files &amp; Scripting Reference</em>: https://docs.zeek.org/</li><li>OISF Suricata User Guide — <em>Rule Format &amp; Performance Tuning</em>: https://docs.suricata.io/</li><li>Wireshark User's Guide &amp; <code>tshark</code> Manual: https://www.wireshark.org/docs/</li><li>NIST Special Publication 800-94 — <em>Guide to Intrusion Detection and Prevention Systems (IDPS)</em>: https://csrc.nist.gov/publications/detail/sp/800-94/final</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 8 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Intro to Network Traffic Analysis</td><td>Medium</td><td>General</td><td>15</td></tr><tr><td>Working with IDS/IPS</td><td>Medium</td><td>Defensive</td><td>11</td></tr><tr><td>Intermediate Network Traffic Analysis</td><td>Easy</td><td>Defensive</td><td>18</td></tr><tr><td>Network Packet Analysis</td><td>Easy</td><td>Defensive</td><td>6</td></tr><tr><td>Network Log Analysis</td><td>Hard</td><td>Defensive</td><td>10</td></tr><tr><td>Secure Network Design</td><td>Medium</td><td>Defensive</td><td>9</td></tr><tr><td>Network Design and Security Products</td><td>Medium</td><td>Defensive</td><td>11</td></tr><tr><td>Network Security</td><td>Medium</td><td>Defensive</td><td>10</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="28-siem-splunk-y-elastic.html">← 4.3 SIEM en práctica: Splunk (SPL), Elastic (KQL) y correlación de alertas</a></div><div><a href="30-detection-engineering-sigma-yara.html">4.5 Detection Engineering: reglas Sigma, firmas YARA y validación Purple Team →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,36 @@
+title: Ejecucion Sospechosa de PowerShell con Comando Codificado y Ventana Oculta
+id: 9f4d7b2a-3c61-4b90-8e2f-10a44c8d9001
+status: test
+description: >
+  Detecta invocaciones de PowerShell que combinan ejecucion codificada (-EncodedCommand)
+  con supresion de perfil o ventana oculta. Regla didactica para laboratorio SOC (Tomo IV).
+author: Hacking Etico y Defensa Integral
+date: 2026-11-22
+tags:
+  - attack.execution
+  - attack.defense_evasion
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_flags:
+    CommandLine|contains:
+      - ' -enc '
+      - ' -EncodedCommand '
+      - ' -ec '
+  selection_hidden:
+    CommandLine|contains:
+      - ' -w hidden'
+      - ' -WindowStyle Hidden'
+      - ' -nop '
+  filter_admin_scripts:
+    ParentImage|endswith:
+      - '\ccmexec.exe'
+  condition: selection_img and selection_flags and selection_hidden and not filter_admin_scripts
+falsepositives:
+  - Scripts administrativos heredados de despliegue corporativo (documentar y excluir por ruta firmada)
+level: high

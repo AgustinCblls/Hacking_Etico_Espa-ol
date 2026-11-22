@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 1.1 · Laboratorio aislado, marco legal y metodología de estudio · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="VM aislada, snapshot limpia, Docker local y bitácora">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo1.html">Tomo I</a><span aria-hidden="true">›</span><span>Cap. 1.1</span></nav>
+<h1 id="cap-1-1">Capítulo 1.1 · Laboratorio aislado, marco legal y metodología de estudio</h1>
+<div class="meta-nivel"><span class="nivel-badge principiante">Principiante</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo I · Ruta 1 · Principiante</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="02-redes-tcp-ip.html">1.2 Redes TCP/IP, modelo OSI, subredes y análisis de paquetes</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a poder diseñar y desplegar un laboratorio local completamente aislado mediante máquinas virtuales y contenedores Docker, redactar y verificar un marco de autorización legal (RoE), aplicar las fases de PTES y NIST SP 800-115 con enfoque colaborativo (Purple Team) y mantener una bitácora técnica reproducible respaldada por hashes <code>SHA-256</code>.</p></aside>
+<p><strong>Prerrequisitos:</strong> Conocimientos básicos de uso de sistema operativo (Windows, Linux o macOS) y familiaridad mínima con la terminal. <strong>Duración sugerida:</strong> 2 horas.</p>
+<h2 id="cap-1-1-fundamentos-de-seguridad-de-la-informacion-y-enfoque-integral">Fundamentos de seguridad de la información y enfoque integral</h2>
+<p>La seguridad de la información protege activos digitales y procesos de negocio frente a accesos no autorizados, alteraciones indebidas o interrupciones de servicio. Todo análisis técnico riguroso parte de la <strong>tríada CIA</strong> y de una ecuación práctica de riesgo: un riesgo se materializa cuando una amenaza explota una vulnerabilidad sobre un activo con impacto medible.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Propiedad</th>
+<th>Definición operativa</th>
+<th>Ejemplo de falla técnica</th>
+<th>Control defensivo primario</th>
+</tr></thead><tbody>
+<tr><td><strong>Confidencialidad</strong></td><td>Garantizar que solo entidades autorizadas lean la información.</td><td>Exposición de copias de seguridad o credenciales en texto claro.</td><td>Cifrado en tránsito (TLS), cifrado en reposo y control de acceso mínimo.</td></tr>
+<tr><td><strong>Integridad</strong></td><td>Asegurar que datos, configuraciones y binarios no se modifiquen sin autorización.</td><td>Alteración de un script de despliegue o manipulación de registros de auditoría.</td><td>Firmas criptográficas, hashes <code>SHA-256</code> y registros inmutables.</td></tr>
+<tr><td><strong>Disponibilidad</strong></td><td>Mantener sistemas y servicios operativos dentro de los acuerdos de nivel de servicio.</td><td>Agotamiento de descriptores de archivo o saturación de ancho de banda.</td><td>Redundancia, limitación de tasa (rate limiting) y respaldos verificados.</td></tr>
+</tbody></table></div>
+<p>En la práctica profesional, el trabajo se organiza en tres funciones complementarias:</p>
+<ul><li><strong>Red Team (ofensivo):</strong> simula adversarios realistas bajo alcance aprobado para descubrir rutas de ataque reales y medir la resiliencia organizacional.</li><li><strong>Blue Team (defensivo):</strong> diseña arquitectura segura, opera controles preventivos, analiza telemetría (logs, red, endpoints) y responde ante incidentes.</li><li><strong>Purple Team (colaborativo):</strong> integra ambos mundos en ciclos cortos. Cada técnica ejecutada por el lado ofensivo se valida de inmediato contra las alertas, reglas y registros del lado defensivo para cerrar brechas de visibilidad en lugar de entregar un informe estático semanas después.</li></ul>
+<aside class="callout aviso"><p class="callout-titulo">Mentalidad de ingeniería, no de recetas</p><p>Ejecutar herramientas sin entender qué paquetes salen por la red ni qué rastro dejan en el sistema destino produce falsos positivos y errores peligrosos. En este manual cada técnica ofensiva viene acompañada de su lectura defensiva y su verificación de telemetría.</p></aside>
+<h2 id="cap-1-1-arquitectura-del-laboratorio-local-aislado">Arquitectura del laboratorio local aislado</h2>
+<p>Toda práctica de hacking ético exige un entorno controlado donde un error de configuración nunca afecte redes domésticas, corporativas ni terceros en Internet. Un laboratorio bien diseñado separa el <strong>host físico</strong> (tu equipo principal), la <strong>capa de virtualización o contenedores</strong> y las <strong>redes virtuales aisladas</strong>.</p>
+<h3 id="cap-1-1-hipervisores-y-snapshots">Hipervisores y snapshots</h3>
+<p>Un hipervisor Tipo 2 (como VirtualBox, VMware Workstation Pro o Hyper-V en Windows) permite ejecutar sistemas invitados completos sobre tu sistema operativo anfitrión. Antes de instalar herramientas o modificar configuraciones críticas en una máquina virtual (VM), creá siempre un <strong>snapshot limpio</strong> (estado base). Esto te permite revertir cualquier experimento fallido en segundos sin reinstalar el sistema.</p>
+<h3 id="cap-1-1-topologias-de-red-en-hipervisores">Topologías de red en hipervisores</h3>
+<p>La elección del adaptador de red virtual determina si tus máquinas vulnerables quedan expuestas a tu red local (LAN) o contenidas en un segmento privado.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Modo de red</th>
+<th>Acceso VM → VM</th>
+<th>Acceso Host → VM</th>
+<th>Acceso VM → Internet</th>
+<th>Uso recomendado en laboratorio</th>
+</tr></thead><tbody>
+<tr><td><strong>Host-Only</strong></td><td>Sí</td><td>Sí</td><td>No</td><td>Ideal para máquinas vulnerables y pruebas ofensivas controladas.</td></tr>
+<tr><td><strong>Red Interna (Internal)</strong></td><td>Sí</td><td>No (requiere VM puente)</td><td>No</td><td>Máximo aislamiento para simular segmentos corporativos cerrados.</td></tr>
+<tr><td><strong>NAT Network</strong></td><td>Sí</td><td>Solo con port-forwarding</td><td>Sí (saliente)</td><td>Apto para actualizar paquetes de una VM atacante; desactivar antes de probar objetivos vulnerables.</td></tr>
+<tr><td><strong>Bridged (Puente)</strong></td><td>Sí</td><td>Sí</td><td>Sí (IP directa en LAN)</td><td><strong>Evitar</strong> con sistemas vulnerables: expone la VM a toda la red física.</td></tr>
+</tbody></table></div>
+<aside class="callout peligro"><p class="callout-titulo">Regla de oro de aislamiento</p><p>Nunca conectes una máquina intencionalmente vulnerable en modo <strong>Bridged</strong> dentro de una red compartida, universitaria o corporativa. Usá exclusivamente redes <strong>Host-Only</strong>, redes internas o contenedores Docker ligados a <code>127.0.0.1</code>.</p></aside>
+<h3 id="cap-1-1-contenedores-locales-con-docker">Contenedores locales con Docker</h3>
+<p>Para servicios web, bases de datos y microservicios de práctica, Docker consume una fracción de la memoria RAM que exige una VM completa. La seguridad de un entorno Docker local descansa en dos reglas de diseño:</p>
+<ol><li>Publicar puertos exclusivamente en la interfaz de loopback (<code>127.0.0.1:8080:80</code> y nunca <code>8080:80</code>, que escucha en <code>0.0.0.0</code>).</li><li>Declarar redes de puente internas (<code>internal: true</code>) cuando los contenedores no necesiten salida a Internet.</li></ol>
+<h3 id="cap-1-1-entornos-heterogeneos-y-superficie-fisica">Entornos heterogéneos y superficie física</h3>
+<p>Aunque la mayor parte del curso utiliza Linux y Windows, en evaluaciones reales vas a encontrar otros dos planos relevantes:</p>
+<ul><li><strong>Estaciones macOS:</strong> basadas en el núcleo Darwin (BSD/Mach), comparten herramientas POSIX (<code>zsh</code>, <code>ssh</code>, <code>lsof</code>, <code>pf</code> como firewall) pero incorporan controles propios como <strong>System Integrity Protection (SIP)</strong>, <strong>Gatekeeper</strong> (verificación de firma y notarización de aplicaciones), <strong>TCC</strong> (permisos granulares de privacidad) y el <strong>Keychain</strong> para credenciales. Si tu host físico es macOS, aplican las mismas reglas de aislamiento de red con UTM, VMware Fusion o Docker Desktop/Colima.</li><li><strong>Superficie de hardware:</strong> en auditorías de dispositivos embebidos o IoT con autorización explícita, el alcance puede incluir interfaces físicas de depuración como <strong>UART</strong> (consola serie), <strong>SPI/I2C</strong> (lectura de memoria flash externa), <strong>JTAG/SWD</strong> (depuración a nivel de CPU) o riesgos de periféricos USB no confiables (emulación de teclado HID y acceso directo a memoria DMA). En este tomo trabajamos exclusivamente sobre software y redes virtuales locales; la seguridad física y de hardware requiere equipamiento dedicado y permisos específicos.</li></ul>
+<h2 id="cap-1-1-marco-legal-autorizacion-y-metodologias-abiertas">Marco legal, autorización y metodologías abiertas</h2>
+<p>La única línea que separa una auditoría profesional de un delito informático es la <strong>autorización previa, explícita y por escrito</strong> del titular legítimo de los activos. Ningún escaneo activo, prueba de credenciales ni explotación sobre sistemas ajenos está permitido sin contrato vigente.</p>
+<h3 id="cap-1-1-reglas-de-enfrentamiento-roe">Reglas de Enfrentamiento (RoE)</h3>
+<p>Antes de enviar el primer paquete en un compromiso real, ambas partes firman un documento de <strong>Rules of Engagement (RoE)</strong> que fija:</p>
+<ul><li><strong>Alcance estricto (In-Scope / Out-of-Scope):</strong> rangos CIDR exactos, dominios, aplicaciones y exclusiones explícitas (por ejemplo, sistemas críticos de soporte vital o proveedores externos de terceros).</li><li><strong>Ventanas horarias y restricciones técnicas:</strong> horarios aprobados, límite de concurrencia para evitar denegación de servicio involuntaria y técnicas prohibidas (como ingeniería social o pruebas de estrés).</li><li><strong>Contactos de emergencia y escalamiento:</strong> canal seguro para reportar de inmediato hallazgos críticos o evidencia de una intrusión real ya existente.</li><li><strong>Manejo de evidencias y confidencialidad:</strong> cifrado de reportes, período de retención y destrucción segura tras el cierre.</li></ul>
+<h3 id="cap-1-1-ptes-y-nist-sp-800-115">PTES y NIST SP 800-115</h3>
+<p>Las pruebas profesionales siguen estándares abiertos verificables para garantizar cobertura consistente y repetibilidad:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Fase lógica</th>
+<th>Estándar PTES</th>
+<th>Estándar NIST SP 800-115</th>
+<th>Validación Purple Team asociada</th>
+</tr></thead><tbody>
+<tr><td><strong>1. Preparación</strong></td><td>Interacciones previas al compromiso</td><td>Planificación</td><td>Definir hipótesis de ataque y fuentes de logs esperadas.</td></tr>
+<tr><td><strong>2. Reconocimiento</strong></td><td>Recolección de inteligencia y modelado de amenazas</td><td>Descubrimiento (información)</td><td>Verificar si el perímetro detecta enumeración anómala.</td></tr>
+<tr><td><strong>3. Análisis</strong></td><td>Análisis de vulnerabilidades</td><td>Descubrimiento (vulnerabilidades)</td><td>Contrastar hallazgos con el inventario real de parches.</td></tr>
+<tr><td><strong>4. Validación</strong></td><td>Explotación y post-explotación</td><td>Ataque (acceso, escalamiento, pivote)</td><td>Comprobar alertas en SIEM/EDR y tiempos de detección.</td></tr>
+<tr><td><strong>5. Cierre</strong></td><td>Reporte técnico y ejecutivo</td><td>Reporte y remediación</td><td>Entregar remediación priorizada y reglas de detección probadas.</td></tr>
+</tbody></table></div>
+<h2 id="cap-1-1-metodo-de-estudio-activo-y-bitacora-reproducible">Método de estudio activo y bitácora reproducible</h2>
+<p>Leer documentación sin ejecutar pruebas genera una falsa sensación de dominio. Para consolidar habilidades técnicas duraderas aplicá un ciclo de cuatro pasos por cada tema:</p>
+<ol><li><strong>Hipótesis previa:</strong> antes de correr un comando, anticipá qué protocolo, archivo o proceso va a intervenir.</li><li><strong>Ejecución controlada:</strong> corré el comando en tu laboratorio local y observá la salida completa (incluyendo códigos de retorno y errores).</li><li><strong>Verificación de rastro:</strong> revisá los logs o paquetes capturados para confirmar qué quedó registrado.</li><li><strong>Registro en bitácora:</strong> documentá fecha UTC, comando exacto, resultado resumido y hash criptográfico de cada evidencia guardada.</li></ol>
+<p>Preservar evidencias con <code>SHA-256</code> garantiza <strong>integridad</strong> y cadena de custodia: si un archivo de captura (<code>.pcap</code>), un log o una salida de escaneo se altera un solo bit, su resumen criptográfico cambia por completo.</p>
+<h2 id="cap-1-1-ejemplo-paso-a-paso-laboratorio-docker-aislado-consulta-dns-local-y-bitacora-sha-256">Ejemplo paso a paso: Laboratorio Docker aislado, consulta DNS local y bitácora SHA-256</h2>
+<p>En este ejemplo vas a crear una definición mínima de laboratorio en <code>laboratorios/docker-compose.yml</code> con red interna aislada, verificar que los puertos expuestos queden atados solo a <code>127.0.0.1</code>, ejecutar un script propio en Python para resolver nombres locales de forma controlada y sellar la evidencia con <code>SHA-256</code>.</p>
+<h3 id="cap-1-1-paso-1-definir-el-laboratorio-aislado">Paso 1: Definir el laboratorio aislado</h3>
+<p>Creá el archivo <code>laboratorios/docker-compose.yml</code> con un servicio web de pruebas accesible únicamente desde tu equipo local:</p>
+<pre><code class="lenguaje-yaml">services:
+  web-lab:
+    image: nginx:1.27-alpine
+    container_name: lab_web
+    ports:
+      - "127.0.0.1:8080:80"
+    networks:
+      - red_aislada
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+
+networks:
+  red_aislada:
+    driver: bridge
+    internal: true</code></pre>
+<h3 id="cap-1-1-paso-2-levantar-el-servicio-y-validar-el-aislamiento-de-red">Paso 2: Levantar el servicio y validar el aislamiento de red</h3>
+<pre><code class="lenguaje-bash"># Levantamos el contenedor en segundo plano
+docker compose -f laboratorios/docker-compose.yml up -d
+
+# Verificamos qué dirección IP quedó asociada al puerto publicado
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"</code></pre>
+<p>Salida esperada comentada:</p>
+<pre><code class="lenguaje-text">NAMES         STATUS         PORTS
+lab_web   Up 6 seconds   127.0.0.1:8080-&gt;80/tcp
+# Confirmación crítica: el prefijo 127.0.0.1 garantiza que ningún equipo
+# externo de tu LAN pueda alcanzar el puerto 8080 de este contenedor.</code></pre>
+<p>Comprobá además que el contenedor no tiene salida a Internet gracias a <code>internal: true</code>:</p>
+<pre><code class="lenguaje-bash">docker exec lab_web sh -c "wget -qO- --timeout=2 http://1.1.1.1 || echo 'Aislamiento OK: sin salida externa'"</code></pre>
+<pre><code class="lenguaje-text">wget: can't connect to remote host (1.1.1.1): Network unreachable
+Aislamiento OK: sin salida externa</code></pre>
+<h3 id="cap-1-1-paso-3-automatizar-una-consulta-dns-controlada-en-laboratorio-con-python">Paso 3: Automatizar una consulta DNS controlada en laboratorio con Python</h3>
+<p>Para entender cómo funcionan los protocolos sin depender de cajas negras, escribí un script mínimo (<code>laboratorios/dns_check_local.py</code>) que resuelva únicamente nombres locales configurados en tu sistema o zona interna de laboratorio y registre la salida con marca temporal UTC:</p>
+<pre><code class="lenguaje-python">#!/usr/bin/env python3
+"""Verificador básico de resolución de nombres para entorno de laboratorio local."""
+import datetime
+import socket
+
+OBJETIVOS_LOCALES = ["localhost", "web-lab.local"]
+
+ahora_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+print(f"[INFO] Inicio de prueba UTC: {ahora_utc}")
+
+for nombre in OBJETIVOS_LOCALES:
+    try:
+        # getaddrinfo usa el resolvedor del SO (incluyendo /etc/hosts o DNS local)
+        registros = socket.getaddrinfo(nombre, None, proto=socket.IPPROTO_TCP)
+        ips = sorted({item[4][0] for item in registros})
+        print(f"[OK]   {nombre} -&gt; {', '.join(ips)}")
+    except socket.gaierror as err:
+        print(f"[MISS] {nombre} -&gt; sin resolución ({err})")</code></pre>
+<h3 id="cap-1-1-paso-4-ejecutar-el-script-y-sellar-la-evidencia-con-sha-256">Paso 4: Ejecutar el script y sellar la evidencia con SHA-256</h3>
+<p>En Linux o macOS:</p>
+<pre><code class="lenguaje-bash">mkdir -p evidencias/cap1_1
+python3 laboratorios/dns_check_local.py | tee evidencias/cap1_1/dns_local.log
+sha256sum evidencias/cap1_1/dns_local.log &gt; evidencias/cap1_1/manifest.sha256
+sha256sum -c evidencias/cap1_1/manifest.sha256</code></pre>
+<p>Salida esperada comentada:</p>
+<pre><code class="lenguaje-text">[INFO] Inicio de prueba UTC: 2026-11-22T20:05:11.402198+00:00
+[OK]   localhost -&gt; 127.0.0.1, ::1
+[MISS] web-lab.local -&gt; sin resolución ([Errno -2] Name or service not known)
+evidencias/cap1_1/dns_local.log: OK
+# El estado "OK" prueba que el archivo no sufrió alteraciones desde su generación.</code></pre>
+<p>En Windows PowerShell podés generar exactamente el mismo sello de integridad con <code>Get-FileHash</code>:</p>
+<pre><code class="lenguaje-powershell">Get-FileHash -Path ".\evidencias\cap1_1\dns_local.log" -Algorithm SHA256 | Format-List</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>Incluso en tu propia estación de trabajo, el laboratorio debe tratarse como una <strong>zona no confiable</strong>. Aplicá tres controles inmediatos:</p>
+<ol><li><strong>Aislamiento de red estricto:</strong> mantené el firewall del host activo (<code>ufw</code>/<code>nftables</code> en Linux, Windows Defender Firewall en Windows, <code>pf</code> en macOS) y bloqueá tráfico entrante desde interfaces de laboratorio hacia servicios locales del host (SMB, RDP, SSH).</li><li><strong>Mínimo privilegio en contenedores y VMs:</strong> evitá <code>--privileged</code>, usá <code>read_only: true</code> cuando sea viable y desactivá carpetas compartidas bidireccionales o portapapeles compartido cuando analices binarios desconocidos.</li><li><strong>Verificación Purple Team:</strong> cada vez que corras una prueba en el laboratorio, revisá qué evento generó el servidor (<code>docker logs lab_web</code>) para entrenar el ojo en la lectura de telemetría real desde el primer día.</li></ol></aside>
+<h2 id="cap-1-1-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Verificá que tenés instalado al menos un hipervisor (VirtualBox, VMware o Hyper-V) o Docker Engine funcional.</li><li>Creá la estructura de carpetas <code>laboratorios/</code> y <code>evidencias/cap1_1/</code> en tu directorio de estudio.</li><li>Desplegá <code>laboratorios/docker-compose.yml</code>, validá que el contenedor escucha únicamente en <code>127.0.0.1:8080</code> y confirmá la respuesta HTTP con <code>curl -I http://127.0.0.1:8080</code>.</li><li>Redactá una plantilla breve de <strong>Rules of Engagement</strong> ficticia (<code>evidencias/cap1_1/roe_laboratorio.md</code>) que defina tu rango de laboratorio local (por ejemplo <code>192.168.56.0/24</code> y <code>127.0.0.1</code>), exclusiones y formato de bitácora.</li><li>Ejecutá <code>dns_check_local.py</code>, generá el manifiesto <code>manifest.sha256</code> con todos los archivos creados y verificá la integridad con <code>sha256sum -c</code> o <code>Get-FileHash</code>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Al finalizar debés contar en <code>evidencias/cap1_1/</code> con:</p>
+<ul><li><code>roe_laboratorio.md</code>: documento de alcance y reglas de tu propio laboratorio local.</li><li><code>verificacion_red.txt</code>: salida de <code>docker ps</code> y <code>curl -I http://127.0.0.1:8080</code>.</li><li><code>dns_local.log</code>: salida del script de resolución local en Python.</li><li><code>manifest.sha256</code>: listado de hashes <code>SHA-256</code> verificado sin errores.</li></ul></aside>
+<h2 id="cap-1-1-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué no se debe configurar una máquina virtual vulnerable en modo Bridged dentro de una red doméstica o corporativa?</strong> Porque el modo Bridged asigna a la VM una dirección IP directamente en la misma subred física que el resto de los dispositivos de la LAN. Cualquier servicio vulnerable queda accesible para otros equipos de esa red y, si la VM resultara comprometida, serviría como punto de pivote directo contra la red anfitriona.</p>
+<p><strong>2. ¿Qué diferencia operativa existe entre un ejercicio Red Team tradicional y un ciclo Purple Team?</strong> En un ejercicio Red Team tradicional el equipo ofensivo opera de forma separada del defensivo y entrega sus hallazgos al finalizar el compromiso. En un ciclo Purple Team ambos equipos colaboran en tiempo real: cada técnica ejecutada se contrasta inmediatamente contra logs, alertas y reglas de detección para validar y mejorar la visibilidad defensiva sobre la marcha.</p>
+<p><strong>3. ¿Cuál es la función de las opciones <code>127.0.0.1:8080:80</code> e <code>internal: true</code> en un archivo <code>docker-compose.yml</code> de laboratorio?</strong> El mapeo <code>127.0.0.1:8080:80</code> restringe el puerto publicado exclusivamente a la interfaz loopback del host, impidiendo conexiones entrantes desde otras máquinas de la red. La directiva <code>internal: true</code> suprime la puerta de enlace por defecto del puente Docker para que el contenedor no pueda iniciar tráfico hacia Internet.</p>
+<p><strong>4. ¿Qué elementos mínimos debe contener un documento de Rules of Engagement (RoE) antes de iniciar una prueba autorizada?</strong> Debe incluir el alcance exacto de activos autorizados y excluidos (IPs, rangos CIDR, dominios), ventanas horarias permitidas, técnicas habilitadas y prohibidas, canales de escalamiento ante incidentes críticos, y criterios de confidencialidad y destrucción de evidencias, todo respaldado por firma de un representante legal autorizado.</p>
+<p><strong>5. ¿Para qué sirve generar un archivo <code>manifest.sha256</code> al cerrar una sesión de laboratorio o auditoría?</strong> Permite demostrar la integridad de las evidencias recolectadas (logs, capturas de red, salidas de comandos). Si un archivo se modifica accidental o maliciosamente después de la prueba, su hash <code>SHA-256</code> dejará de coincidir con el manifiesto original, preservando la trazabilidad y la cadena de custodia.</p>
+<h2 id="cap-1-1-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Entendés la diferencia entre confidencialidad, integridad y disponibilidad, y el rol del enfoque Purple Team.</li><li>☐ Tenés un entorno aislado funcional (hipervisor con red Host-Only o Docker ligado a <code>127.0.0.1</code>) verificado sin exposición externa.</li><li>☐ Comprendés qué requisitos legales y de alcance (RoE) habilitan una prueba técnica legítima.</li><li>☐ Armaste tu estructura de bitácora y validaste la integridad de evidencias mediante <code>SHA-256</code>.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>No pases al Capítulo 1.2 hasta haber levantado el contenedor aislado, comprobado el enlace exclusivo en <code>127.0.0.1</code> y verificado tu primer manifiesto <code>SHA-256</code>. Toda la práctica de redes que sigue se apoyará directamente sobre este laboratorio.</p></aside>
+<h2 id="cap-1-1-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>NIST Special Publication 800-115: <em>Technical Guide to Information Security Testing and Assessment</em> — https://csrc.nist.gov/publications/detail/sp/800-115/final</li><li>PTES (Penetration Testing Execution Standard): <em>Technical Guidelines</em> — http://www.pentest-standard.org/index.php/PTES_Technical_Guidelines</li><li>RFC 1918: <em>Address Allocation for Private Internets</em> — https://datatracker.ietf.org/doc/html/rfc1918</li><li>OWASP Web Security Testing Guide (WSTG v4.2): <em>Introduction and Testing Framework</em> — https://owasp.org/www-project-web-security-testing-guide/</li><li>Docker Engine Documentation: <em>Networking overview and internal networks</em> — https://docs.docker.com/engine/network/</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 13 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Learning Process</td><td>Fundamental</td><td>General</td><td>20</td></tr><tr><td>Intro to Academy</td><td>Fundamental</td><td>General</td><td>8</td></tr><tr><td>Getting Started</td><td>Fundamental</td><td>Offensive</td><td>23</td></tr><tr><td>Setting Up</td><td>Fundamental</td><td>General</td><td>22</td></tr><tr><td>MacOS Fundamentals</td><td>Fundamental</td><td>General</td><td>11</td></tr><tr><td>Intro to Academy's Purple Modules</td><td>Medium</td><td>Purple</td><td>14</td></tr><tr><td>Introduction to Information Security</td><td>Fundamental</td><td>General</td><td>24</td></tr><tr><td>Job Hunting</td><td>Medium</td><td>Defensive</td><td>6</td></tr><tr><td>Introduction to Security+</td><td>Easy</td><td>General</td><td>4</td></tr><tr><td>Information Security Basics</td><td>Medium</td><td>General</td><td>8</td></tr><tr><td>Computer Crime and Legal Issues</td><td>Easy</td><td>General</td><td>7</td></tr><tr><td>New Generation IT Infrastructures</td><td>Easy</td><td>General</td><td>6</td></tr><tr><td>Good Vibes</td><td>Medium</td><td>Purple</td><td>22</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="index.html">← Mapa del curso</a></div><div><a href="02-redes-tcp-ip.html">1.2 Redes TCP/IP, modelo OSI, subredes y análisis de paquetes →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

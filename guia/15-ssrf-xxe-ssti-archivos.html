@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 2.6 · LFI/Path Traversal, File Upload, SSRF, XXE, SSTI y deserialización · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Identificar y parchear fallos de archivos, SSRF y plantillas en lab local">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo2.html">Tomo II</a><span aria-hidden="true">›</span><span>Cap. 2.6</span></nav>
+<h1 id="cap-2-6">Capítulo 2.6 · LFI/Path Traversal, File Upload, SSRF, XXE, SSTI y deserialización</h1>
+<div class="meta-nivel"><span class="nivel-badge intermedio">Intermedio</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo II · Ruta 2 · Intermedio</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="16-apis-graphql-web-avanzado.html">2.7 Seguridad de APIs (REST/GraphQL), HTTP avanzado y revisión Whitebox</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender el funcionamiento interno y la remediación arquitectónica de seis familias críticas de vulnerabilidades del lado del servidor: salto de directorios (<em>Path Traversal / LFI</em>), carga insegura de archivos (<em>Unrestricted File Upload</em>), falsificación de peticiones del lado del servidor (<em>SSRF</em>), entidades externas XML (<em>XXE</em>), inyección de plantillas en servidor (<em>SSTI</em>) y deserialización insegura de objetos.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 1.8 (HTTP), Capítulo 2.3 (Inyecciones en servidor) y Capítulo 2.5 (Control de acceso). <strong>Duración sugerida:</strong> 8 a 10 horas.</p>
+<h2 id="cap-2-6-1-path-traversal-y-local-file-inclusion-lfi">1. Path Traversal y Local File Inclusion (LFI)</h2>
+<p>Muchas aplicaciones web necesitan leer o servir archivos almacenados en el disco del servidor (por ejemplo, descargar un comprobante en PDF o cargar una plantilla regional). El fallo de <strong>Path Traversal</strong> ocurre cuando la aplicación toma un nombre de archivo enviado por el usuario y lo concatena directamente en una ruta del sistema de archivos (<code>os.path.join("/var/app/reportes", nombre_usuario)</code>).</p>
+<p>Si la entrada contiene secuencias de navegación hacia el directorio padre (<code>../</code> en Linux o <code>..\</code> en Windows) o una ruta absoluta (<code>/etc/passwd</code>), el sistema operativo resuelve la ruta final <strong>fuera del directorio previsto</strong>. Cuando además el lenguaje del backend (como PHP con <code>include</code> o <code>require</code>) evalúa el archivo leído como código ejecutable, el fallo se denomina <strong>Local File Inclusion (LFI)</strong>.</p>
+<h3 id="cap-2-6-por-que-borrar-con-replace-no-funciona">Por qué borrar <code>"../"</code> con <code>replace()</code> no funciona</h3>
+<p>Intentar limpiar la cadena haciendo <code>nombre.replace("../", "")</code> falla cuando el usuario envía secuencias anidadas o cuando <code>os.path.join("/base", "/etc/hosts")</code> descarta directamente <code>/base</code> porque el segundo argumento empieza con <code>/</code>.</p>
+<h3 id="cap-2-6-solucion-canonica-en-ingenieria-de-software-realpath-verificacion-de-prefijo">Solución canónica en ingeniería de software (<code>realpath</code> + verificación de prefijo)</h3>
+<p>La forma segura y definitiva en cualquier lenguaje consta de tres pasos:</p>
+<ol><li>Quedarse únicamente con el nombre base del archivo (<code>Path(entrada).name</code>) o mejor aún, usar un identificador interno en base de datos en lugar de recibir nombres de archivo desde el cliente.</li><li>Resolver la ruta canónica real en disco (eliminando enlaces simbólicos y referencias relativas) con <code>Path.resolve()</code>.</li><li>Comprobar matemáticamente que la ruta resuelta esté contenida dentro del directorio base autorizado usando <code>.is_relative_to()</code>.</li></ol>
+<pre><code class="lenguaje-python">from pathlib import Path
+
+DIRECTORIO_REPORTES = Path("/var/app/reportes").resolve()
+
+def obtener_ruta_segura(nombre_solicitado: str) -&gt; Path:
+    # 1. Extraer solo el nombre base y construir ruta candidata
+    candidata = (DIRECTORIO_REPORTES / Path(nombre_solicitado).name).resolve()
+    # 2. Verificar que la ruta final resuelta permanezca dentro del directorio base
+    if not candidata.is_relative_to(DIRECTORIO_REPORTES):
+        raise PermissionError("Ruta fuera del directorio autorizado")
+    return candidata</code></pre>
+<h2 id="cap-2-6-2-carga-segura-de-archivos-file-upload-hardening">2. Carga segura de archivos (File Upload Hardening)</h2>
+<p>Permitir que los usuarios suban archivos (avatares, documentos PDF, planillas CSV) introduce riesgos graves si el servidor confía en los metadatos declarados por el navegador:</p>
+<ul><li>La cabecera <code>Content-Type: image/png</code> del bloque <code>multipart/form-data</code> la escribe el cliente y puede falsificarse trivialmente.</li><li>Si el archivo se guarda con el nombre original enviado por el usuario dentro de una carpeta pública del servidor web (<em>webroot</em>) donde el servidor ejecuta scripts (<code>.php</code>, <code>.aspx</code>, <code>.jsp</code>) o sirve <code>.html</code>/<code>.svg</code> (que pueden contener <code>&lt;script&gt;</code> activos en el mismo origen), la carga de archivos se transforma en ejecución de código en servidor o XSS almacenado.</li></ul>
+<h3 id="cap-2-6-lista-de-control-arquitectonica-para-subida-de-archivos-owasp-file-upload-cheat-sheet">Lista de control arquitectónica para subida de archivos (OWASP File Upload Cheat Sheet)</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Control defensivo</th>
+<th>Cómo implementarlo</th>
+<th>Qué riesgo elimina</th>
+</tr></thead><tbody>
+<tr><td><strong>Renombrado con UUID aleatorio</strong></td><td>Generar el nombre en el servidor (<code>f"{uuid.uuid4()}.pdf"</code>), descartando el <code>filename</code> del cliente.</td><td>Elimina Path Traversal, sobreescritura de archivos y dobles extensiones (<code>archivo.php.jpg</code>).</td></tr>
+<tr><td><strong>Validación de contenido real (<em>Magic Bytes</em>)</strong></td><td>Inspeccionar los primeros bytes del archivo (<code>%PDF-</code>, <code>\x89PNG\r\n\x1a\n</code>) o recodificar la imagen con una biblioteca como Pillow.</td><td>Impide disfrazar un script o HTML bajo una cabecera <code>Content-Type: image/png</code>.</td></tr>
+<tr><td><strong>Almacenamiento fuera del <em>webroot</strong></em></td><td>Guardar los archivos en un directorio sin permisos de ejecución (o en almacenamiento de objetos separado) fuera de la carpeta pública del servidor web.</td><td>Impide que el servidor web interprete el archivo subido como un script ejecutable.</td></tr>
+<tr><td><strong>Descarga con cabeceras de aislamiento</strong></td><td>Servir descargas desde un dominio estático separado (<code>cdn-archivos.ejemplo.local</code>) con <code>Content-Disposition: attachment</code> y <code>X-Content-Type-Options: nosniff</code>.</td><td>Impide que un SVG o HTML subido ejecute JavaScript dentro del origen principal de la aplicación.</td></tr>
+</tbody></table></div>
+<h2 id="cap-2-6-3-server-side-request-forgery-ssrf">3. Server-Side Request Forgery (SSRF)</h2>
+<p><strong>SSRF (OWASP Top 10 A10:2021)</strong> ocurre cuando una funcionalidad de la aplicación (por ejemplo "Importar imagen desde URL", "Previsualizar enlace" o "Probar webhook") acepta una URL proporcionada por el usuario y <strong>el propio servidor backend realiza la petición de red hacia ese destino</strong>.</p>
+<p>¿Por qué es tan crítico aunque el servidor no muestre la respuesta completa? Porque el servidor backend se encuentra <strong>dentro de la red interna</strong>:</p>
+<ul><li>Puede conectarse a servicios que escuchan exclusivamente en loopback (<code>http://127.0.0.1:8080</code>, bases de datos locales, paneles de administración internos).</li><li>Puede alcanzar otros servidores de la subred privada (<code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>) que están protegidos desde internet por el firewall perimetral.</li></ul>
+<pre><code class="lenguaje-text">[Cliente Externo] ──(URL: http://127.0.0.1:9000/admin)──► [Servidor Web Público]
+                                                                  │
+                                           (Petición originada desde 127.0.0.1)
+                                                                  ▼
+                                                   [Servicio Interno en Loopback]</code></pre>
+<h3 id="cap-2-6-como-mitigar-ssrf-de-forma-robusta">Cómo mitigar SSRF de forma robusta</h3>
+<p>Validar la URL solo con una expresión regular no basta (porque un nombre de dominio externo puede resolver en DNS a <code>127.0.0.1</code> o redirigir con un código <code>302 Found</code> hacia una IP interna). La defensa completa requiere:</p>
+<ol><li><strong>Lista blanca de dominios y esquemas:</strong> permitir únicamente <code>https://</code> (y <code>http://</code> si es indispensable) hacia una lista cerrada de dominios confiables si el negocio lo permite.</li><li><strong>Resolución DNS y bloqueo de rangos privados antes de conectar:</strong> resolver la dirección IP del host destino y verificar con el módulo <code>ipaddress</code> que sea una IP global pública (<code>ip.is_global</code>), rechazando cualquier dirección loopback (<code>127.0.0.0/8</code>, <code>::1</code>), privada (RFC 1918) o de enlace local (<code>169.254.0.0/16</code>).</li><li><strong>Desactivar redirecciones HTTP automáticas:</strong> configurar el cliente HTTP con <code>allow_redirects=False</code> para que un servidor externo no pueda redirigir al backend hacia una IP interna en el segundo salto.</li></ol>
+<pre><code class="lenguaje-python">import ipaddress
+import socket
+from urllib.parse import urlparse
+
+def validar_url_anti_ssrf(url: str) -&gt; str:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Esquema o host inválido")
+    # Resolver todas las IPs asociadas al hostname y bloquear cualquier IP no global
+    for info in socket.getaddrinfo(parsed.hostname, None):
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global or ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise PermissionError(f"Destino interno bloqueado por política anti-SSRF: {ip}")
+    return url</code></pre>
+<h2 id="cap-2-6-4-xml-external-entities-xxe">4. XML External Entities (XXE)</h2>
+<p>El estándar XML permite definir una <strong>Declaración de Tipo de Documento (<code>&lt;!DOCTYPE ...&gt;</code>)</strong> con entidades (<code>&lt;!ENTITY nombre SYSTEM "file:///..."&gt;</code> o <code>"http://..."</code>). Cuando un parser XML antiguo o mal configurado procesa un documento XML enviado por el usuario con la resolución de entidades externas habilitada, el parser reemplaza la entidad por el contenido del archivo local o realiza una petición de red (SSRF).</p>
+<h3 id="cap-2-6-mitigacion-en-python-y-otros-entornos">Mitigación en Python y otros entornos</h3>
+<ul><li><strong>En Python:</strong> la biblioteca estándar <code>xml.etree.ElementTree</code> es segura frente a entidades externas de archivos por defecto en versiones modernas, pero para proteger también frente a expansiones exponenciales de entidades en memoria (<em>Billion Laughs / XML Bomb</em>), utilizá siempre el paquete <strong><code>defusedxml</code></strong> o desactivá explícitamente <code>resolve_entities=False</code> y <code>no_network=True</code> en <code>lxml.etree.XMLParser(resolve_entities=False, no_network=True, dtd_validation=False)</code>.</li><li><strong>En Java / .NET:</strong> deshabilitar por completo las declaraciones <code>DOCTYPE</code> (<code>http://apache.org/xml/features/disallow-doctype-decl</code> = <code>true</code>).</li></ul>
+<h2 id="cap-2-6-5-server-side-template-injection-ssti-y-deserializacion-insegura">5. Server-Side Template Injection (SSTI) y Deserialización Insegura</h2>
+<h3 id="cap-2-6-ssti-nunca-compilar-datos-del-usuario-como-plantilla">SSTI: nunca compilar datos del usuario como plantilla</h3>
+<p>Los motores de plantillas del lado del servidor (como <strong>Jinja2</strong> en Python, <strong>Twig</strong> en PHP o <strong>Freemarker</strong> en Java) son muy seguros cuando se usan correctamente: la plantilla es un archivo estático escrito por el desarrollador y los datos del usuario se pasan como <strong>variables de contexto</strong>.</p>
+<p>El fallo <strong>SSTI</strong> ocurre cuando el desarrollador concatena la entrada del usuario <strong>dentro de la cadena de la plantilla antes de renderizarla</strong>:</p>
+<pre><code class="lenguaje-python">from flask import render_template_string
+
+# PATRÓN VULNERABLE A SSTI (PROHIBIDO):
+# La entrada del usuario forma parte del código fuente de la plantilla Jinja2.
+# Si el usuario envía expresiones entre {{ ... }}, Jinja2 las evalúa en el servidor.
+def render_inseguro(nombre_usuario):
+    return render_template_string(f"&lt;h1&gt;Hola, {nombre_usuario}&lt;/h1&gt;")
+
+# PATRÓN SEGURO:
+# La cadena de plantilla es fija y estática; el dato viaja como variable de contexto.
+def render_seguro(nombre_usuario):
+    return render_template_string("&lt;h1&gt;Hola, {{ nombre }}&lt;/h1&gt;", nombre=nombre_usuario)</code></pre>
+<h3 id="cap-2-6-deserializacion-insegura-de-objetos">Deserialización insegura de objetos</h3>
+<p>La <strong>serialización</strong> convierte un objeto en memoria en una secuencia de bytes o texto para guardarlo o transmitirlo; la <strong>deserialización</strong> reconstruye el objeto original. Formatos nativos de objetos de lenguaje como <strong><code>pickle</code> y <code>yaml.load()</code> en Python</strong>, <code>ObjectInputStream</code> en Java, <code>BinaryFormatter</code> en .NET o <code>unserialize()</code> en PHP pueden instanciar clases arbitrarias y ejecutar métodos especiales (<code>__reduce__</code> en Python, <code>readObject</code> en Java) durante el mismo acto de deserializar.</p>
+<ul><li><strong>Regla estricta de ingeniería:</strong> <strong>jamás deserialices datos provenientes de un cliente o red no confiable con <code>pickle.loads()</code> ni con <code>yaml.load()</code> sin <code>SafeLoader</code></strong>, ni uses deserializadores nativos inseguros de PHP (<code>unserialize()</code>, cadenas <code>phar://</code> en LFI) o .NET (<code>BinaryFormatter</code>, <code>ObjectDataProvider</code>, <code>NetDataContractSerializer</code>).</li><li><strong>Alternativa segura:</strong> usar formatos de datos puros sin ejecución de constructores arbitrarios (<strong>JSON</strong> con <code>json.loads()</code> o <code>yaml.safe_load()</code>) validados contra un esquema tipado (como <code>Pydantic</code> o <code>System.Text.Json</code>).</li></ul>
+<h3 id="cap-2-6-wrappers-php-en-lfi-y-casos-criticos-recientes-para-soc-y-defensa-log4shell-spring4shell-text4shell">Wrappers PHP en LFI y casos críticos recientes para SOC y Defensa (Log4Shell, Spring4Shell, Text4Shell)</h3>
+<ul><li><strong>LFI con wrappers y <em>Log Poisoning</em>:</strong> en aplicaciones heredadas PHP, la inclusión insegura de archivos combinada con wrappers (<code>php://filter/convert.base64-encode/resource=...</code>) o con escritura controlada en logs locales (<code>User-Agent</code> registrado en <code>access.log</code>) permite leer código fuente o elevar LFI a ejecución de código. Por ello la remediación obliga a usar mapas de rutas fijas (<code>switch</code>/diccionario) y configurar <code>allow_url_include = Off</code>.</li><li><strong>Log4Shell (<code>CVE-2021-44228</code>), Spring4Shell (<code>CVE-2022-22965</code>) y Text4Shell (<code>CVE-2022-42889</code>):</strong> tres fallos emblemáticos del ecosistema Java donde cadenas no confiables (en cabeceras HTTP como <code>User-Agent</code>, parámetros de enlace de propiedades en Spring MVC o <code>StringSubstitutor</code> en Apache Commons Text) dispararon evaluaciones JNDI/LDAP remotas o alteración de propiedades del contenedor Tomcat. <strong>Respuesta defensiva:</strong> actualizar las bibliotecas críticas, deshabilitar resoluciones JNDI remotas (<code>log4j2.formatMsgNoLookups=true</code> en mitigación temporal + parche definitivo) y monitorear en el SIEM/WAF peticiones entrantes con marcadores <code>jndi:</code> o conexiones salientes anómalas originadas por el proceso Java hacia puertos LDAP/RMI externos.</li></ul>
+<h2 id="cap-2-6-6-ejemplo-paso-a-paso-verificacion-de-controles-anti-traversal-y-anti-ssrf-en-python">6. Ejemplo paso a paso: verificación de controles anti-Traversal y anti-SSRF en Python</h2>
+<p>Ejecutá en tu entorno local la siguiente prueba de unidad para verificar cómo responden nuestras funciones defensivas <code>obtener_ruta_segura()</code> y <code>validar_url_anti_ssrf()</code>:</p>
+<pre><code class="lenguaje-python"># Prueba local de contención de rutas y bloqueo de destinos internos
+from pathlib import Path
+
+base = Path("./reportes_lab").resolve()
+base.mkdir(exist_ok=True)
+
+for entrada in ["informe_q1.pdf", "../../etc/passwd", "/etc/hosts"]:
+    ruta = (base / Path(entrada).name).resolve()
+    dentro = ruta.is_relative_to(base)
+    print(f"Entrada: {entrada:20s} -&gt; Resuelta: {ruta.name:16s} | Dentro de base: {dentro}")</code></pre>
+<p>Salida verificada:</p>
+<pre><code class="lenguaje-text">Entrada: informe_q1.pdf       -&gt; Resuelta: informe_q1.pdf   | Dentro de base: True
+Entrada: ../../etc/passwd     -&gt; Resuelta: passwd           | Dentro de base: True
+Entrada: /etc/hosts           -&gt; Resuelta: hosts            | Dentro de base: True</code></pre>
+<p>Al extraer primero <code>Path(entrada).name</code> y comprobar <code>is_relative_to(base)</code>, cualquier intento de escapar hacia directorios superiores queda confinado estrictamente dentro de <code>./reportes_lab</code>.</p>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><ol><li><strong>Confinamiento de archivos (<code>Path.resolve()</code> + <code>.is_relative_to()</code>):</strong> preferí siempre referenciar archivos por un ID numérico o UUID en base de datos en lugar de recibir rutas o nombres de archivo en parámetros HTTP.</li><li><strong>Aislamiento de red de salida (<em>Egress Filtering</em>):</strong> un servidor web que no necesita iniciar conexiones hacia otros hosts internos debe tener restringido el tráfico saliente a nivel de firewall/red de contenedores, además de validar las URLs con <code>ipaddress.is_global</code>.</li><li><strong>Formatos de intercambio de datos seguros:</strong> estandarizá <code>json.loads()</code> y <code>yaml.safe_load()</code>, prohibiendo <code>pickle</code> para cualquier dato que cruce una frontera de confianza.</li></ol></aside>
+<h2 id="cap-2-6-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Creá un script <code>test_defensas_servidor.py</code> en tu carpeta de trabajo que implemente las dos funciones defensivas de este capítulo (<code>obtener_ruta_segura</code> y <code>validar_url_anti_ssrf</code>).</li><li>Agregá casos de prueba automatizados con <code>assert</code> que verifiquen que <code>validar_url_anti_ssrf</code> rechaza <code>http://127.0.0.1:5050</code>, <code>http://localhost:8080</code>, <code>http://192.168.1.1</code> y <code>file:///etc/passwd</code>, aceptando únicamente URLs <code>https://</code> hacia direcciones IP públicas globales.</li><li>Verificá en el mismo script la diferencia entre pasar <code>nombre="{{ 7*7 }}"</code> como variable de contexto en Jinja2 (<code>render_template_string("Hola {{ nombre }}", nombre=...)</code>) frente a interpolarlo en la plantilla: comprobá que en el modo seguro la salida es literalmente <code>Hola {{ 7*7 }}</code> (o escapado) sin evaluar nunca la multiplicación.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>El archivo <code>test_defensas_servidor.py</code> con las tres pruebas unitarias (Path Traversal, Anti-SSRF y Plantilla Segura Jinja2) ejecutándose sin errores en tu consola local.</p></aside>
+<h2 id="cap-2-6-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué eliminar la subcadena <code>"../"</code> con <code>replace("../", "")</code> no es un control suficiente contra Path Traversal?</strong> Porque pueden emplearse variaciones como barras invertidas en Windows (<code>..\</code>), secuencias anidadas (<code>....//</code> que al quitar <code>../</code> reconstruyen <code>../</code>) o rutas absolutas (<code>/etc/passwd</code>). La solución correcta es tomar solo el nombre base o un ID en base de datos, resolver la ruta canónica real con <code>Path.resolve()</code> y verificar que esté contenida en el directorio base con <code>.is_relative_to()</code>.</p>
+<p><strong>2. ¿Por qué no basta con verificar la cabecera <code>Content-Type: image/png</code> ni la extensión <code>.png</code> al recibir un archivo subido por un usuario?</strong> Porque tanto la cabecera <code>Content-Type</code> de la petición multipart como el nombre del archivo son cadenas de texto controladas por el cliente. Es obligatorio validar los <em>magic bytes</em> o decodificar la imagen en el servidor, renombrar el archivo con un UUID generado internamente y almacenarlo fuera del directorio de ejecución del servidor web.</p>
+<p><strong>3. ¿Qué riesgo específico introduce una vulnerabilidad SSRF aunque el servidor web no devuelva el cuerpo de la respuesta HTTP al cliente?</strong> Aunque sea un SSRF ciego (<em>Blind SSRF</em>), el servidor backend sigue enviando peticiones de red desde adentro del perímetro interno, lo que permite interactuar con servicios que escuchan en <code>127.0.0.1</code> o en subredes privadas RFC 1918 que estaban bloqueados desde internet por el firewall perimetral.</p>
+<p><strong>4. ¿Cuál es la causa exacta de una vulnerabilidad de Server-Side Template Injection (SSTI) en motores como Jinja2 o Twig?</strong> Ocurre cuando los datos enviados por el usuario se concatenan directamente dentro de la cadena de código fuente de la plantilla antes de compilarla, en lugar de pasarlos como variables dentro del diccionario de contexto de una plantilla estática.</p>
+<p><strong>5. ¿Por qué es peligroso utilizar <code>pickle.loads()</code> o <code>yaml.load()</code> sobre datos enviados por un cliente en una cookie o petición HTTP?</strong> Porque <code>pickle</code> y el cargador completo de PyYAML permiten instanciar clases arbitrarias de Python e invocar métodos como <code>__reduce__</code> durante el proceso mismo de deserialización, permitiendo ejecutar código arbitrario en el servidor. Para datos externos debe usarse siempre <code>json.loads()</code> o <code>yaml.safe_load()</code>.</p>
+<h2 id="cap-2-6-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Implementar contención canónica de rutas con <code>Path.resolve()</code> e <code>is_relative_to()</code>.</li><li>Diseñar un flujo de subida de archivos con UUID, validación de contenido y almacenamiento fuera de webroot.</li><li>Bloquear destinos internos y redirecciones en clientes HTTP del backend para prevenir SSRF.</li><li>Distinguir entre pasar variables de contexto a una plantilla y concatenar cadenas en la plantilla.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con estas seis familias de fallos de servidor dominadas, estamos listos para abordar la seguridad de arquitecturas modernas de APIs (REST y GraphQL), anomalías del protocolo HTTP y auditoría de código fuente: avanzá al <strong>Capítulo 2.7 · Seguridad de APIs (REST/GraphQL), HTTP avanzado y revisión Whitebox</strong>.</p></aside>
+<h2 id="cap-2-6-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>OWASP Top 10 (2021) — A08:2021 Software and Data Integrity Failures &amp; A10:2021 Server-Side Request Forgery (SSRF).</strong></li><li><strong>OWASP File Upload Cheat Sheet, Server-Side Request Forgery Prevention Cheat Sheet, XML External Entity (XXE) Prevention Cheat Sheet &amp; Deserialization Cheat Sheet.</strong></li><li><strong>Documentación oficial de Python (<code>pathlib.Path.is_relative_to</code>, <code>ipaddress</code> y <code>defusedxml</code>).</strong></li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 10 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>File Inclusion</td><td>Medium</td><td>Offensive</td><td>11</td></tr><tr><td>Web Attacks</td><td>Medium</td><td>Offensive</td><td>18</td></tr><tr><td>File Upload Attacks</td><td>Medium</td><td>Offensive</td><td>11</td></tr><tr><td>Server-side Attacks</td><td>Medium</td><td>Offensive</td><td>19</td></tr><tr><td>Introduction to Deserialization Attacks</td><td>Hard</td><td>Offensive</td><td>15</td></tr><tr><td>Advanced Deserialization Attacks</td><td>Hard</td><td>Offensive</td><td>13</td></tr><tr><td>Detecting Log4Shell Attack</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>Text4Shell</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Detecting Insecure Deserialization Vulnerabilities</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>Spring4Shell</td><td>Medium</td><td>Defensive</td><td>8</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="14-autenticacion-sesiones-autorizacion.html">← 2.5 Autenticación, sesiones, JWT, OAuth y control de acceso (IDOR/BOLA)</a></div><div><a href="16-apis-graphql-web-avanzado.html">2.7 Seguridad de APIs (REST/GraphQL), HTTP avanzado y revisión Whitebox →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

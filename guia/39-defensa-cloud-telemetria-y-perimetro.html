@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 5.6 · Defensa Cloud: CloudTrail, CloudWatch, GCP Logging, GuardDuty y WAF/Shield · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Correlacionar eventos IAM en CloudTrail/GCP Logging y configurar reglas defensivas en GuardDuty, WAF y Cloud Armor">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo5.html">Tomo V</a><span aria-hidden="true">›</span><span>Cap. 5.6</span></nav>
+<h1 id="cap-5-6">Capítulo 5.6 · Defensa Cloud: CloudTrail, CloudWatch, GCP Logging, GuardDuty y WAF/Shield</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Cloud y DevSecOps</span> <span class="nivel-badge defensivo">Defensivo</span> <span><strong>Tomo V · Ruta 5 · Cloud y DevSecOps</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="40-forense-cloud-y-respuesta-incidentes.html">5.7 Forense Cloud y respuesta a incidentes en AWS, Azure y GCP</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>En este capítulo vas a dominar la arquitectura de telemetría, auditoría y defensa perimetral en entornos multicloud (AWS, GCP y Azure). Vas a aprender a configurar registros inmutables en AWS CloudTrail, consultar y alertar con AWS CloudWatch, interpretar registros de auditoría en GCP Cloud Logging y Azure Monitor, analizar hallazgos de AWS GuardDuty y desplegar controles perimetrales de borde y mitigación DDoS mediante AWS WAF, AWS Shield y GCP Cloud Armor.</p></aside>
+<h2 id="cap-5-6-telemetria-y-auditoria-de-plano-de-control-y-datos-en-la-nube">Telemetría y auditoría de plano de control y datos en la nube</h2>
+<p>Sin visibilidad centralizada, un incidente en la nube pasa desapercibido hasta que genera impacto operativo o financiero. El primer pilar defensivo consiste en distinguir entre el registro del <strong>plano de control</strong> (quién creó un usuario, cambió una política IAM o expuso un bucket) y el del <strong>plano de datos</strong> (quién leyó o descargó un objeto específico o invocó una función).</p>
+<h3 id="cap-5-6-aws-cloudtrail-registro-multi-region-e-integridad-criptografica">AWS CloudTrail: registro multi-región e integridad criptográfica</h3>
+<p><strong>AWS CloudTrail</strong> registra las llamadas a las APIs de AWS realizadas desde la consola, CLI, SDKs o servicios internos. De forma predeterminada, el historial de eventos conserva 90 días de eventos de administración básicos, pero para investigación forense y monitoreo continuo debés crear un <strong>Trail multi-región</strong> que almacene los logs en un bucket S3 centralizado (idealmente en una cuenta dedicada de seguridad con Object Lock).</p>
+<p>Es fundamental diferenciar los dos tipos principales de eventos en CloudTrail:</p>
+<ul><li><strong>Management Events (Eventos de administración):</strong> Operaciones sobre el plano de control (<code>CreateUser</code>, <code>AttachRolePolicy</code>, <code>RunInstances</code>, <code>StopLogging</code>). Deben habilitarse tanto para lectura (<code>ReadOnly</code>) como para escritura (<code>WriteOnly</code>) en todas las regiones.</li><li><strong>Data Events (Eventos de datos):</strong> Operaciones de alto volumen sobre recursos concretos, como <code>GetObject</code> / <code>PutObject</code> en S3 o <code>Invoke</code> en AWS Lambda. No vienen habilitados por defecto por su costo y volumen; conviene activarlos de forma selectiva sobre buckets con datos sensibles, secretos o artefactos críticos.</li></ul>
+<p>Para garantizar que ningún atacante con acceso administrativo posterior alteró los registros almacenados en S3, CloudTrail ofrece <strong>validación de integridad de archivos de registro</strong> (<code>LogFileValidationEnabled</code>). Cada hora, CloudTrail genera un archivo <em>digest</em> que contiene hashes <strong>SHA-256</strong> de cada archivo de log entregado y firma digitalmente el digest con RSA.</p>
+<pre><code class="lenguaje-bash"># Crear un Trail multi-región con validación SHA-256 y cifrado KMS
+aws cloudtrail create-trail \
+  --name org-audit-trail \
+  --s3-bucket-name sec-central-cloudtrail-logs \
+  --is-multi-region-trail \
+  --enable-log-file-validation \
+  --kms-key-id arn:aws:kms:us-east-1:111122223333:key/abcd-1234
+
+# Verificar criptográficamente la integridad de los logs en una ventana temporal
+aws cloudtrail validate-logs \
+  --trail-arn arn:aws:cloudtrail:us-east-1:111122223333:trail/org-audit-trail \
+  --start-time 2026-05-01T00:00:00Z \
+  --end-time 2026-05-02T00:00:00Z</code></pre>
+<p>Un evento crudo de CloudTrail en JSON expone campos clave para el análisis azul: <code>eventTime</code>, <code>eventSource</code>, <code>eventName</code>, <code>sourceIPAddress</code>, <code>userAgent</code>, <code>userIdentity</code> (tipo de entidad, ARN, <code>accessKeyId</code>) y <code>errorCode</code> (<code>AccessDenied</code> o <code>UnauthorizedOperation</code> suelen delatar enumeración previa). Podés filtrar patrones sospechosos directamente sobre archivos JSON descargados con <code>jq</code> o mediante filtros de suscripción:</p>
+<pre><code class="lenguaje-json">{
+  "eventVersion": "1.09",
+  "userIdentity": {
+    "type": "AssumedRole",
+    "principalId": "AROAXAMPLE123456:ci-session",
+    "arn": "arn:aws:sts::111122223333:assumed-role/DeployRole/ci-session"
+  },
+  "eventTime": "2026-05-01T14:22:10Z",
+  "eventSource": "iam.amazonaws.com",
+  "eventName": "CreateAccessKey",
+  "awsRegion": "us-east-1",
+  "sourceIPAddress": "198.51.100.44",
+  "requestParameters": {
+    "userName": "backup-service"
+  }
+}</code></pre>
+<h3 id="cap-5-6-aws-cloudwatch-metric-filters-logs-insights-y-alarmas">AWS CloudWatch: Metric Filters, Logs Insights y Alarmas</h3>
+<p>Integrar CloudTrail con <strong>Amazon CloudWatch Logs</strong> transforma los registros estáticos en detección casi en tiempo real. El flujo defensivo sigue tres piezas: un <strong>Metric Filter</strong> convierte coincidencias JSON en métricas numéricas de CloudWatch, una <strong>CloudWatch Alarm</strong> evalúa umbrales sobre esa métrica y dispara notificaciones vía Amazon SNS o respuestas automatizadas.</p>
+<p>Por ejemplo, un Metric Filter para detectar intentos de deshabilitar CloudTrail o borrar llaves KMS utiliza la sintaxis de filtro JSON de CloudWatch, y se enlaza luego a una alarma con notificación por SNS:</p>
+<pre><code class="lenguaje-bash"># Crear Metric Filter sobre el Log Group de CloudTrail
+aws logs put-metric-filter \
+  --log-group-name /aws/cloudtrail/org-audit \
+  --filter-name CloudTrailTamperingFilter \
+  --filter-pattern '{ ($.eventName = "StopLogging") || ($.eventName = "DeleteTrail") || ($.eventName = "ScheduleKeyDeletion") }' \
+  --metric-transformations \
+    metricName=CloudTrailTamperingCount,metricNamespace=Security/Audit,metricValue=1
+
+# Crear Alarma CloudWatch que notifique al superar 1 evento en 5 minutos
+aws cloudwatch put-metric-alarm \
+  --alarm-name Alert-CloudTrail-Tampering \
+  --metric-name CloudTrailTamperingCount \
+  --namespace Security/Audit \
+  --statistic Sum \
+  --period 300 \
+  --threshold 1 \
+  --comparison-operator GreaterThanOrEqualToThreshold \
+  --evaluation-periods 1 \
+  --alarm-actions arn:aws:sns:us-east-1:111122223333:secops-critical-alerts</code></pre>
+<p>Para investigación interactiva sobre millones de eventos, <strong>CloudWatch Logs Insights</strong> provee un lenguaje de consulta veloz. La siguiente consulta busca actividad administrativa fuera de lo común o ráfagas de errores de autorización agrupadas por identidad e IP de origen:</p>
+<pre><code class="lenguaje-sql">fields @timestamp, eventSource, eventName, userIdentity.arn, sourceIPAddress, errorCode
+| filter errorCode in ["AccessDenied", "UnauthorizedOperation", "Client.UnauthorizedOperation"]
+   or eventName in ["ConsoleLogin", "CreateAccessKey", "PutBucketPolicy", "AuthorizeSecurityGroupIngress"]
+| stats count() as totalEvents by userIdentity.arn, sourceIPAddress, eventName, errorCode
+| sort totalEvents desc
+| limit 50</code></pre>
+<h3 id="cap-5-6-gcp-cloud-logging-y-azure-monitor-activity-log">GCP Cloud Logging y Azure Monitor / Activity Log</h3>
+<p>En <strong>Google Cloud Platform (GCP)</strong>, <strong>Cloud Logging</strong> unifica registros de infraestructura, aplicaciones y <strong>Cloud Audit Logs</strong>. Igual que en AWS, debés distinguir las categorías de auditoría:</p>
+<ul><li><strong>Admin Activity (<code>cloudaudit.googleapis.com/activity</code>):</strong> Siempre habilitados y sin costo adicional; registran creación o modificación de recursos, cambios de políticas IAM (<code>SetIamPolicy</code>) y metadatos.</li><li><strong>Data Access (<code>cloudaudit.googleapis.com/data_access</code>):</strong> Deshabilitados por defecto (salvo BigQuery); registran lecturas de configuración (<code>ADMIN_READ</code>), lectura de datos (<code>DATA_READ</code>) y escritura de datos (<code>DATA_WRITE</code>) en Cloud Storage, Secret Manager o KMS. Deben activarse explícitamente en proyectos productivos críticos.</li><li><strong>System Event y Policy Denied:</strong> Registran acciones ejecutadas por sistemas internos de Google y denegaciones por controles como VPC Service Controls.</li></ul>
+<p>Para investigar cambios de permisos IAM o descargas sensibles en GCP usando <strong>Logging Query Language (LQL)</strong> desde la consola o <code>gcloud logging read</code>:</p>
+<pre><code class="lenguaje-text">logName:"cloudaudit.googleapis.com"
+AND protoPayload.serviceName=("iam.googleapis.com" OR "storage.googleapis.com")
+AND protoPayload.methodName:("SetIamPolicy" OR "storage.objects.get")
+AND severity&gt;=NOTICE</code></pre>
+<p>Para retención a largo plazo e inmutabilidad, enrutá estos logs mediante un <strong>Log Sink</strong> agregado a nivel de Organización hacia un bucket de Cloud Storage bloqueado con <em>Bucket Lock</em> o hacia BigQuery para análisis SQL.</p>
+<p>En <strong>Microsoft Azure</strong>, la arquitectura equivalente se apoya en <strong>Azure Activity Log</strong> (plano de control a nivel de suscripción) y <strong>Diagnostic Settings</strong> en cada recurso (Key Vault, Storage Accounts, Azure AD/Entra ID) enviados hacia un <strong>Azure Monitor Log Analytics Workspace</strong>, donde las consultas se escriben en KQL (<em>Kusto Query Language</em>):</p>
+<pre><code class="lenguaje-kusto">AzureActivity
+| where TimeGenerated &gt; ago(24h)
+| where OperationNameValue has_any ("MICROSOFT.AUTHORIZATION/ROLEASSIGNMENTS/WRITE", "MICROSOFT.KEYVAULT/VAULTS/ACCESSPOLICIES/WRITE")
+| project TimeGenerated, Caller, CallerIpAddress, OperationNameValue, ActivityStatusValue, ResourceGroup
+| order by TimeGenerated desc</code></pre>
+<hr>
+<h2 id="cap-5-6-deteccion-gestionada-de-amenazas-con-aws-guardduty">Detección gestionada de amenazas con AWS GuardDuty</h2>
+<p>Configurar reglas manuales para cada anomalía operativa resulta difícil de escalar. <strong>Amazon GuardDuty</strong> es un servicio de detección de amenazas gestionado que ingiere y correlaciona telemetría sin necesidad de instalar agentes en las instancias ni impactar el rendimiento del plano de datos:</p>
+<ul><li><strong>Fuentes base:</strong> CloudTrail Management Events, VPC Flow Logs y registros DNS internos de AWS.</li><li><strong>Planes de protección adicionales:</strong> Protección de S3 (CloudTrail Data Events), EKS Protection (registros de auditoría de Kubernetes y monitoreo en runtime de nodos), Malware Protection para volúmenes EBS y RDS/Lambda Protection.</li></ul>
+<p>Los hallazgos (<em>findings</em>) de GuardDuty se organizan por categoría de recurso afectado y severidad numérica (Baja, Media, Alta):</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Dominio</th>
+<th>Ejemplos de hallazgos representativos</th>
+<th>Señal subyacente analizada</th>
+</tr></thead><tbody>
+<tr><td><strong>IAM</strong></td><td><code>UnauthorizedAccess:IAMUser/InstanceCredentialExfiltration.OutsideAWS</code></td><td>Credenciales temporales de un rol EC2 usadas desde una IP externa a AWS</td></tr>
+<tr><td><strong>EC2</strong></td><td><code>CryptoCurrency:EC2/BitcoinTool.B!DNS</code> o <code>Backdoor:EC2/C&amp;CActivity.B!DNS</code></td><td>Consultas DNS o flujos VPC hacia destinos asociados a infraestructura maliciosa</td></tr>
+<tr><td><strong>S3</strong></td><td><code>Policy:S3/BucketBlockPublicAccessDisabled</code> o acceso anómalo masivo</td><td>Cambio de política pública combinado con patrón de lectura inusual en CloudTrail Data</td></tr>
+<tr><td><strong>Kubernetes (EKS)</strong></td><td><code>PrivilegeEscalation:Kubernetes/PrivilegedContainer</code> o llamadas anómalas a la API</td><td>Auditoría de API server de EKS (<code>pods/exec</code>, ClusterRoleBinding riesgoso)</td></tr>
+</tbody></table></div>
+<aside class="callout aviso"><p class="callout-titulo">Integración operativa con EventBridge</p><p>GuardDuty detecta pero no bloquea por sí mismo. La práctica estándar es conectar GuardDuty mediante <strong>Amazon EventBridge</strong> hacia AWS Security Hub, un canal de Slack/SOAR para alertas de severidad media, y funciones Lambda o playbooks de SSM para contención automatizada en hallazgos de alta confianza (como el uso externo de credenciales de instancia).</p></aside>
+<p>El siguiente patrón de evento en EventBridge captura únicamente hallazgos de GuardDuty con severidad alta o crítica (de <code>7.0</code> en adelante) para enrutarlos de inmediato al equipo de respuesta:</p>
+<pre><code class="lenguaje-json">{
+  "source": ["aws.guardduty"],
+  "detail-type": ["GuardDuty Finding"],
+  "detail": {
+    "severity": [
+      { "numeric": ["&gt;=", 7] }
+    ]
+  }
+}</code></pre>
+<hr>
+<h2 id="cap-5-6-defensa-perimetral-web-y-mitigacion-anti-ddos">Defensa perimetral web y mitigación Anti-DDoS</h2>
+<p>Mientras la telemetría observa lo que ocurre dentro de la cuenta, la capa perimetral filtra el tráfico entrante antes de que alcance tus balanceadores, contenedores o funciones serverless.</p>
+<h3 id="cap-5-6-aws-waf-web-acls-reglas-gestionadas-y-rate-limiting">AWS WAF: Web ACLs, reglas gestionadas y Rate Limiting</h3>
+<p><strong>AWS WAF</strong> opera en capa 7 (HTTP/HTTPS) integrándose con Amazon CloudFront, Application Load Balancer (ALB), API Gateway y AppSync. Su unidad central es la <strong>Web ACL</strong>, compuesta por reglas evaluadas por prioridad que terminan en acciones <code>Allow</code>, <code>Block</code>, <code>Count</code> (indispensable para probar reglas nuevas sin romper tráfico legítimo) o <code>CAPTCHA</code>/<code>Challenge</code>.</p>
+<p>Un diseño robusto combina tres capas dentro de la misma Web ACL:</p>
+<ol><li><strong>Reglas gestionadas (<em>AWS Managed Rules</em>):</strong> Conjuntos mantenidos por AWS como <code>AWSManagedRulesCommonRuleSet</code> (protección base OWASP), <code>AWSManagedRulesKnownBadInputsRuleSet</code> y <code>AWSManagedRulesSQLiRuleSet</code>.</li><li><strong>Control de tasa (<em>Rate-Based Rules</em>):</strong> Limita ráfagas por IP de origen en ventanas de 5 minutos para frenar fuerza bruta sobre <code>/login</code>, abuso de APIs o <em>scraping</em> agresivo.</li><li><strong>Reglas personalizadas:</strong> Bloqueo por geolocalización, inspección de cabeceras obligatorias o filtrado de rutas administrativas expuestas.</li></ol>
+<p>Ejemplo de definición declarativa en JSON de una regla de <em>Rate Limiting</em> en AWS WAF v2 enfocada específicamente sobre el endpoint de autenticación:</p>
+<pre><code class="lenguaje-json">{
+  "Name": "RateLimitLoginEndpoint",
+  "Priority": 10,
+  "Action": {
+    "Block": {
+      "CustomResponse": {
+        "ResponseCode": 429
+      }
+    }
+  },
+  "Statement": {
+    "RateBasedStatement": {
+      "Limit": 150,
+      "EvaluationWindowSec": 300,
+      "AggregateKeyType": "IP",
+      "ScopeDownStatement": {
+        "ByteMatchStatement": {
+          "SearchString": "/api/v1/auth/login",
+          "FieldToMatch": {
+            "UriPath": {}
+          },
+          "TextTransformations": [
+            { "Priority": 0, "Type": "LOWERCASE" }
+          ],
+          "PositionalConstraint": "STARTS_WITH"
+        }
+      }
+    }
+  },
+  "VisibilityConfig": {
+    "SampledRequestsEnabled": true,
+    "CloudWatchMetricsEnabled": true,
+    "MetricName": "RateLimitLoginMetric"
+  }
+}</code></pre>
+<h3 id="cap-5-6-aws-shield-standard-frente-a-advanced">AWS Shield: Standard frente a Advanced</h3>
+<p>Para ataques volumétricos y de agotamiento de estado en capas 3 y 4 (SYN floods, amplificación UDP/DNS, paquetes malformados), AWS ofrece <strong>AWS Shield</strong> en dos niveles:</p>
+<ul><li><strong>AWS Shield Standard:</strong> Activo automáticamente sin costo adicional para todos los clientes. Mitiga ataques comunes de capa de red y transporte en tiempo real, con máxima eficacia cuando el tráfico entra a través de servicios de borde como <strong>Amazon CloudFront</strong> y <strong>Route 53</strong>.</li><li><strong>AWS Shield Advanced:</strong> Servicio pago orientado a cargas críticas. Agrega detección y mitigación mejorada en capas 3, 4 y 7 (incluye uso de AWS WAF sin costo adicional por Web ACL sobre recursos protegidos), acceso directo 24/7 al <strong>Shield Response Team (SRT)</strong>, soporte para mitigación automática de capa de aplicación basada en métricas de salud de Route 53, y <strong>protección financiera (<em>DDoS Cost Protection</em>)</strong> que otorga créditos ante picos de escalado o transferencia causados por un ataque DDoS confirmado.</li></ul>
+<h3 id="cap-5-6-gcp-cloud-armor-politicas-de-borde-reglas-cel-y-adaptive-protection">GCP Cloud Armor: políticas de borde, reglas CEL y Adaptive Protection</h3>
+<p>En Google Cloud, <strong>Cloud Armor</strong> protege aplicaciones expuestas detrás de Cloud Load Balancing (Application Load Balancers globales y regionales) y cachés en el borde. Conviene distinguir dos tipos de políticas:</p>
+<ul><li><strong>Backend Security Policies:</strong> Adjuntas a un <em>Backend Service</em>, evalúan tráfico HTTP(S) completo: firmas preconfiguradas basadas en OWASP ModSecurity Core Rule Set (<code>evaluatePreconfiguredWaf</code>), expresiones <strong>CEL</strong> (<em>Common Expression Language</em>), listas de IP, geolocalización y <em>rate limiting</em> avanzado (<code>throttle</code> o <code>rate-based-ban</code>).</li><li><strong>Edge Security Policies:</strong> Se aplican en la capa de borde sobre servicios de <strong>Cloud CDN</strong> o Media CDN para descartar tráfico no deseado (por ejemplo, restricciones geográficas o listas de bloqueo de IPs) antes incluso de consultar la caché o llegar al origen.</li></ul>
+<p>Además, Cloud Armor ofrece <strong>Adaptive Protection</strong> (en nivel Enterprise/Managed Protection), que entrena modelos de comportamiento sobre el tráfico legítimo de tus backends y genera alertas con firmas sugeridas automáticamente cuando detecta anomalías volumétricas L7.</p>
+<p>Un despliegue práctico mediante <code>gcloud</code> creando una política de seguridad, activando mitigación SQLi/XSS preconfigurada en modo estricto equilibrado, imponiendo bloqueo geográfico con CEL y aplicando <em>rate limiting</em>:</p>
+<pre><code class="lenguaje-bash"># 1. Crear la política de seguridad en Cloud Armor
+gcloud compute security-policies create prod-web-armor-policy \
+  --description "Política WAF y Rate Limit para API de producción"
+
+# 2. Bloquear firmas preconfiguradas de SQLi y XSS (nivel de sensibilidad 1-4)
+gcloud compute security-policies rules create 1000 \
+  --security-policy prod-web-armor-policy \
+  --expression "evaluatePreconfiguredWaf('sqli-v33-stable', {'sensitivity': 2}) || evaluatePreconfiguredWaf('xss-v33-stable', {'sensitivity': 2})" \
+  --action deny-403 \
+  --description "Mitigación OWASP SQLi y XSS"
+
+# 3. Regla CEL personalizada: restringir /admin a rangos corporativos permitidos
+gcloud compute security-policies rules create 1100 \
+  --security-policy prod-web-armor-policy \
+  --expression "request.path.startsWith('/admin') &amp;&amp; !inIpRange(origin.ip, '203.0.113.0/24')" \
+  --action deny-403 \
+  --description "Proteger ruta administrativa por IP"
+
+# 4. Rate limiting: máximo 100 req/min por IP; excedente recibe HTTP 429
+gcloud compute security-policies rules create 2000 \
+  --security-policy prod-web-armor-policy \
+  --src-ip-ranges "*" \
+  --action throttle \
+  --rate-limit-threshold-count 100 \
+  --rate-limit-threshold-interval-sec 60 \
+  --conform-action allow \
+  --exceed-action deny-429 \
+  --enforce-on-key IP \
+  --description "Throttling global por IP"
+
+# 5. Adjuntar la política al backend service del Load Balancer
+gcloud compute backend-services update prod-api-backend \
+  --global \
+  --security-policy prod-web-armor-policy</code></pre>
+<aside class="callout peligro"><p class="callout-titulo">Modo evaluación antes de bloquear en producción</p><p>Tanto en AWS WAF (<code>Count</code>) como en GCP Cloud Armor (<code>--preview</code>), activá siempre las reglas nuevas en modo auditoría durante 24 a 72 horas sobre tráfico real antes de pasarlas a <code>Block</code> o <code>deny-403</code>. Una regla SQLi o XSS con sensibilidad alta sin ajuste previo suele generar falsos positivos sobre payloads JSON o campos de texto enriquecido legítimos.</p></aside>
+<hr>
+<h2 id="cap-5-6-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>Vas a diseñar e implementar un paquete declarativo de visibilidad y defensa perimetral replicable en entorno sandbox (sin exponer recursos productivos).</p>
+<ol><li>Definí una consulta en <strong>CloudWatch Logs Insights</strong> y un filtro LQL de <strong>GCP Cloud Logging</strong> orientados a detectar cambios en políticas IAM, creación de llaves de acceso y errores reiterados de autorización.</li><li>Redactá una política JSON para <strong>AWS WAF v2</strong> que combine un grupo de reglas gestionadas en modo <code>Count</code> y una regla de <code>RateBasedStatement</code> en modo <code>Block</code> con código <code>429</code> acotada a <code>/login</code>.</li><li>Escribí el script CLI de <strong>GCP Cloud Armor</strong> con al menos tres prioridades: regla preconfigurada OWASP, regla CEL restringiendo un endpoint sensible por IP y regla <code>throttle</code> por IP.</li><li>Documentá cómo validarías la integridad SHA-256 de archivos en CloudTrail mediante <code>validate-logs</code> y cómo conectarías un hallazgo de GuardDuty de alta severidad a una notificación vía EventBridge.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un archivo de diseño defensivo que incluya: la consulta CloudWatch Logs Insights probada sintácticamente, el filtro LQL para Cloud Audit Logs, la definición JSON de la Web ACL de AWS WAF con rate limiting por ruta, y la secuencia de comandos <code>gcloud compute security-policies</code> para Cloud Armor en modo <code>--preview</code> y producción.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>La defensa cloud efectiva articula profundidad en capas: el perímetro (CloudFront + AWS Shield + AWS WAF o Cloud Load Balancing + Cloud Armor) absorbe ataques volumétricos y automatizados en el borde antes de generar costos de cómputo en el origen; mientras que la telemetría inmutable (CloudTrail con validación SHA-256, Cloud Audit Logs con Data Access selectivo, Azure Activity Log) y la detección comportamental (GuardDuty) garantizan que cualquier abuso de identidad o movimiento interno deje rastro verificable y dispare alertas accionables en segundos.</p></aside>
+<h2 id="cap-5-6-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué conviene habilitar Data Events en AWS CloudTrail (o Data Access Logs en GCP) de forma selectiva en lugar de dejarlos apagados o activarlos indiscriminadamente?</strong> Porque los Management Events/Admin Activity solo registran cambios en la configuración de recursos, no quién leyó o modificó objetos concretos en S3 o Cloud Storage; activarlos selectivamente sobre buckets críticos aporta trazabilidad de acceso a datos sensibles evitando costos excesivos y ruido por volúmenes masivos de tráfico no sensible.</p>
+<p><strong>2. ¿Cómo garantiza AWS CloudTrail que los archivos de log depositados en S3 no fueron manipulados después de generarse?</strong> Mediante la validación de integridad de archivos de registro, que genera archivos <em>digest</em> horarios con hashes SHA-256 de cada archivo de log entregado y los firma digitalmente, permitiendo verificar toda la cadena de forma offline o con <code>aws cloudtrail validate-logs</code>.</p>
+<p><strong>3. ¿Qué diferencia existe entre una regla estándar de AWS WAF y una regla <code>RateBasedStatement</code>, y por qué usar <code>Count</code> inicialmente?</strong> Una regla estándar inspecciona atributos de cada petición individual (URI, cabeceras, payloads), mientras que <code>RateBasedStatement</code> contabiliza el volumen de peticiones por clave de agregación (como IP) en una ventana temporal para mitigar ráfagas; usar <code>Count</code> primero permite registrar coincidencias y ajustar falsos positivos antes de bloquear tráfico legítimo.</p>
+<p><strong>4. ¿Qué aporta AWS Shield Advanced por encima de AWS Shield Standard?</strong> Además de mitigación L3/L4 automática, Shield Advanced suma defensa L7 integrada con uso de AWS WAF incluido sobre recursos protegidos, acceso 24/7 al Shield Response Team (SRT), integración con métricas de salud de Route 53 y protección económica (<em>DDoS Cost Protection</em>) ante picos de facturación causados por un ataque DDoS.</p>
+<p><strong>5. ¿Cuál es la diferencia operativa entre una <em>Backend Security Policy</em> y una <em>Edge Security Policy</em> en GCP Cloud Armor?</strong> La <em>Backend Security Policy</em> evalúa solicitudes HTTP(S) completas (incluyendo reglas OWASP preconfiguradas, expresiones CEL sobre cabeceras/rutas y throttling avanzado) antes de llegar al servicio backend, mientras que la <em>Edge Security Policy</em> se aplica antes en el borde sobre Cloud CDN para descartar IPs o regiones bloqueadas antes de consultar la caché.</p>
+<h2 id="cap-5-6-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de avanzar hacia la respuesta a incidentes y el análisis forense en la nube, asegurate de saber distinguir qué telemetría corresponde al plano de control y cuál al plano de datos, cómo consultar registros con Logs Insights o LQL, y qué capa del perímetro (WAF, Shield o Cloud Armor) resuelve cada clase de ataque web o volumétrico.</p></aside>
+<h2 id="cap-5-6-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>AWS CloudTrail Log File Integrity Validation: <a href="https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-intro.html">https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-intro.html</a></li><li>Amazon GuardDuty Finding Types: <a href="https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_finding-types-active.html">https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_finding-types-active.html</a></li><li>AWS WAF &amp; AWS Shield Best Practices: <a href="https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html">https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html</a></li><li>Google Cloud Armor Security Policies &amp; CEL: <a href="https://cloud.google.com/armor/docs/security-policy-overview">https://cloud.google.com/armor/docs/security-policy-overview</a></li><li>Google Cloud Audit Logs Overview: <a href="https://cloud.google.com/logging/docs/audit">https://cloud.google.com/logging/docs/audit</a></li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 8 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>AWS CloudWatch</td><td>Medium</td><td>Defensive</td><td>7</td></tr><tr><td>AWS WAF: Defending Web Applications in the Cloud</td><td>Medium</td><td>Defensive</td><td>5</td></tr><tr><td>GCP Cloud Logging</td><td>Medium</td><td>Defensive</td><td>5</td></tr><tr><td>AWS GuardDuty for Blue Team</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>AWS CloudTrail: Unveiling AWS Account Activity</td><td>Medium</td><td>Defensive</td><td>4</td></tr><tr><td>Cloud Armor Network Security</td><td>Medium</td><td>Defensive</td><td>5</td></tr><tr><td>Practical GCP Cloud Armor</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>AWS Shield</td><td>Medium</td><td>Defensive</td><td>5</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="38-devsecops-cicd-e-iac.html">← 5.5 DevSecOps, pipelines CI/CD, secretos en Git e Infraestructura como Código (IaC)</a></div><div><a href="40-forense-cloud-y-respuesta-incidentes.html">5.7 Forense Cloud y respuesta a incidentes en AWS, Azure y GCP →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

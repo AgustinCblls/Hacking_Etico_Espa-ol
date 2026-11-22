@@ -1,0 +1,58 @@
+<!-- Configuracion educativa Sysmon (Schema 4.90) para laboratorio Windows (Cap. 4.2) -->
+<Sysmon schemaversion="4.90">
+  <HashAlgorithms>SHA256</HashAlgorithms>
+  <CheckRevocation/>
+  <EventFiltering>
+    <!-- Event ID 1: Creacion de procesos (registrar todo el trafico de consola y scripts en lab) -->
+    <RuleGroup name="ProcesosCriticos" groupRelation="or">
+      <ProcessCreate onmatch="include">
+        <Image condition="end with">powershell.exe</Image>
+        <Image condition="end with">pwsh.exe</Image>
+        <Image condition="end with">cmd.exe</Image>
+        <Image condition="end with">wscript.exe</Image>
+        <Image condition="end with">cscript.exe</Image>
+        <Image condition="end with">mshta.exe</Image>
+        <Image condition="end with">certutil.exe</Image>
+        <Image condition="end with">wsmprovhost.exe</Image>
+        <ParentImage condition="end with">winword.exe</ParentImage>
+        <ParentImage condition="end with">excel.exe</ParentImage>
+        <ParentImage condition="end with">WmiPrvSE.exe</ParentImage>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- Event ID 3: Conexiones de red desde interpretes y LOLBins -->
+    <RuleGroup name="RedProcesos" groupRelation="or">
+      <NetworkConnect onmatch="include">
+        <Image condition="end with">powershell.exe</Image>
+        <Image condition="end with">cmd.exe</Image>
+        <Image condition="end with">certutil.exe</Image>
+        <Image condition="end with">python.exe</Image>
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- Event ID 8 y 10: CreateRemoteThread y Acceso a LSASS -->
+    <CreateRemoteThread onmatch="exclude">
+      <SourceImage condition="is">C:\Windows\System32\csrss.exe</SourceImage>
+    </CreateRemoteThread>
+    <ProcessAccess onmatch="include">
+      <TargetImage condition="is">C:\Windows\system32\lsass.exe</TargetImage>
+    </ProcessAccess>
+
+    <!-- Event ID 11 y 13: Creacion de scripts temporales y claves Run -->
+    <FileCreate onmatch="include">
+      <TargetFilename condition="contains">\Users\Public\</TargetFilename>
+      <TargetFilename condition="end with">.ps1</TargetFilename>
+      <TargetFilename condition="end with">.bat</TargetFilename>
+    </FileCreate>
+    <RegistryEvent onmatch="include">
+      <TargetObject condition="contains">\CurrentVersion\Run</TargetObject>
+      <TargetObject condition="contains">\PortProxy\v4tov4\tcp</TargetObject>
+    </RegistryEvent>
+
+    <!-- Event ID 22: Consultas DNS originadas por shells -->
+    <DnsQuery onmatch="include">
+      <Image condition="end with">powershell.exe</Image>
+      <Image condition="end with">cmd.exe</Image>
+    </DnsQuery>
+  </EventFiltering>
+</Sysmon>

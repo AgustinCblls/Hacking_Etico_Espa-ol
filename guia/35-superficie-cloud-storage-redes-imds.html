@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 5.2 · Superficie Cloud: S3/Storage, redes VPC, Serverless, Secretos e IMDSv2 · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Evaluar buckets/VPC/Security Groups, mitigar SSRF sobre IMDSv1 con IMDSv2 y proteger secretos">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo5.html">Tomo V</a><span aria-hidden="true">›</span><span>Cap. 5.2</span></nav>
+<h1 id="cap-5-2">Capítulo 5.2 · Superficie Cloud: S3/Storage, redes VPC, Serverless, Secretos e IMDSv2</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Cloud y DevSecOps</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo V · Ruta 5 · Cloud y DevSecOps</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="36-contenedores-docker-y-escapes.html">5.3 Seguridad de contenedores Docker: namespaces, socket, escapes y hardening</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a dominar los mecanismos de control de acceso en almacenamiento de objetos multi-cloud (AWS S3, Azure Blob Storage y GCP Cloud Storage), diseñar y auditar topologías de red seguras en AWS VPC (subredes, tablas de ruteo, Security Groups y NACLs), evaluar la superficie de riesgo en funciones Serverless y gestores de secretos, y comprender la diferencia arquitectónica crítica entre IMDSv1 e IMDSv2 frente a vulnerabilidades de Server-Side Request Forgery (SSRF).</p></aside>
+<p>Una vez comprendido el plano de identidades, el siguiente paso al auditar una infraestructura en la nube es examinar dónde residen los datos, cómo fluye el tráfico de red y qué interfaces internas exponen las cargas de trabajo. Muchos incidentes graves no requieren romper el cifrado ni comprometer el hipervisor: nacen de un repositorio de objetos accesible al público, una regla de red demasiado permisiva, un secreto guardado en texto plano dentro de una variable de entorno o una aplicación web vulnerable que consulta el servicio local de metadatos de la instancia.</p>
+<p>Este capítulo cubre la superficie de exposición de servicios cloud en profundidad, alineado con los módulos <em>AWS S3 Basics</em> y <em>Amazon Virtual Private Cloud (VPC)</em>.</p>
+<h2 id="cap-5-2-almacenamiento-en-la-nube-s3-azure-blob-y-gcp-cloud-storage">Almacenamiento en la Nube: S3, Azure Blob y GCP Cloud Storage</h2>
+<p>El almacenamiento de objetos (<em>Object Storage</em>) sustituye los sistemas de archivos jerárquicos tradicionales por contenedores planos (<strong>Buckets</strong> en AWS/GCP o <strong>Containers</strong> en Azure) donde cada archivo se almacena como un objeto identificado por una clave única y metadatos asociados. Su acceso ocurre íntegramente mediante peticiones HTTP/HTTPS hacia APIs REST, lo que convierte la configuración de acceso en la única barrera entre un repositorio privado y la exposición global en Internet.</p>
+<h3 id="cap-5-2-aws-s3-bucket-policies-vs-acls-y-block-public-access">AWS S3: Bucket Policies vs ACLs y Block Public Access</h3>
+<p>En <strong>Amazon S3</strong>, la autorización de acceso puede provenir de múltiples fuentes que se evalúan en conjunto:</p>
+<ol><li><strong>Políticas IAM (basadas en identidad):</strong> Definen qué puede hacer un usuario o rol interno sobre determinados buckets.</li><li><strong>Bucket Policies (basadas en recursos):</strong> Documentos JSON adjuntos directamente al bucket. Permiten definir acceso entre cuentas o acceso anónimo mediante <code>"Principal": "*"</code>. Son el mecanismo moderno recomendado para gestionar permisos a nivel de bucket.</li><li><strong>Access Control Lists (ACLs):</strong> Mecanismo heredado anterior a IAM que otorga permisos gruesos (<code>READ</code>, <code>WRITE</code>, <code>FULL_CONTROL</code>) a nivel de bucket u objeto individual. AWS recomienda deshabilitarlas por completo mediante la configuración <strong>Object Ownership: Bucket owner enforced</strong>.</li><li><strong>S3 Block Public Access:</strong> Red de seguridad superior que actúa a nivel de cuenta o de bucket individual. Posee cuatro interruptores independientes que, al activarse, bloquean y anulan cualquier ACL o Bucket Policy que intente otorgar acceso público, previniendo exposiciones accidentales por error humano.</li></ol>
+<pre><code class="lenguaje-json">{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RechazarConexionesSinTLS",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::lab-respaldos-privados",
+        "arn:aws:s3:::lab-respaldos-privados/*"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    }
+  ]
+}</code></pre>
+<h3 id="cap-5-2-azure-blob-storage-y-sas-tokens">Azure Blob Storage y SAS Tokens</h3>
+<p>En <strong>Azure Storage</strong>, los contenedores residen dentro de una <em>Storage Account</em>. Además de los controles de acceso basados en Entra ID (RBAC) y las claves compartidas de la cuenta (<em>Shared Key</em>), Azure utiliza intensivamente <strong>Shared Access Signatures (SAS)</strong>.</p>
+<p>Un token <strong>SAS</strong> es una cadena de parámetros de consulta firmada criptográficamente con la clave de la cuenta (o delegada por Entra ID) que concede acceso granular (lectura, escritura, listado) durante una ventana temporal definida (<code>se</code> / <em>expiry</em>). Los riesgos frecuentes al auditar SAS tokens incluyen:</p>
+<ul><li><strong>Ventanas de expiración excesivas:</strong> Emitir SAS válidos por años sin mecanismo de revocación individual (si se compromete un <em>Account SAS</em>, se debe rotar la clave de la cuenta o revocar la <em>Stored Access Policy</em> asociada).</li><li><strong>Ausencia de restricción TLS (<code>spr=https</code>) o IP (<code>sip</code>):</strong> Permitir que el token viaje por HTTP plano o sea utilizable desde cualquier dirección en Internet.</li><li><strong>Permisos excedidos:</strong> Incluir el permiso de listado (<code>l</code>) o escritura (<code>w</code>) cuando la aplicación cliente solo requería descargar un objeto puntual (<code>r</code>).</li></ul>
+<h3 id="cap-5-2-google-cloud-storage-gcs">Google Cloud Storage (GCS)</h3>
+<p>En <strong>GCP</strong>, Cloud Storage ofrece dos modos de control: <strong>Fine-grained</strong> (ACLs por objeto más IAM) y <strong>Uniform bucket-level access (UBLA)</strong>, que desactiva las ACLs individuales para centralizar toda la autorización exclusivamente mediante políticas IAM y condiciones de proyecto. Además, el control organizacional <strong>Public Access Prevention (PAP)</strong> cumple una función equivalente a <em>Block Public Access</em> en S3, impidiendo otorgar permisos a los identificadores especiales <code>allUsers</code> o <code>allAuthenticatedUsers</code>.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Característica</th>
+<th>AWS S3</th>
+<th>Azure Blob Storage</th>
+<th>GCP Cloud Storage</th>
+</tr></thead><tbody>
+<tr><td><strong>Control recomendado</strong></td><td>Bucket Policy + IAM</td><td>Azure RBAC (Entra ID)</td><td>Uniform Bucket-Level Access (IAM)</td></tr>
+<tr><td><strong>Control heredado a desactivar</strong></td><td>S3 ACLs</td><td>Acceso anónimo por contenedor / Shared Keys</td><td>Fine-grained ACLs</td></tr>
+<tr><td><strong>Bloqueo global anti-fugas</strong></td><td>S3 Block Public Access</td><td><code>AllowBlobPublicAccess = false</code></td><td>Public Access Prevention (<code>enforced</code>)</td></tr>
+<tr><td><strong>Acceso temporal delegado</strong></td><td>Presigned URLs (STS/SigV4)</td><td>SAS Tokens / User Delegation SAS</td><td>Signed URLs</td></tr>
+</tbody></table></div>
+<h2 id="cap-5-2-redes-en-la-nube-anatomia-de-aws-vpc">Redes en la Nube: Anatomía de AWS VPC</h2>
+<p>Una <strong>Amazon Virtual Private Cloud (VPC)</strong> es una red virtual aislada lógicamente dentro de AWS donde desplegás recursos con control total sobre direccionamiento IP (CIDR), subredes, tablas de ruteo y compuertas de salida.</p>
+<h3 id="cap-5-2-subredes-publicas-vs-subredes-privadas">Subredes Públicas vs Subredes Privadas</h3>
+<p>La diferencia técnica entre una subred pública y una privada <strong>no</strong> radica en el rango de direcciones IP ni en un ajuste booleano mágico, sino exclusivamente en su <strong>tabla de ruteo (<em>Route Table</em>)</strong>:</p>
+<ul><li><strong>Subred pública:</strong> Su tabla de ruteo posee una ruta por defecto (<code>0.0.0.0/0</code>) apuntando hacia un <strong>Internet Gateway (IGW)</strong>. Los recursos allí ubicados que tengan IP pública asignada pueden recibir tráfico entrante directo desde Internet y responder hacia afuera. Se reserva para balanceadores de carga (ALB), bastiones o <strong>NAT Gateways</strong>.</li><li><strong>Subred privada:</strong> Carece de ruta directa hacia un IGW. Sus instancias (bases de datos RDS, servidores de aplicación, nodos internos) no son alcanzables directamente desde Internet. Si requieren descargar actualizaciones salientes, su tabla de ruteo dirige <code>0.0.0.0/0</code> hacia un <strong>NAT Gateway</strong> ubicado en la subred pública, o bien utilizan <strong>VPC Endpoints</strong> (Gateway o Interface/PrivateLink) para consumir servicios como S3 o Secrets Manager sin atravesar jamás la red pública.</li></ul>
+<h3 id="cap-5-2-security-groups-stateful-vs-network-acls-stateless">Security Groups (Stateful) vs Network ACLs (Stateless)</h3>
+<p>AWS ofrece dos capas complementarias de filtrado de red dentro de la VPC cuyo comportamiento debes distinguir con exactitud:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Propiedad</th>
+<th>Security Group (SG)</th>
+<th>Network ACL (NACL)</th>
+</tr></thead><tbody>
+<tr><td><strong>Ámbito de aplicación</strong></td><td>Nivel de interfaz de red (ENI / instancia / recurso)</td><td>Nivel completo de subred</td></tr>
+<tr><td><strong>Naturaleza de estado</strong></td><td><strong>Stateful:</strong> Si permitís el tráfico entrante, la respuesta saliente se permite automáticamente</td><td><strong>Stateless:</strong> Debés definir reglas explícitas tanto para entrada (<em>Inbound</em>) como para salida (<em>Outbound</em>, incluyendo puertos efímeros <code>1024-65535</code>)</td></tr>
+<tr><td><strong>Tipos de reglas</strong></td><td>Solo reglas <code>Allow</code> (denegación implícita al final)</td><td>Reglas <code>Allow</code> y <code>Deny</code> evaluadas en orden numérico ascendente</td></tr>
+<tr><td><strong>Caso de uso principal</strong></td><td>Microsegmentación por rol de aplicación (ej. App -&gt; RDS en puerto 5432)</td><td>Defensa perimetral de subred y bloqueo explícito de rangos IP maliciosos</td></tr>
+</tbody></table></div>
+<h3 id="cap-5-2-interconexion-vpc-peering-y-transit-gateway">Interconexión: VPC Peering y Transit Gateway</h3>
+<p>Cuando la arquitectura crece a múltiples VPCs o cuentas, surgen dos patrones de interconexión:</p>
+<ul><li><strong>VPC Peering:</strong> Conexión punto a punto entre dos VPCs sin solapamiento de rangos CIDR. <strong>No es transitivo</strong>: si la VPC A tiene peering con B, y B con C, A no puede enrutar hacia C a través de B. Requiere actualizar manualmente cada tabla de ruteo y ajustar los Security Groups referenciando CIDRs o IDs de SG pares.</li><li><strong>AWS Transit Gateway (TGW):</strong> Concentrador de enrutamiento regional (<em>hub-and-spoke</em>) que conecta cientos de VPCs y enlaces VPN/Direct Connect desde un único punto centralizado, simplificando la inspección centralizada del tráfico mediante firewalls virtuales antes de cruzar entre entornos productivos y de desarrollo.</li></ul>
+<h2 id="cap-5-2-serverless-y-gestion-de-secretos">Serverless y Gestión de Secretos</h2>
+<p>Las arquitecturas sin servidor como <strong>AWS Lambda</strong>, <strong>Azure Functions</strong> o <strong>Google Cloud Functions</strong> eliminan la gestión de servidores, pero no eliminan los errores de privilegio ni la exposición de credenciales.</p>
+<h3 id="cap-5-2-riesgos-en-aws-lambda">Riesgos en AWS Lambda</h3>
+<p>Cada función Lambda opera bajo un <strong>Execution Role</strong> (un rol IAM asumido dinámicamente). Los dos errores más recurrentes en auditorías son:</p>
+<ol><li><strong>Permisos de ejecución excesivos:</strong> Otorgar al rol de la función políticas genéricas como <code>AmazonDynamoDBFullAccess</code> o <code>s3:*</code> cuando la función solo necesita <code>dynamodb:GetItem</code> sobre una tabla específica.</li><li><strong>Secretos en variables de entorno en texto claro:</strong> Almacenar claves de API externas, cadenas de conexión a bases de datos o tokens dentro de las <em>Environment Variables</em> de Lambda expone esos valores a cualquier operador o canal de lectura que posea <code>lambda:GetFunctionConfiguration</code> o acceso a la consola web. Además, los <em>logs</em> enviados a CloudWatch pueden registrar accidentalmente trazas de variables si el manejo de errores no depura el contexto.</li></ol>
+<h3 id="cap-5-2-gestores-de-secretos-dedicados">Gestores de Secretos Dedicados</h3>
+<p>En lugar de incrustar credenciales en código fuente, imágenes de contenedor o variables de entorno planas, debés delegar su custodia a bóvedas cifradas con rotación automática y trazabilidad por evento:</p>
+<ul><li><strong>AWS Secrets Manager:</strong> Diseñado específicamente para secretos de bases de datos y credenciales de terceros. Cifra los valores mediante <strong>AWS KMS</strong>, soporta rotación automática nativa mediante funciones Lambda y audita cada lectura en CloudTrail (<code>secretsmanager:GetSecretValue</code>).</li><li><strong>AWS Systems Manager (SSM) Parameter Store:</strong> Almacena configuraciones jerárquicas y secretos en modalidad <code>SecureString</code> cifrada con KMS. Resulta ideal para parámetros de aplicación no rotativos con menor costo operativo.</li><li><strong>Azure Key Vault:</strong> Bóveda centralizada en Azure para secretos, claves criptográficas y certificados TLS, integrada de forma nativa con <em>Managed Identities</em> y políticas de acceso basadas en Azure RBAC.</li></ul>
+<h2 id="cap-5-2-ssrf-en-la-nube-imdsv1-vs-imdsv2">SSRF en la Nube: IMDSv1 vs IMDSv2</h2>
+<p>El servicio de metadatos de instancia (<strong>IMDS</strong>, <em>Instance Metadata Service</em>) responde en la dirección IP de enlace local no enrutable <code>169.254.169.254</code> dentro de las máquinas virtuales de AWS, Azure y GCP (en GCP también vía <code>metadata.google.internal</code>). Su propósito legítimo es permitir que la propia instancia consulte su identificador, región, datos de usuario (<em>user-data</em>) y, fundamentalmente, obtenga <strong>credenciales temporales del rol IAM adjunto</strong>.</p>
+<h3 id="cap-5-2-el-problema-arquitectonico-de-imdsv1">El problema arquitectónico de IMDSv1</h3>
+<p>En la versión original (<strong>IMDSv1</strong>), el servicio opera bajo un modelo simple de petición-respuesta sin estado: cualquier solicitud <code>HTTP GET</code> hacia <code>http://169.254.169.254/latest/meta-data/iam/security-credentials/&lt;nombre-rol&gt;</code> devuelve directamente las credenciales temporales (<code>AccessKeyId</code>, <code>SecretAccessKey</code>, <code>Token</code>).</p>
+<p>Si una aplicación web alojada en esa instancia padece una vulnerabilidad de <strong>Server-Side Request Forgery (SSRF)</strong> —un fallo donde el servidor realiza peticiones HTTP hacia una URL controlada o influenciada por un parámetro de entrada sin validación estricta—, el backend puede ser inducido a consultar <code>169.254.169.254</code> y reflejar las credenciales del rol IAM en la respuesta o canal observado. El riesgo también se amplifica cuando existen proxies inversos mal configurados o contenedores en red compartida que reenvían peticiones locales.</p>
+<h3 id="cap-5-2-la-defensa-estructural-de-imdsv2">La defensa estructural de IMDSv2</h3>
+<p>Para neutralizar este patrón de abuso sin eliminar la funcionalidad legítima, AWS introdujo <strong>IMDSv2</strong>, basado en sesiones orientadas a tokens con dos controles deterministas:</p>
+<ol><li><strong>Exigencia de petición <code>PUT</code> y cabeceras personalizadas:</strong> Para obtener credenciales o metadatos, el cliente local primero debe solicitar un token de sesión enviando una petición <code>HTTP PUT</code> a <code>/latest/api/token</code> incluyendo obligatoriamente la cabecera <code>X-aws-ec2-metadata-token-ttl-seconds</code> (entre 1 y 21600 segundos). Un SSRF típico basado solo en <code>GET</code> (o que no permite inyectar métodos <code>PUT</code> ni cabeceras arbitrarias) falla de inmediato. Además, IMDSv2 rechaza peticiones que contengan la cabecera <code>X-Forwarded-For</code>, bloqueando el tránsito a través de proxies HTTP abiertos.</li><li><strong>Restricción de salto de red (<code>HttpPutResponseHopLimit = 1</code>):</strong> El paquete IP de respuesta del token lleva un límite de saltos (<em>TTL</em>) igual a <code>1</code> por defecto. Si un paquete debe cruzar un enrutamiento adicional hacia un contenedor con NAT o un proxy intermedio antes de llegar al destino, se descarta antes de completar el intercambio.</li></ol>
+<pre><code class="lenguaje-bash"># Flujo legítimo local desde la propia instancia con IMDSv2 habilitado
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+  "http://169.254.169.254/latest/meta-data/iam/security-credentials/"</code></pre>
+<aside class="callout peligro"><p class="callout-titulo">Degradación silenciosa por modo opcional</p><p>Por compatibilidad heredada, muchas instancias antiguas mantienen <code>HttpTokens: optional</code>. Esto deja activo IMDSv1 en paralelo aunque IMDSv2 esté disponible, anulando la protección frente a SSRF. Auditar e imponer <strong><code>HttpTokens: required</code></strong> es obligatorio en toda infraestructura moderna.</p></aside>
+<p>La forma más robusta de garantizar que ningún equipo despliegue instancias heredadas con IMDSv1 activo consiste en aplicar una <strong>Service Control Policy (SCP)</strong> en AWS Organizations que bloquee el aprovisionamiento si no se exige token de sesión:</p>
+<pre><code class="lenguaje-json">{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ExigirIMDSv2AlLanzarInstancias",
+      "Effect": "Deny",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": {
+        "StringNotEquals": {
+          "ec2:MetadataHttpTokens": "required"
+        }
+      }
+    }
+  ]
+}</code></pre>
+<h2 id="cap-5-2-auditoria-cli-en-laboratorio">Auditoría CLI en Laboratorio</h2>
+<p>Usá estos comandos desde tu terminal configurada contra un laboratorio propio o entorno LocalStack para auditar S3, redes VPC y cumplimiento de IMDSv2:</p>
+<pre><code class="lenguaje-bash"># 1. Verificar estado de Block Public Access en un bucket S3
+aws s3api get-public-access-block --bucket lab-bucket-laboratorio
+
+# 2. Inspeccionar la política adjunta de un bucket y verificar si exige cifrado en tránsito
+aws s3api get-bucket-policy --bucket lab-bucket-laboratorio --output text
+
+# 3. Auditar Security Groups que permitan acceso entrante desde 0.0.0.0/0 en puertos sensibles
+aws ec2 describe-security-groups \
+  --filters "Name=ip-permission.cidr,Values=0.0.0.0/0" \
+  --query "SecurityGroups[*].{ID:GroupId,Nombre:GroupName,Permisos:IpPermissions[?IpRanges[?CidrIp=='0.0.0.0/0']].FromPort}" \
+  --output table
+
+# 4. Listar instancias EC2 y comprobar qué versión de IMDS exigen (HttpTokens y HopLimit)
+aws ec2 describe-instances \
+  --query "Reservations[*].Instances[*].{ID:InstanceId,Tokens:MetadataOptions.HttpTokens,HopLimit:MetadataOptions.HttpPutResponseHopLimit}" \
+  --output table
+
+# 5. Forzar IMDSv2 obligatorio y HopLimit=1 en una instancia existente
+aws ec2 modify-instance-metadata-options \
+  --instance-id i-0123456789abcdef0 \
+  --http-tokens required \
+  --http-put-response-hop-limit 1 \
+  --http-endpoint enabled</code></pre>
+<h2 id="cap-5-2-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En tu entorno de pruebas (LocalStack o cuenta personal aislada), desplegá un bucket S3 con <code>Block Public Access</code> habilitado y adjuntale una <em>Bucket Policy</em> que deniegue explícitamente toda operación cuando <code>aws:SecureTransport</code> sea <code>false</code>. Adicionalmente, simulá o verificá mediante <code>aws ec2 describe-security-groups</code> y <code>aws ec2 describe-instances</code> (o una plantilla de infraestructura Terraform/CloudFormation validada localmente) que ninguna regla permita <code>0.0.0.0/0</code> hacia puertos administrativos (<code>22</code>, <code>3389</code>) y que todas las definiciones de cómputo impongan <code>HttpTokens: required</code>.</p>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Registrá en un reporte <code>auditoria-superficie-cloud.md</code>:</p>
+<ol><li>El fragmento JSON de la <em>Bucket Policy</em> con cumplimiento TLS verificado y la salida de <code>get-public-access-block</code>.</li><li>Un diagrama ASCII o tabla de ruteo diferenciando una subred pública con IGW de una subred privada con NAT Gateway o VPC Endpoint.</li><li>El bloque de configuración o comando CLI aplicado para forzar IMDSv2 (<code>HttpTokens: required</code>, <code>HopLimit: 1</code>) y la justificación técnica de por qué mitiga la exposición vía SSRF.</li></ol></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y endurecimiento</p><ul><li><strong>Almacenamiento blindado por defecto:</strong> Activá <em>S3 Block Public Access</em> a nivel de cuenta entera desde AWS Organizations, deshabilitá las ACLs heredadas (<code>BucketOwnerEnforced</code>) y exigí cifrado en reposo (SSE-KMS) y en tránsito (<code>aws:SecureTransport: true</code>).</li><li><strong>Segmentación estricta de VPC:</strong> Ubicá todas las cargas de cómputo y bases de datos en subredes privadas sin IP pública. Exponé servicios HTTP únicamente mediante balanceadores de carga (ALB) con WAF en subredes públicas y activá <em>VPC Flow Logs</em> para detectar anomalías de tráfico lateral.</li><li><strong>Gestión centralizada de secretos:</strong> Prohibí credenciales planas en variables de entorno de Lambda o <em>user-data</em> de EC2; consumí secretos en tiempo de ejecución desde Secrets Manager o Azure Key Vault con roles de mínimo privilegio.</li><li><strong>IMDSv2 obligatorio por política organizacional:</strong> Implementá una SCP en AWS Organizations que deniegue <code>ec2:RunInstances</code> a menos que la condición <code>ec2:MetadataHttpTokens</code> sea igual a <code>required</code> y <code>ec2:MetadataHttpPutResponseHopLimit</code> sea <code>1</code>.</li></ul></aside>
+<h2 id="cap-5-2-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Qué determina técnicamente si una subred en AWS VPC es pública o privada?</strong> La presencia de una ruta por defecto (<code>0.0.0.0/0</code>) en su tabla de ruteo asociada apuntando hacia un Internet Gateway (IGW) la convierte en pública; si carece de ruta directa hacia un IGW (enrutando salidas solo vía NAT Gateway o VPC Endpoints), la subred es privada.</p>
+<p><strong>2. ¿Cuál es la diferencia operativa entre un Security Group y una Network ACL al evaluar tráfico de respuesta?</strong> Un Security Group es <em>stateful</em>: al autorizar una conexión entrante, el tráfico de respuesta saliente se permite automáticamente. Una Network ACL es <em>stateless</em>, por lo que exige reglas explícitas tanto de entrada como de salida (incluyendo el rango de puertos efímeros) y evalúa reglas <code>Allow</code> y <code>Deny</code> por orden numérico.</p>
+<p><strong>3. ¿Por qué <code>S3 Block Public Access</code> es superior a depender únicamente de revisar manualmente las Bucket Policies?</strong> Porque actúa como una barrera superior a nivel de cuenta o bucket que anula automáticamente cualquier ACL o Bucket Policy nueva o preexistente que otorgue acceso público, evitando filtraciones accidentales por configuraciones erróneas de desarrolladores o terceros.</p>
+<p><strong>4. ¿Qué dos requisitos introduce IMDSv2 para proteger las credenciales temporales del rol frente a vulnerabilidades SSRF?</strong> Exige obtener primero un token de sesión mediante una petición <code>HTTP PUT</code> con la cabecera <code>X-aws-ec2-metadata-token-ttl-seconds</code> (rechazando peticiones con <code>X-Forwarded-For</code>), y configura por defecto <code>HttpPutResponseHopLimit = 1</code> para evitar que el paquete de respuesta cruce saltos de red adicionales como contenedores con NAT o proxies intermedios.</p>
+<p><strong>5. ¿Por qué no se deben almacenar contraseñas de bases de datos dentro de las variables de entorno de una función AWS Lambda?</strong> Porque cualquier identidad con permiso de lectura de configuración (<code>lambda:GetFunctionConfiguration</code>) o acceso a la consola puede visualizarlas en texto plano, además de carecer de rotación automática y poder quedar expuestas accidentalmente en registros de depuración.</p>
+<h2 id="cap-5-2-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de introducirte en la arquitectura de contenedores Linux y Docker, asegurate de dominar estos puntos:</p>
+<ul><li>Sabés auditar un bucket S3, diferenciar Bucket Policies de ACLs y verificar <em>Block Public Access</em>.</li><li>Podés diseñar una VPC básica separando capas públicas y privadas mediante Security Groups y NACLs.</li><li>Comprendés el riesgo de IMDSv1 y sabés exigir IMDSv2 (<code>HttpTokens: required</code>, <code>HopLimit: 1</code>) en instancias y políticas de organización.</li></ul></aside>
+<h2 id="cap-5-2-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>AWS Well-Architected Framework – Security Pillar:</strong> Mejores prácticas de protección de datos en reposo/tránsito, aislamiento de red y gestión de secretos.</li><li><strong>OWASP Cloud-Native Application Security Top 10 / OWASP SSRF Prevention Cheat Sheet:</strong> Análisis de riesgos de abuso en servicios de metadatos y mitigaciones estructurales.</li><li><strong>CIS Amazon Web Services Foundations Benchmark:</strong> Controles normativos para S3 Block Public Access, VPC Flow Logs, Security Groups y metadatos de instancias EC2.</li><li><strong>Azure Security Benchmark – Network Security &amp; Data Protection:</strong> Guías de configuración segura para Storage Accounts, SAS Tokens y Key Vault.</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 2 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>AWS S3 Basics</td><td>Medium</td><td>General</td><td>5</td></tr><tr><td>Amazon Virtual Private Cloud (VPC)</td><td>Medium</td><td>Defensive</td><td>6</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="34-fundamentos-cloud-iam-identidad.html">← 5.1 Arquitectura Multi-Cloud, IAM, Entra ID y escalada de identidades</a></div><div><a href="36-contenedores-docker-y-escapes.html">5.3 Seguridad de contenedores Docker: namespaces, socket, escapes y hardening →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

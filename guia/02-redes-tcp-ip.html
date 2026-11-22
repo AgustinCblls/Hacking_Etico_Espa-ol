@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 1.2 · Redes TCP/IP, modelo OSI, subredes y análisis de paquetes · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Calcular subredes CIDR, VLANs/NAT y leer tráfico TCP/DNS en Wireshark">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo1.html">Tomo I</a><span aria-hidden="true">›</span><span>Cap. 1.2</span></nav>
+<h1 id="cap-1-2">Capítulo 1.2 · Redes TCP/IP, modelo OSI, subredes y análisis de paquetes</h1>
+<div class="meta-nivel"><span class="nivel-badge principiante">Principiante</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo I · Ruta 1 · Principiante</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="03-linux-fundamentos.html">1.3 Linux para seguridad: permisos, procesos, systemd y logs</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al terminar este capítulo vas a poder mapear tráfico real sobre los modelos OSI y TCP/IP, calcular subredes IPv4 en notación CIDR sin herramientas automáticas, interpretar el intercambio TCP (3-way handshake y banderas), distinguir ARP, ICMP, UDP y DNS, y capturar e inspeccionar paquetes locales con <code>tcpdump</code> y Wireshark.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 1.1 completado y contenedor de laboratorio <code>lab_web</code> accesible en <code>127.0.0.1:8080</code>. <strong>Duración sugerida:</strong> 2,5 horas.</p>
+<h2 id="cap-1-2-modelo-osi-frente-a-tcp-ip-y-proceso-de-encapsulacion">Modelo OSI frente a TCP/IP y proceso de encapsulación</h2>
+<p>Cada mensaje que atraviesa una red viaja envuelto en capas sucesivas de encabezados (encapsulación en origen) que el destino retira en orden inverso (desencapsulación). El modelo <strong>OSI</strong> (7 capas) sirve como lenguaje común para diagnosticar fallas y ubicar controles de seguridad, mientras que la pila <strong>TCP/IP</strong> (4 capas) describe la arquitectura efectivamente implementada en Internet y en redes locales.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Capa OSI</th>
+<th>Equivalente TCP/IP</th>
+<th>PDU (Unidad)</th>
+<th>Protocolos representativos</th>
+<th>Dispositivo / Control típico</th>
+</tr></thead><tbody>
+<tr><td><strong>7. Aplicación</strong></td><td>Aplicación</td><td>Datos</td><td>HTTP/HTTPS, DNS, SSH, SMB</td><td>WAF, proxy inverso, IDS de capa 7</td></tr>
+<tr><td><strong>6. Presentación</strong></td><td>Aplicación</td><td>Datos</td><td>TLS/SSL, codificación UTF-8, JSON</td><td>Inspección TLS, validación de certificados</td></tr>
+<tr><td><strong>5. Sesión</strong></td><td>Aplicación</td><td>Datos</td><td>NetBIOS, RPC, sesiones HTTP</td><td>Gestión de tokens y tiempos de expiración</td></tr>
+<tr><td><strong>4. Transporte</strong></td><td>Transporte</td><td>Segmento (TCP) / Datagrama (UDP)</td><td>TCP, UDP, SCTP</td><td>Firewall stateful, balanceador L4</td></tr>
+<tr><td><strong>3. Red</strong></td><td>Internet</td><td>Paquete</td><td>IPv4, IPv6, ICMP, IPsec</td><td>Router, firewall L3, ACLs de red</td></tr>
+<tr><td><strong>2. Enlace de datos</strong></td><td>Acceso a red</td><td>Trama (Frame)</td><td>Ethernet (802.3), ARP, Wi-Fi (802.11), VLAN (802.1Q)</td><td>Switch gestionable, Port Security, DAI</td></tr>
+<tr><td><strong>1. Física</strong></td><td>Acceso a red</td><td>Bits</td><td>Par trenzado, fibra óptica, radiofrecuencia</td><td>Seguridad física de racks y puertos</td></tr>
+</tbody></table></div>
+<p>Comprender en qué capa ocurre un evento evita errores frecuentes: por ejemplo, el filtrado por dirección MAC opera en Capa 2 (solo dentro del dominio de difusión local), mientras que el enrutamiento entre subredes opera en Capa 3 mediante direcciones IP.</p>
+<h2 id="cap-1-2-direccionamiento-ipv4-y-calculo-practico-de-subredes-cidr">Direccionamiento IPv4 y cálculo práctico de subredes CIDR</h2>
+<p>Una dirección IPv4 tiene <strong>32 bits</strong> divididos en cuatro octetos de 8 bits expresados en decimal (<code>0</code> a <code>255</code>). La notación <strong>CIDR</strong> (<em>Classless Inter-Domain Routing</em>) añade un sufijo <code>/N</code> que indica cuántos bits consecutivos desde la izquierda identifican la <strong>porción de red</strong>; los <code>32 - N</code> bits restantes identifican al <strong>host</strong>.</p>
+<h3 id="cap-1-2-rangos-reservados-clave">Rangos reservados clave</h3>
+<ul><li><strong>Redes privadas (RFC 1918):</strong> <code>10.0.0.0/8</code>, <code>172.16.0.0/12</code> (<code>172.16.0.0</code> → <code>172.31.255.255</code>) y <code>192.168.0.0/16</code>. No son enrutables en Internet público y son la base de toda LAN y laboratorio local.</li><li><strong>Loopback:</strong> <code>127.0.0.0/8</code> (usualmente <code>127.0.0.1</code>), tráfico que nunca abandona el host local.</li><li><strong>Link-Local (APIPA):</strong> <code>169.254.0.0/16</code>, asignado automáticamente cuando falla DHCP.</li></ul>
+<h3 id="cap-1-2-tabla-de-referencia-rapida-cidr">Tabla de referencia rápida CIDR</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Prefijo</th>
+<th>Máscara decimal</th>
+<th>Salto en el octeto crítico</th>
+<th>Direcciones totales</th>
+<th>Hosts utilizables (<code>2^(32 - N) - 2</code>)</th>
+</tr></thead><tbody>
+<tr><td><code>/24</code></td><td><code>255.255.255.0</code></td><td>1 (4.º octeto: 256)</td><td>256</td><td>254</td></tr>
+<tr><td><code>/25</code></td><td><code>255.255.255.128</code></td><td>128</td><td>128</td><td>126</td></tr>
+<tr><td><code>/26</code></td><td><code>255.255.255.192</code></td><td>64</td><td>64</td><td>62</td></tr>
+<tr><td><code>/27</code></td><td><code>255.255.255.224</code></td><td>32</td><td>32</td><td>30</td></tr>
+<tr><td><code>/28</code></td><td><code>255.255.255.240</code></td><td>16</td><td>16</td><td>14</td></tr>
+<tr><td><code>/29</code></td><td><code>255.255.255.248</code></td><td>8</td><td>8</td><td>6</td></tr>
+<tr><td><code>/30</code></td><td><code>255.255.255.252</code></td><td>4</td><td>4</td><td>2 (enlaces punto a punto)</td></tr>
+</tbody></table></div>
+<h3 id="cap-1-2-metodo-manual-en-cuatro-pasos">Método manual en cuatro pasos</h3>
+<p>Tomemos el host <code>10.10.20.135/27</code> para determinar su subred exacta:</p>
+<ol><li><strong>Identificá el octeto crítico y el tamaño de bloque:</strong> <code>/27</code> ocupa 24 bits en los tres primeros octetos y 3 bits en el cuarto (<code>27 - 24 = 3</code>). Quedan <code>8 - 3 = 5</code> bits para hosts → tamaño de bloque <code>2^5 = 32</code> (máscara <code>255.255.255.224</code>).</li><li><strong>Ubicá el múltiplo de 32 inmediatamente menor o igual a <code>135</code>:</strong> los bloques son <code>0, 32, 64, 96, 128, 160...</code>. Por lo tanto, la <strong>dirección de red</strong> es <code>10.10.20.128</code>.</li><li><strong>Calculá el broadcast:</strong> es una dirección menos que el siguiente bloque (<code>160 - 1 = 159</code>) → <code>10.10.20.159</code>.</li><li><strong>Determiná el rango útil de hosts:</strong> desde <code>red + 1</code> hasta <code>broadcast - 1</code> → <code>10.10.20.129</code> a <code>10.10.20.158</code> (30 hosts utilizables).</li></ol>
+<aside class="callout aviso"><p class="callout-titulo">Verificación mental obligatoria</p><p>Antes de definir un objetivo en una herramienta de red o en un archivo de firewall, calculá siempre qué direcciones quedan dentro del prefijo CIDR. Confundir <code>/24</code> con <code>/16</code> multiplica el alcance por <code>256</code> (de 254 a 65.534 hosts) y puede violar las Reglas de Enfrentamiento.</p></aside>
+<h2 id="cap-1-2-protocolos-centrales-arp-icmp-tcp-udp-y-dns">Protocolos centrales: ARP, ICMP, TCP, UDP y DNS</h2>
+<h3 id="cap-1-2-arp-e-icmp-capa-2-y-capa-3">ARP e ICMP (Capa 2 y Capa 3)</h3>
+<ul><li><strong>ARP (Address Resolution Protocol):</strong> traduce una dirección IPv4 a una dirección física MAC dentro del mismo segmento Ethernet mediante una trama broadcast (<code>Who has 192.168.56.1? Tell 192.168.56.10</code>) y una respuesta unicast. Porque ARP carece de autenticación nativa, los segmentos sin protección son vulnerables a <strong>ARP Spoofing</strong> (envenenamiento de caché ARP para interceptar tráfico en la LAN).</li><li><strong>ICMP (Internet Control Message Protocol):</strong> transporta mensajes de diagnóstico y error encapsulados directamente sobre IP (sin puertos). Los tipos esenciales en análisis son <strong>Type 8 / Code 0</strong> (<em>Echo Request</em>), <strong>Type 0 / Code 0</strong> (<em>Echo Reply</em>), <strong>Type 3</strong> (<em>Destination Unreachable</em>, indicando red, host o puerto inalcanzable) y <strong>Type 11</strong> (<em>Time Exceeded</em>, base del funcionamiento de <code>traceroute</code>).</li></ul>
+<h3 id="cap-1-2-tcp-3-way-handshake-cierre-y-banderas">TCP: 3-way handshake, cierre y banderas</h3>
+<p>TCP (RFC 9293) es un protocolo <strong>orientado a conexión</strong> y confiable. Antes de intercambiar datos de aplicación, cliente y servidor sincronizan sus números de secuencia iniciales (<strong>ISN</strong>) mediante el <strong>3-way handshake</strong>:</p>
+<ol><li><strong>Cliente → Servidor (<code>SYN</code>):</strong> propone su número de secuencia inicial <code>SEQ = x</code>.</li><li><strong>Servidor → Cliente (<code>SYN, ACK</code>):</strong> acepta la conexión, envía su propio <code>SEQ = y</code> y confirma el del cliente con <code>ACK = x + 1</code>.</li><li><strong>Cliente → Servidor (<code>ACK</code>):</strong> confirma el <code>SEQ</code> del servidor con <code>ACK = y + 1</code>. La sesión queda en estado <code>ESTABLISHED</code>.</li></ol>
+<p>El cierre ordenado usa un intercambio de 4 pasos con paquetes <code>FIN</code> y <code>ACK</code>, mientras que un cierre abrupto o el rechazo de un puerto cerrado se señala con <code>RST</code>.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Bandera TCP</th>
+<th>Notación en <code>tcpdump</code></th>
+<th>Función técnica</th>
+<th>Significado habitual en auditoría</th>
+</tr></thead><tbody>
+<tr><td><strong>SYN</strong></td><td><code>[S]</code></td><td>Inicia conexión y sincroniza números de secuencia.</td><td>Inicio normal o sondeo de puertos abiertos (SYN scan).</td></tr>
+<tr><td><strong>ACK</strong></td><td><code>[.]</code></td><td>Confirma recepción de bytes hasta <code>ACK - 1</code>.</td><td>Presente en casi todo paquete tras el primer <code>SYN</code>.</td></tr>
+<tr><td><strong>PSH</strong></td><td><code>[P.]</code></td><td>Indica al receptor entregar los datos al proceso sin esperar llenado de búfer.</td><td>Marca tráfico interactivo o solicitudes HTTP/SSH con carga útil.</td></tr>
+<tr><td><strong>FIN</strong></td><td><code>[F.]</code></td><td>Cierre ordenado de envío de datos en un sentido.</td><td>Fin normal de sesión o sondeos sigilosos contra firewalls antiguos.</td></tr>
+<tr><td><strong>RST</strong></td><td><code>[R]</code> o <code>[R.]</code></td><td>Reinicia y aborta inmediatamente la conexión.</td><td>Puerto cerrado (<code>RST,ACK</code>) o corte forzado por firewall/IPS.</td></tr>
+<tr><td><strong>URG</strong></td><td><code>[U]</code></td><td>Marca puntero de datos urgentes (en desuso en protocolos modernos).</td><td>Raro en tráfico legítimo; suele delatar paquetes artesanales o anomalías.</td></tr>
+</tbody></table></div>
+<h3 id="cap-1-2-udp-y-resolucion-dns">UDP y resolución DNS</h3>
+<ul><li><strong>UDP (User Datagram Protocol):</strong> protocolo sin conexión con una cabecera minimalista de solo <strong>8 bytes</strong> (puerto origen, puerto destino, longitud, checksum). No garantiza orden ni retransmisión, lo que reduce latencia para <strong>DNS</strong>, <strong>DHCP</strong>, <strong>NTP</strong>, <strong>SNMP</strong> y <strong>QUIC (HTTP/3)</strong>. Al no tener handshake, un puerto UDP abierto a menudo no responde nada ante una sonda genérica, mientras que un puerto cerrado devuelve <code>ICMP Type 3 Code 3 (Port Unreachable)</code>.</li><li><strong>DNS (Domain Name System, RFC 1035):</strong> opera normalmente sobre <strong>UDP/53</strong> para consultas estándar y sobre <strong>TCP/53</strong> para transferencias de zona (<code>AXFR</code>) o respuestas grandes (y TCP/853 en DNS over TLS). Un cliente envía una consulta recursiva a su resolvedor local, que recorre de forma iterativa los servidores raíz (<code>.</code>), el TLD (<code>.com</code>, <code>.org</code>) y el servidor autoritativo del dominio. Los registros más relevantes son <code>A</code> (IPv4), <code>AAAA</code> (IPv6), <code>CNAME</code> (alias), <code>NS</code> (servidores de nombres), <code>MX</code> (correo), <code>TXT</code> (políticas SPF/DMARC y verificación) y <code>PTR</code> (resolución inversa IP → nombre).</li></ul>
+<h2 id="cap-1-2-captura-y-analisis-con-tcpdump-y-wireshark">Captura y análisis con <code>tcpdump</code> y Wireshark</h2>
+<p>Capturar paquetes permite ver la verdad exacta de la red sin depender de lo que afirme una aplicación. Es fundamental distinguir dos lenguajes de filtrado distintos:</p>
+<ul><li><strong>Filtros de captura BPF (<em>Berkeley Packet Filter</em>):</strong> usados por <code>tcpdump</code> y por el cuadro <em>Capture Filter</em> de Wireshark. Se ejecutan en el kernel <strong>antes</strong> de escribir a disco para no saturar almacenamiento ni CPU.</li><li><strong>Filtros de visualización (<em>Display Filters</em>):</strong> usados por Wireshark y <code>tshark -Y</code> para inspeccionar paquetes ya capturados con granularidad de capa 7.</li></ul>
+<div class="tabla"><table>
+<thead><tr>
+<th>Objetivo de filtrado</th>
+<th>Filtro de captura BPF (<code>tcpdump</code>)</th>
+<th>Filtro de visualización (Wireshark / <code>tshark -Y</code>)</th>
+</tr></thead><tbody>
+<tr><td>Tráfico de un host exacto</td><td><code>host 127.0.0.1</code></td><td><code>ip.addr == 127.0.0.1</code></td></tr>
+<tr><td>Solo tráfico TCP al puerto 8080</td><td><code>tcp port 8080</code></td><td><code>tcp.port == 8080</code></td></tr>
+<tr><td>Solo paquetes <code>SYN</code> iniciales (sin <code>ACK</code>)</td><td>`tcp[tcpflags] &amp; (tcp-syn\</td><td>tcp-ack) == tcp-syn`</td></tr>
+<tr><td>Tráfico DNS (UDP o TCP 53)</td><td><code>port 53</code></td><td><code>dns</code></td></tr>
+<tr><td>Peticiones HTTP GET</td><td>No filtra semántica HTTP nativa</td><td><code>http.request.method == "GET"</code></td></tr>
+<tr><td>Paquetes ICMP de error o ping</td><td><code>icmp</code></td><td><code>icmp.type == 8 or icmp.type == 0</code></td></tr>
+</tbody></table></div>
+<h2 id="cap-1-2-5-conmutacion-vlans-enrutamiento-nat-e-ipv6-en-redes-modernas">5. Conmutación (VLANs), Enrutamiento, NAT e IPv6 en redes modernas</h2>
+<p>Las redes corporativas raramente funcionan como una única red plana: combinan conmutación de Capa 2 segmentada mediante VLANs, enrutamiento dinámico/estático en Capa 3, traducción de direcciones NAT y convivencia <em>dual-stack</em> con IPv6.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Tecnología / Protocolo</th>
+<th>Función en la red</th>
+<th>Implicación de seguridad y auditoría</th>
+</tr></thead><tbody>
+<tr><td><strong>Switches y VLANs (802.1Q)</strong></td><td>Separan dominios de difusión (<em>broadcast</em>) lógicos sobre switches físicos mediante etiquetas de 12 bits (<code>VLAN ID</code>).</td><td>Configurar puertos de usuario en modo acceso fijo (<code>switchport mode access</code>), deshabilitar DTP y separar las VLANs de servidores, invitados, VoIP y gestión (<em>out-of-band</em>).</td></tr>
+<tr><td><strong>Enrutamiento (Estático, OSPF, BGP) y NAT</strong></td><td>Intercambian rutas entre subredes/sistemas autónomos (<code>OSPF</code> en LAN/WAN corporativa, <code>BGP</code> entre proveedores) y traducen direcciones privadas RFC 1918 (<code>NAT</code>) al salir a internet.</td><td>Exigir autenticación criptográfica en vecinos <code>OSPF</code>/<code>BGP</code> y recordar que <strong>NAT no es un firewall</strong>: solo traduce IPs/puertos; la seguridad real depende de reglas de filtrado con estado (<em>stateful</em>).</td></tr>
+<tr><td><strong>IPv6 y NDP (<em>Neighbor Discovery</em>)</strong></td><td>Direcciones de 128 bits (<code>fe80::/10</code> link-local, <code>fc00::/7</code> únicas locales, <code>2000::/3</code> globales) que reemplazan ARP por ICMPv6 <strong>NDP</strong> y usan <strong>SLAAC</strong> o DHCPv6.</td><td>Incluso en redes "solo IPv4", la pila IPv6 suele venir habilitada por defecto en Windows y Linux. Auditar siempre reglas de firewall IPv6 (<code>ip6tables</code>/<code>nftables</code>) y activar <strong>RA Guard</strong> en switches.</td></tr>
+</tbody></table></div>
+<h2 id="cap-1-2-ejemplo-paso-a-paso-captura-de-un-3-way-handshake-http-y-consulta-dns-en-loopback">Ejemplo paso a paso: Captura de un 3-way handshake HTTP y consulta DNS en loopback</h2>
+<p>En esta práctica vas a capturar tráfico real contra el contenedor <code>lab_web</code> del Capítulo 1.1 (<code>127.0.0.1:8080</code>) usando dos terminales en tu máquina Linux de laboratorio.</p>
+<h3 id="cap-1-2-paso-1-iniciar-la-captura-dirigida-en-loopback-terminal-1">Paso 1: Iniciar la captura dirigida en loopback (Terminal 1)</h3>
+<pre><code class="lenguaje-bash">mkdir -p evidencias/cap1_2
+# -i lo: interfaz loopback | -nn: sin resolución DNS ni nombres de puerto
+# -S: números de secuencia absolutos | -w: guardar en archivo pcap
+sudo tcpdump -i lo -nn -S -w evidencias/cap1_2/http_local.pcap "tcp port 8080"</code></pre>
+<h3 id="cap-1-2-paso-2-generar-una-peticion-http-minima-terminal-2">Paso 2: Generar una petición HTTP mínima (Terminal 2)</h3>
+<pre><code class="lenguaje-bash">curl -s -o /dev/null -w "HTTP %{http_code} | Tiempo total: %{time_total}s\n" http://127.0.0.1:8080/</code></pre>
+<p>Salida esperada:</p>
+<pre><code class="lenguaje-text">HTTP 200 | Tiempo total: 0.004120s</code></pre>
+<p>Detené <code>tcpdump</code> en Terminal 1 con <code>Ctrl+C</code>.</p>
+<h3 id="cap-1-2-paso-3-leer-y-diseccionar-cada-paquete-del-archivo-pcap">Paso 3: Leer y diseccionar cada paquete del archivo <code>.pcap</code></h3>
+<pre><code class="lenguaje-bash">tcpdump -r evidencias/cap1_2/http_local.pcap -nn</code></pre>
+<p>Salida real comentada (los números de puerto efímero y secuencia varían por ejecución):</p>
+<pre><code class="lenguaje-text"># 1) Handshake paso 1: cliente (puerto efímero 51422) envía SYN al puerto 8080
+18:12:04.101102 IP 127.0.0.1.51422 &gt; 127.0.0.1.8080: Flags [S], seq 2948102011, win 65495, length 0
+
+# 2) Handshake paso 2: servidor responde SYN+ACK confirmando ack=1 (relativo)
+18:12:04.101129 IP 127.0.0.1.8080 &gt; 127.0.0.1.51422: Flags [S.], seq 1084729104, ack 2948102012, win 65483, length 0
+
+# 3) Handshake paso 3: cliente confirma con ACK puro; conexión ESTABLISHED
+18:12:04.101144 IP 127.0.0.1.51422 &gt; 127.0.0.1.8080: Flags [.], ack 1, win 512, length 0
+
+# 4) Datos de aplicación: cliente envía solicitud HTTP GET (78 bytes) con bandera PSH+ACK
+18:12:04.101210 IP 127.0.0.1.51422 &gt; 127.0.0.1.8080: Flags [P.], seq 1:79, ack 1, win 512, length 78: HTTP: GET / HTTP/1.1
+
+# 5) Respuesta HTTP 200 OK del servidor Nginx y cierre ordenado posterior
+18:12:04.101502 IP 127.0.0.1.8080 &gt; 127.0.0.1.51422: Flags [P.], seq 1:239, ack 79, win 512, length 238: HTTP: HTTP/1.1 200 OK
+18:12:04.101811 IP 127.0.0.1.51422 &gt; 127.0.0.1.8080: Flags [F.], seq 79, ack 854, win 512, length 0
+18:12:04.101845 IP 127.0.0.1.8080 &gt; 127.0.0.1.51422: Flags [F.], seq 854, ack 80, win 512, length 0
+18:12:04.101860 IP 127.0.0.1.51422 &gt; 127.0.0.1.8080: Flags [.], ack 855, win 512, length 0</code></pre>
+<h3 id="cap-1-2-paso-4-inspeccionar-cabeceras-de-aplicacion-y-dns-con-tshark-dig">Paso 4: Inspeccionar cabeceras de aplicación y DNS con <code>tshark</code> / <code>dig</code></h3>
+<pre><code class="lenguaje-bash"># Extraer campos específicos del pcap con tshark (CLI de Wireshark)
+tshark -r evidencias/cap1_2/http_local.pcap -Y "http" \
+  -T fields -e frame.number -e ip.src -e tcp.srcport -e http.request.method -e http.response.code
+
+# Consultar el resolvedor local (127.0.0.53 en systemd-resolved) con dig
+dig +noall +answer +stats localhost A</code></pre>
+<pre><code class="lenguaje-text">4   127.0.0.1   51422   GET
+5   127.0.0.1   8080            200
+
+localhost.              0       IN      A       127.0.0.1
+;; Query time: 0 msec
+;; SERVER: 127.0.0.53#53(127.0.0.53) (UDP)</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>La pila TCP/IP original fue diseñada para interoperabilidad, no para entornos hostiles. Para endurecer una red frente a abusos de capas 2, 3 y 4 aplicá estas medidas concretas:</p>
+<ol><li><strong>Mitigación de inundaciones SYN (SYN Flood):</strong> habilitá <code>net.ipv4.tcp_syncookies = 1</code> en hosts Linux para no agotar la cola de conexiones semiabiertas (<code>SYN_RECV</code>).</li><li><strong>Protección de Capa 2 en switches:</strong> activá <strong>DHCP Snooping</strong> junto con <strong>Dynamic ARP Inspection (DAI)</strong> y <strong>Port Security</strong> para bloquear ARP Spoofing y servidores DHCP falsos en la LAN.</li><li><strong>Cifrado obligatorio en tránsito:</strong> sustituí protocolos en claro (HTTP, Telnet, FTP, DNS plano) por TLS 1.3 (HTTPS, SSH, DoT/DoH) y validá registros con <strong>DNSSEC</strong> cuando corresponda.</li><li><strong>Segmentación y filtrado de egreso:</strong> dividí servidores, estaciones de trabajo y administración en VLANs/subredes separadas con listas de control de acceso que restrinjan tanto el tráfico entrante como el saliente innecesario (por ejemplo, bloqueando salida directa al puerto UDP/TCP 53 desde servidores que solo deben consultar el DNS interno).</li></ol></aside>
+<h2 id="cap-1-2-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Calculá manualmente, sin calculadoras online, la dirección de red, el broadcast, la máscara decimal y el rango de hosts utilizables para estas tres redes: <code>192.168.56.64/26</code>, <code>172.16.40.200/28</code> y <code>10.20.30.13/30</code>.</li><li>Capturá con <code>tcpdump</code> dos escenarios separados en tu interfaz loopback o Host-Only:</li></ol>
+<ul><li>Una petición HTTP exitosa contra <code>127.0.0.1:8080</code> (<code>evidencias/cap1_2/puerto_abierto.pcap</code>).</li><li>Un intento de conexión contra un puerto cerrado local como <code>127.0.0.1:9999</code> (<code>evidencias/cap1_2/puerto_cerrado.pcap</code>).</li></ul>
+<ol start="3"><li>Abrí ambos archivos <code>.pcap</code> en Wireshark (o inspeccionalos con <code>tshark</code>) y compará las banderas TCP que devolvió el kernel en el puerto abierto (<code>SYN,ACK</code>) frente al puerto cerrado (<code>RST,ACK</code>).</li><li>Generá el resumen <code>SHA-256</code> de tus capturas y notas en <code>evidencias/cap1_2/manifest.sha256</code>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Guardá en <code>evidencias/cap1_2/</code>:</p>
+<ul><li><code>calculo_cidr.md</code>: desarrollo paso a paso de las tres subredes indicadas.</li><li><code>puerto_abierto.pcap</code> y <code>puerto_cerrado.pcap</code>: capturas filtradas en tu entorno local.</li><li><code>analisis_paquetes.txt</code>: salida comentada de <code>tcpdump -r</code> o <code>tshark</code> explicando el 3-way handshake y el paquete <code>RST,ACK</code>.</li><li><code>manifest.sha256</code>: verificación de integridad de los tres archivos anteriores.</li></ul></aside>
+<h2 id="cap-1-2-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Cuántas direcciones IP utilizables para hosts existen en una subred <code>/26</code> y por qué se restan dos direcciones al total del bloque?</strong> Existen <code>62</code> direcciones utilizables. Un prefijo <code>/26</code> deja <code>32 - 26 = 6</code> bits de host, lo que produce <code>2^6 = 64</code> direcciones totales; se restan siempre 2 porque la primera identifica a la dirección de red y la última corresponde a la dirección de broadcast del segmento.</p>
+<p><strong>2. ¿Qué diferencia existe en la respuesta TCP cuando un cliente envía un paquete <code>SYN</code> a un puerto abierto frente a un puerto cerrado sin firewall descartando paquetes?</strong> Un puerto abierto con un servicio escuchando responde con las banderas <code>SYN,ACK</code> (<code>[S.]</code>) para continuar el 3-way handshake. Un puerto cerrado en un host alcanzable responde inmediatamente con <code>RST,ACK</code> (<code>[R.]</code>), indicando que no hay ningún proceso aceptando conexiones en ese puerto.</p>
+<p><strong>3. ¿Por qué el protocolo ARP solo funciona dentro de la misma subred local y qué riesgo de seguridad introduce?</strong> ARP utiliza tramas broadcast de Capa 2 (<code>ff:ff:ff:ff:ff:ff</code>) que los routers no reenvían hacia otras redes, limitándolo al dominio de difusión local. Como carece de mecanismo criptográfico de autenticación, cualquier host en ese segmento puede enviar respuestas ARP falsas (<em>ARP Spoofing</em>) para asociar su MAC con la IP del gateway e interceptar tráfico.</p>
+<p><strong>4. ¿Cuándo debés usar un filtro BPF frente a un filtro de visualización de Wireshark?</strong> El filtro BPF se aplica durante la captura en el kernel (<code>tcpdump</code> o captura de Wireshark) para descartar tráfico irrelevante antes de escribirlo en disco y ahorrar memoria/CPU. El filtro de visualización se aplica sobre paquetes ya capturados para analizar campos profundos de protocolos de aplicación como <code>http.request.method</code> o <code>dns.qry.name</code>.</p>
+<p><strong>5. ¿En qué casos el protocolo DNS utiliza TCP puerto 53 en lugar de UDP puerto 53?</strong> Aunque las consultas comunes usan UDP/53 por baja latencia, DNS emplea TCP/53 cuando una respuesta excede el límite de tamaño de datagrama UDP (marcada con el bit truncado <code>TC</code>), para transferencias de zona entre servidores (<code>AXFR</code>/<code>IXFR</code>) y cuando se requiere transporte confiable orientado a conexión.</p>
+<h2 id="cap-1-2-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Podés identificar en qué capa OSI/TCP-IP actúan ARP, IP, ICMP, TCP, UDP, TLS y HTTP.</li><li>☐ Resolvés subredes CIDR comunes (<code>/24</code> a <code>/30</code>) manualmente sin cometer errores en red, broadcast ni rango útil.</li><li>☐ Distinguís a simple vista <code>[S]</code>, <code>[S.]</code>, <code>[.]</code>, <code>[P.]</code>, <code>[F.]</code> y <code>[R.]</code> en una traza de <code>tcpdump</code>.</li><li>☐ Sabés aplicar filtros BPF en captura y filtros de visualización en Wireshark/<code>tshark</code>.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de avanzar al Capítulo 1.3, confirmá que sabés distinguir en una captura propia un handshake completo (<code>SYN</code> → <code>SYN,ACK</code> → <code>ACK</code>) de un rechazo inmediato (<code>RST,ACK</code>). Esa lectura será clave cuando analices sockets y servicios activos en Linux y Windows.</p></aside>
+<h2 id="cap-1-2-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>RFC 791: <em>Internet Protocol (IPv4)</em> — https://datatracker.ietf.org/doc/html/rfc791</li><li>RFC 9293: <em>Transmission Control Protocol (TCP)</em> — https://datatracker.ietf.org/doc/html/rfc9293</li><li>RFC 1035: <em>Domain Names - Implementation and Specification (DNS)</em> — https://datatracker.ietf.org/doc/html/rfc1035</li><li>RFC 4632: <em>Classless Inter-Domain Routing (CIDR)</em> — https://datatracker.ietf.org/doc/html/rfc4632</li><li>Documentación oficial de <code>tcpdump</code> y filtros BPF (<code>pcap-filter(7)</code>) / Wireshark Display Filter Reference — https://www.tcpdump.org/manpages/pcap-filter.7.html y https://www.wireshark.org/docs/dfref/</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 16 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Introduction to Networking</td><td>Fundamental</td><td>General</td><td>21</td></tr><tr><td>Network Foundations</td><td>Fundamental</td><td>General</td><td>12</td></tr><tr><td>Network Fundamentals</td><td>Fundamental</td><td>General</td><td>10</td></tr><tr><td>Network Fundamentals II</td><td>Easy</td><td>General</td><td>12</td></tr><tr><td>Network Protocols</td><td>Easy</td><td>General</td><td>8</td></tr><tr><td>Network Protocols - 2</td><td>Easy</td><td>General</td><td>8</td></tr><tr><td>Cabling and Connectors</td><td>Easy</td><td>General</td><td>8</td></tr><tr><td>Ethernet Basics</td><td>Easy</td><td>General</td><td>6</td></tr><tr><td>Ethernet Improvements</td><td>Easy</td><td>General</td><td>6</td></tr><tr><td>NICs and Physical Network Cabling</td><td>Easy</td><td>General</td><td>6</td></tr><tr><td>Routing Protocols and NAT</td><td>Easy</td><td>General</td><td>7</td></tr><tr><td>Domain Name System Fundamentals</td><td>Easy</td><td>General</td><td>6</td></tr><tr><td>Securing TCP/IP</td><td>Easy</td><td>Defensive</td><td>6</td></tr><tr><td>Switches and VLANS</td><td>Easy</td><td>General</td><td>6</td></tr><tr><td>IPv6</td><td>Medium</td><td>General</td><td>5</td></tr><tr><td>Wide Area Networks (WAN)</td><td>Easy</td><td>General</td><td>5</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="01-laboratorio-y-etica.html">← 1.1 Laboratorio aislado, marco legal y metodología de estudio</a></div><div><a href="03-linux-fundamentos.html">1.3 Linux para seguridad: permisos, procesos, systemd y logs →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

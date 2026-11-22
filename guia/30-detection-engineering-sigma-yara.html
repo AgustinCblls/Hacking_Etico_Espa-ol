@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 4.5 · Detection Engineering: reglas Sigma, firmas YARA y validación Purple Team · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Redactar y validar reglas Sigma y YARA con pruebas controladas y baja tasa de FP">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo4.html">Tomo IV</a><span aria-hidden="true">›</span><span>Cap. 4.5</span></nav>
+<h1 id="cap-4-5">Capítulo 4.5 · Detection Engineering: reglas Sigma, firmas YARA y validación Purple Team</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Especialista Blue/SOC</span> <span class="nivel-badge defensivo">Defensivo</span> <span><strong>Tomo IV · Ruta 4 · Especialista Blue/SOC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="31-threat-hunting-y-cti.html">4.6 Threat Hunting proactivo, inteligencia de amenazas (CTI) y análisis de phishing</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a poder diseñar, versionar y validar detecciones como código con reglas Sigma y firmas YARA, priorizando comportamientos estables sobre indicadores volátiles dentro de un ciclo Purple Team en laboratorio aislado.</p></aside>
+<p><strong>Prerrequisitos:</strong> Conocimientos básicos de registros de eventos (Windows/Linux), formato YAML, expresiones regulares y manejo inicial de Git. <strong>Duración sugerida:</strong> 3 a 4 horas de estudio y práctica.</p>
+<h2 id="cap-4-5-ingenieria-de-detecciones-como-codigo-detection-as-code">Ingeniería de detecciones como código (Detection-as-Code)</h2>
+<p>La ingeniería de detecciones (<em>Detection Engineering</em>) traslada las prácticas del desarrollo de software al centro de operaciones de seguridad (SOC). En lugar de crear alertas manuales directamente en la interfaz web de un SIEM o XDR, cada regla vive en un repositorio Git, atraviesa revisión por pares (<em>pull requests</em>), pruebas automatizadas y despliegues reproducibles.</p>
+<h3 id="cap-4-5-la-piramide-del-dolor-y-la-calidad-de-las-senales">La Pirámide del Dolor y la calidad de las señales</h3>
+<p>El modelo de David Bianco ordena los indicadores según el esfuerzo que implica para un adversario cambiarlos. Detectar hashes o direcciones IP resulta sencillo, pero ofrece vida útil mínima; detectar patrones de comportamiento y cadenas de herramientas exige mayor diseño, aunque produce alertas mucho más duraderas.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Nivel de la pirámide</th>
+<th>Ejemplo de señal</th>
+<th>Costo de cambio adversario</th>
+<th>Enfoque principal de detección</th>
+</tr></thead><tbody>
+<tr><td>Base (Hashes / IPs)</td><td>SHA-256 de un binario, IP temporal</td><td>Muy bajo</td><td>Listas de bloqueo y firmas puntuales</td></tr>
+<tr><td>Medio (Dominios / Artefactos)</td><td>Dominio recién creado, ruta inusual</td><td>Moderado</td><td>Reglas de red y firmas YARA de estructura</td></tr>
+<tr><td>Cima (Herramientas / TTPs)</td><td>Encadenamiento anómalo de procesos</td><td>Alto</td><td>Reglas Sigma conductuales y correlación EDR</td></tr>
+</tbody></table></div>
+<h3 id="cap-4-5-metricas-clave-de-cobertura-y-precision">Métricas clave de cobertura y precisión</h3>
+<p>Una buena detección equilibra sensibilidad y ruido operativo. En un repositorio de <em>Detection-as-Code</em> conviene medir tres indicadores concretos:</p>
+<ul><li><strong>Precisión (<em>Precision</em>):</strong> proporción de alertas reales frente al total disparado (<code>VP / (VP + FP)</code>). Un exceso de falsos positivos genera fatiga en el analista.</li><li><strong>Cobertura conductual:</strong> porcentaje de tácticas prioritarias —por ejemplo, <em>Execution</em> y <em>Defense Evasion</em> en MITRE ATT&amp;CK— que cuentan con telemetría verificada y al menos una regla activa.</li><li><strong>Tiempo de ajuste (<em>Tuning Time</em>):</strong> lapso entre la detección de un falso positivo recurrente y la publicación de un filtro versionado con su caso de prueba correspondiente.</li></ul>
+<h2 id="cap-4-5-anatomia-de-reglas-sigma">Anatomía de reglas Sigma</h2>
+<p>Sigma es un formato abierto en YAML para describir detecciones sobre registros de eventos de manera independiente del SIEM de destino. Una misma regla puede traducirse luego a Splunk (SPL), Microsoft Sentinel (KQL) o Elasticsearch mediante <code>sigma-cli</code>.</p>
+<h3 id="cap-4-5-estructura-esencial-de-un-archivo-sigma">Estructura esencial de un archivo Sigma</h3>
+<p>En <code>laboratorios/reglas_sigma_ejemplo.yml</code> trabajamos con cuatro bloques fundamentales:</p>
+<ol><li><strong>Metadatos (<code>title</code>, <code>id</code>, <code>status</code>, <code>level</code>, <code>tags</code>):</strong> identifican la regla, su madurez (<code>experimental</code>, <code>test</code>, <code>stable</code>) y su vínculo con tácticas generales como <code>attack.execution</code> o <code>attack.defense_evasion</code>.</li><li><strong><code>logsource</code>:</strong> define el origen lógico de la telemetría (<code>category</code>, <code>product</code>, <code>service</code>), como creación de procesos en Windows o auditoría en Linux.</li><li><strong><code>detection</code>:</strong> agrupa bloques <code>selection</code> (qué buscar), <code>filter</code> (qué excluir para evitar ruido legítimo) y <code>condition</code> (lógica booleana que combina ambos).</li><li><strong><code>falsepositives</code>:</strong> documenta escenarios administrativos esperados para acelerar el triage.</li></ol>
+<pre><code class="lenguaje-yaml"># Archivo: laboratorios/reglas_sigma_ejemplo.yml
+title: Ejecucion de Interprete con Payload Codificado en Laboratorio
+id: 7c2f9e10-4b3a-4d8e-9a12-112233445566
+status: test
+description: Detecta invocaciones sospechosas de interpretes con argumentos codificados.
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_cli:
+    CommandLine|contains:
+      - ' -enc '
+      - ' -EncodedCommand '
+  filter_admin:
+    ParentImage|endswith: '\herramienta_deploy_interna.exe'
+  condition: selection_img and selection_cli and not filter_admin
+falsepositives:
+  - Scripts administrativos legítimos de despliegue automatizado
+level: medium
+tags:
+  - attack.execution
+  - attack.defense_evasion</code></pre>
+<h3 id="cap-4-5-modificadores-y-traduccion-a-consultas-nativas">Modificadores y traducción a consultas nativas</h3>
+<p>Los modificadores (<code>|endswith</code>, <code>|contains</code>, <code>|all</code>, <code>|base64</code>) reducen ambigüedades y facilitan la portabilidad. Al compilar la regla con <code>sigma-cli</code>, un <em>pipeline</em> adapta nombres de campos genéricos al esquema real de tu plataforma de monitoreo.</p>
+<h2 id="cap-4-5-anatomia-de-firmas-yara">Anatomía de firmas YARA</h2>
+<p>Mientras Sigma inspecciona registros de eventos, YARA analiza contenido binario o textual en disco y memoria. Su fortaleza radica en describir familias de archivos, empaquetadores o artefactos sospechosos mediante combinaciones de texto, bytes hexadecimales, expresiones regulares y metadatos estructurales.</p>
+<h3 id="cap-4-5-bloques-meta-strings-condition-y-modulo-pe">Bloques <code>meta</code>, <code>strings</code>, <code>condition</code> y módulo <code>pe</code></h3>
+<p>El archivo <code>laboratorios/reglas_yara_ejemplo.yar</code> ilustra una firma orientada a archivos de prueba seguros en laboratorio:</p>
+<pre><code class="lenguaje-text">/* Archivo: laboratorios/reglas_yara_ejemplo.yar */
+import "pe"
+
+rule LAB_Artefacto_Prueba_SOSPECHOSO {
+    meta:
+        author = "Equipo Blue Team Lab"
+        description = "Identifica un binario PE de prueba con cadena marcadora de laboratorio"
+        date = "2026-11-20"
+        severity = "medium"
+
+    strings:
+        $marcador_txt = "LAB_TELEMETRY_MARKER" ascii wide nocase
+        $secuencia_hex = { 4D 5A 90 00 ?? ?? 00 00 }
+        $patron_cfg = /config_lab_[0-9]{3}\.bin/
+
+    condition:
+        uint16(0) == 0x5A4D and
+        filesize &lt; 5MB and
+        pe.number_of_sections &gt;= 3 and
+        ($marcador_txt or ($secuencia_hex and $patron_cfg))
+}</code></pre>
+<h3 id="cap-4-5-buenas-practicas-de-rendimiento-en-yara">Buenas prácticas de rendimiento en YARA</h3>
+<ul><li><strong>Anclá la condición con chequeos baratos primero:</strong> validar <code>uint16(0) == 0x5A4D</code> (cabecera <code>MZ</code>) y <code>filesize</code> evita evaluar expresiones regulares sobre archivos grandes que no corresponden.</li><li><strong>Evitá cadenas cortas o genéricas:</strong> cadenas de menos de 4 bytes o palabras comunes del sistema operativo disparan falsos positivos y degradan el escaneo masivo.</li><li><strong>Usá módulos nativos con criterio:</strong> el módulo <code>pe</code> permite inspeccionar secciones o marcas temporales sin escribir patrones hexadecimales frágiles.</li></ul>
+<h2 id="cap-4-5-ciclo-de-validacion-purple-team-en-laboratorio">Ciclo de validación Purple Team en laboratorio</h2>
+<p>Escribir una regla sin probarla genera falsa sensación de seguridad. El enfoque Purple Team integra la simulación controlada de escenarios en una VM aislada con la verificación inmediata de la telemetría en tu SIEM o EDR.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Fase del ciclo</th>
+<th>Actividad principal</th>
+<th>Resultado esperado</th>
+</tr></thead><tbody>
+<tr><td>1. Diseño</td><td>Definir hipótesis y comportamiento objetivo</td><td>Borrador de regla Sigma/YARA en rama Git</td></tr>
+<tr><td>2. Emulación segura</td><td>Ejecutar acción benigna equivalente en VM aislada</td><td>Evento generado en logs locales y muestra en disco</td></tr>
+<tr><td>3. Verificación</td><td>Consultar telemetría y ejecutar la regla</td><td>Alerta confirmada o brecha de visibilidad registrada</td></tr>
+<tr><td>4. Refinamiento</td><td>Agregar filtros de ruido y pruebas negativas</td><td>Regla promovida a estado <code>stable</code></td></tr>
+</tbody></table></div>
+<h3 id="cap-4-5-marcos-mitre-car-d3fend-navegacion-att-ck-y-logicas-de-deteccion-criticas">Marcos <em>MITRE CAR / D3FEND</em>, navegación ATT&amp;CK y lógicas de detección críticas</h3>
+<p>Para diseñar cobertura medible más allá de reglas sueltas, el equipo de <em>Detection Engineering</em> combina estándares complementarios:</p>
+<ul><li><strong><em>MITRE ATT&amp;CK Navigator</em>, <em>CAR</em> y <em>D3FEND</em>:</strong> Mientras <strong>ATT&amp;CK Navigator</strong> permite mapear mapas de calor por táctica para detectar puntos ciegos, el repositorio <strong>MITRE CAR (<em>Cyber Analytics Repository</em>)</strong> publica analíticas abstractas basadas en sensores concretos (proceso, archivo, red), y <strong>MITRE D3FEND</strong> conecta cada técnica ofensiva con contramedidas arquitectónicas verificables (<em>Application Hardening</em>, <em>Execution Isolation</em>, <em>Credential Eviction</em>).</li><li><strong>Detección de ataques a credenciales Windows y Active Directory:</strong></li><li><strong><em>Pass-the-Hash</em> y <em>Overpass-the-Hash</em>:</strong> Se detectan correlacionando inicios de sesión <code>Event ID 4624</code> con <strong><code>LogonType == 9</code></strong> (<em>NewCredentials</em>) junto a <code>AuthenticationPackageName: Negotiate/NTLM</code> o <code>seclogo</code> seguido de solicitudes Kerberos <code>4768</code> con cifrado degradado RC4 (<code>0x17</code>) desde un proceso distinto al proveedor estándar.</li><li><strong><em>Golden Ticket</em> y <em>Silver Ticket</em>:</strong> En <em>Golden Ticket</em>, un servicio emite solicitudes <code>4769</code> sin un evento previo <code>4768</code> de obtención de TGT para esa sesión o con duraciones de ticket fuera de política de dominio (<code>&gt; 10h</code>) o cifrado RC4 en cuentas con AES habilitado; en <em>Silver Ticket</em>, se observa uso directo de TGS hacia un servicio sin registro correspondiente en la telemetría del Controlador de Dominio.</li><li><strong>Patrones de detección en CVEs perimetrales críticos:</strong> El ingeniero de detección traduce cada vulnerabilidad pública a trazas invariantes en WAF/SIEM: por ejemplo, en <strong>F5 BIG-IP iControl REST (<code>CVE-2022-1388</code>)</strong> se auditan solicitudes <code>POST</code> a <code>/mgmt/tm/util/bash</code> con cabeceras <code>X-F5-Auth-Token</code> acompañadas de <code>Connection: close, X-F5-Auth-Token</code> (abuso de <em>hop-by-hop headers</em>); y en <strong>Atlassian Confluence (<code>CVE-2023-22515</code> / <code>CVE-2023-22518</code>)</strong> se monitorizan accesos anómalos a endpoints <code>/server-info.action?bootstrapStatusProvider...</code> o <code>/json/setup-restore*.action</code> y creación súbita de cuentas administrativas en registros de aplicación.</li></ul>
+<p><em>(Para practicar sobre firmas estáticas locales, podés inspeccionar la regla comentada en <a href="../laboratorios/reglas_yara_ejemplo.yar"><code>laboratorios/reglas_yara_ejemplo.yar</code></a> y verificar su disparo controlado frente a la muestra benigna <a href="../laboratorios/muestras/muestra_triage_inofensiva.txt"><code>laboratorios/muestras/muestra_triage_inofensiva.txt</code></a>).</em></p>
+<h2 id="cap-4-5-ejemplo-paso-a-paso-conversion-sigma-y-escaneo-yara-en-laboratorio">Ejemplo paso a paso: Conversión Sigma y escaneo YARA en laboratorio</h2>
+<p>En tu máquina de laboratorio (Linux o WSL con entorno virtual Python aislado), vas a convertir la regla Sigma incluida en el repositorio (<code>laboratorios/reglas_sigma_ejemplo.yml</code>) a sintaxis SPL y probar la firma YARA real (<code>laboratorios/reglas_yara_ejemplo.yar</code>) contra el archivo de prueba benigno <code>laboratorios/muestras/muestra_triage_inofensiva.txt</code>.</p>
+<pre><code class="lenguaje-bash"># 1. Validar y convertir la regla Sigma a Splunk (SPL)
+sigma convert -t splunk -p sysmon laboratorios/reglas_sigma_ejemplo.yml</code></pre>
+<p>Salida esperada comentada:</p>
+<pre><code class="lenguaje-text"># Consulta generada lista para probar en el SIEM de laboratorio:
+(Image="*\\powershell.exe" OR Image="*\\pwsh.exe")
+(CommandLine="* -enc *" OR CommandLine="* -EncodedCommand *" OR CommandLine="* -ec *")
+(CommandLine="* -w hidden*" OR CommandLine="* -WindowStyle Hidden*" OR CommandLine="* -nop *")
+NOT ParentImage="*\\ccmexec.exe"</code></pre>
+<p>Ahora probá la firma YARA educativa <code>Lab_Triage_Script_Ofuscado_Generico</code> sobre la muestra benigna en texto plano verificando metadatos (<code>-m</code>) y cadenas halladas (<code>-s</code>):</p>
+<pre><code class="lenguaje-bash"># 2. Escanear la muestra benigna del repositorio mostrando metadatos (-m) y cadenas (-s)
+yara -m -s laboratorios/reglas_yara_ejemplo.yar laboratorios/muestras/muestra_triage_inofensiva.txt</code></pre>
+<p>Salida esperada cuando la condición combinada (<code>filesize &lt; 512KB</code> y <code>$ps_enc1 and $ps_iex</code>) coincide:</p>
+<pre><code class="lenguaje-text"># Nombre de regla, metadatos y offsets de las cadenas detectadas (CRLFs de Windows; en LF varían levemente los offsets):
+Lab_Triage_Script_Ofuscado_Generico [author="Hacking Etico y Defensa Integral",date="2026-11-22",severity="medium"] laboratorios/muestras/muestra_triage_inofensiva.txt
+0x24d:$ps_enc1: FromBase64String
+0x2ba:$ps_iex: Invoke-Expression</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p><strong>Detección y gobierno:</strong> mantené cada regla vinculada a una fuente de telemetría verificada y ejecutá pruebas de regresión automáticas ante cambios de esquema en el SIEM o EDR. <strong>Mitigación complementaria:</strong> una detección nunca reemplaza al endurecimiento. Restringí la ejecución de scripts no firmados mediante políticas de control de aplicaciones, aplicá principio de mínimo privilegio y segmentá el acceso administrativo para reducir la superficie antes de depender de la alerta.</p></aside>
+<h2 id="cap-4-5-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>En tu red de laboratorio aislada (Host-Only o contenedor local):</p>
+<ol><li>Inicializá un repositorio Git local para tus detecciones con carpetas <code>sigma/</code>, <code>yara/</code> y <code>tests/</code>.</li><li>Adaptá <code>laboratorios/reglas_sigma_ejemplo.yml</code> para cubrir un segundo escenario administrativo sensible (por ejemplo, creación de tareas programadas fuera de una ruta autorizada) e incluí un bloque <code>filter</code> realista.</li><li>Escribí una firma YARA en <code>laboratorios/reglas_yara_ejemplo.yar</code> que distinga un archivo de prueba positivo de un archivo de control negativo en <code>/tmp/lab_yara/</code>.</li><li>Ejecutá <code>sigma convert</code> y <code>yara -s</code> documentando el resultado de pruebas positivas y negativas.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un repositorio Git local con: (1) la regla Sigma validada y su salida convertida a SPL o KQL, (2) la firma YARA probada contra al menos un caso positivo y uno negativo sin falsos positivos, y (3) un breve registro Markdown con la hipótesis Purple Team y los ajustes aplicados.</p></aside>
+<h2 id="cap-4-5-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué conviene gestionar reglas de detección bajo un enfoque Detection-as-Code en Git?</strong> Porque aporta trazabilidad, revisión por pares, pruebas reproducibles antes de producción y reversión rápida ante reglas ruidosas.</p>
+<p><strong>2. ¿Qué ventaja ofrece apuntar a comportamientos en la parte alta de la Pirámide del Dolor frente a bloquear hashes?</strong> Un atacante cambia un hash en segundos recompilando o alterando un byte, mientras que modificar su cadena de ejecución o comportamiento operativo exige mayor esfuerzo y deja señales reutilizables.</p>
+<p><strong>3. ¿Cuál es la función del bloque <code>filter</code> dentro de una regla Sigma?</strong> Excluir patrones administrativos legítimos y conocidos para reducir falsos positivos sin debilitar la lógica principal definida en <code>selection</code>.</p>
+<p><strong>4. ¿Por qué se recomienda evaluar <code>filesize</code> o bytes mágicos al inicio de la sección <code>condition</code> en YARA?</strong> Porque son comprobaciones rápidas que descartan archivos irrelevantes antes de ejecutar búsquedas costosas de expresiones regulares o módulos avanzados.</p>
+<p><strong>5. ¿Qué problema resuelve la validación Purple Team en laboratorio respecto a una regla recién escrita?</strong> Confirma que la telemetría realmente llega con los campos esperados y que la regla dispara ante la actividad objetivo sin generar ruido innecesario.</p>
+<h2 id="cap-4-5-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Comprendés la diferencia operativa entre detección sobre logs (Sigma) y análisis de archivos/memoria (YARA).</li><li>☐ Probaste la conversión de una regla Sigma a una consulta concreta con <code>sigma-cli</code>.</li><li>☐ Validaste una firma YARA contra muestras positivas y negativas benignas en tu laboratorio.</li><li>☐ Versionaste cambios y filtros en un repositorio Git local.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Pasá al Capítulo 4.6 cuando puedas explicar cómo transformar una brecha de detección descubierta en pruebas controladas en una regla versionada, probada y con bajo nivel de falsos positivos.</p></aside>
+<h2 id="cap-4-5-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>SigmaHQ — Especificación oficial de Sigma y <code>sigma-cli</code>: https://sigmahq.io/docs/</li><li>VirusTotal / YARA — Documentación oficial del lenguaje y módulos YARA: https://yara.readthedocs.io/</li><li>MITRE ATT&amp;CK — Matriz de tácticas y técnicas de comportamiento adversario: https://attack.mitre.org/</li><li>David Bianco — <em>The Pyramid of Pain</em> (concepto original de priorización de indicadores): https://detect-respond.blogspot.com/2013/03/the-pyramid-of-pain.html</li><li>NIST SP 800-115 — <em>Technical Guide to Information Security Testing and Assessment</em>: https://csrc.nist.gov/publications/detail/sp/800-115/final</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 11 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Detecting Windows Attacks with Splunk</td><td>Medium</td><td>Defensive</td><td>23</td></tr><tr><td>YARA &amp; Sigma for SOC Analysts</td><td>Easy</td><td>Defensive</td><td>11</td></tr><tr><td>Detection &amp; OpSec Cyber Range</td><td>Medium</td><td>Purple</td><td>9</td></tr><tr><td>Detecting Brute Force Attacks</td><td>Medium</td><td>Defensive</td><td>9</td></tr><tr><td>Mastering YARA for Malware Detection</td><td>Hard</td><td>Defensive</td><td>15</td></tr><tr><td>Detecting Web Attacks - 2</td><td>Medium</td><td>Defensive</td><td>4</td></tr><tr><td>Detecting Advanced Web Attacks</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>F5 BIG-IP iControl REST RCE Detection</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Cyber Threat Intelligence for Detection</td><td>Medium</td><td>Defensive</td><td>5</td></tr><tr><td>Detecting Confluence CVEs</td><td>Hard</td><td>Defensive</td><td>8</td></tr><tr><td>Introduction to Detection Engineering</td><td>Medium</td><td>Defensive</td><td>29</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="29-analisis-trafico-ids-ips.html">← 4.4 Network Security Monitoring: Wireshark, Zeek y reglas IDS/IPS Suricata</a></div><div><a href="31-threat-hunting-y-cti.html">4.6 Threat Hunting proactivo, inteligencia de amenazas (CTI) y análisis de phishing →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

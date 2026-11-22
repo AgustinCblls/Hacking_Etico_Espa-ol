@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 5.3 · Seguridad de contenedores Docker: namespaces, socket, escapes y hardening · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar imágenes Docker, capacidades Linux y el socket /var/run/docker.sock aplicando perfiles mínimos">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo5.html">Tomo V</a><span aria-hidden="true">›</span><span>Cap. 5.3</span></nav>
+<h1 id="cap-5-3">Capítulo 5.3 · Seguridad de contenedores Docker: namespaces, socket, escapes y hardening</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Cloud y DevSecOps</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo V · Ruta 5 · Cloud y DevSecOps</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="37-seguridad-kubernetes-y-orquestacion.html">5.4 Seguridad en Kubernetes: RBAC, Pods, etcd, Network Policies y CIS Benchmark</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al concluir este capítulo vas a comprender en profundidad las primitivas del kernel Linux que sustentan el aislamiento de contenedores (Namespaces, cgroups, Linux Capabilities, seccomp y AppArmor), identificar los riesgos arquitectónicos de configuraciones inseguras en Docker (<code>--privileged</code>, montaje de <code>docker.sock</code>, volúmenes del host y ejecución como <code>root</code>), analizar la mecánica conceptual por la cual se rompen las fronteras de aislamiento en un laboratorio controlado, y aplicar técnicas de endurecimiento profesional en Dockerfiles e imágenes mediante multi-stage builds, usuarios sin privilegios, imágenes <code>distroless</code>, <code>hadolint</code>, <code>trivy</code> y el CIS Docker Benchmark.</p></aside>
+<p>A diferencia de las máquinas virtuales estudiadas en los capítulos anteriores, los contenedores <strong>no virtualizan hardware ni ejecutan un sistema operativo invitado independiente</strong>. Un contenedor en Linux es, en esencia, un proceso (o grupo de procesos) estándar que corre directamente sobre el <strong>mismo kernel compartido del sistema anfitrión (<em>host</em>)</strong>, envuelto en un conjunto de restricciones y vistas aisladas administradas por el núcleo.</p>
+<p>Esta arquitectura explica tanto la extraordinaria eficiencia de Docker y OCI (<em>Open Container Initiative</em>) como su principal desafío de seguridad: <strong>si el aislamiento lógico del proceso se debilita o se configura erróneamente, no existe un hipervisor de por medio que separe al contenedor del sistema operativo anfitrión</strong>.</p>
+<h2 id="cap-5-3-fundamentos-del-aislamiento-en-el-kernel-linux">Fundamentos del Aislamiento en el Kernel Linux</h2>
+<p>El motor de contenedores (<em>container runtime</em>, como <code>containerd</code> y <code>runc</code>) combina cinco mecanismos nativos del kernel Linux para construir la ilusión de un sistema aislado y acotar su impacto.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Mecanismo del Kernel</th>
+<th>Función Principal</th>
+<th>Qué Aísla o Limita</th>
+<th>Riesgo si se Deshabilita o Comparte</th>
+</tr></thead><tbody>
+<tr><td><strong>Namespaces</strong></td><td>Aislamiento de visibilidad</td><td>PID, Red (<code>NET</code>), Montajes (<code>MNT</code>), Usuarios (<code>USER</code>), IPC, UTS</td><td>El contenedor ve procesos, interfaces o archivos reales del host</td></tr>
+<tr><td><strong>Control Groups (cgroups)</strong></td><td>Cuotas de recursos físicos</td><td>CPU, RAM, ancho de banda E/S, cantidad máxima de PIDs</td><td>Un proceso descontrolado agota la memoria o CPU del host (DoS)</td></tr>
+<tr><td><strong>Linux Capabilities</strong></td><td>Granularidad de privilegios <code>root</code></td><td>Subconjunto acotado de permisos de kernel (ej. <code>CAP_NET_BIND_SERVICE</code>)</td><td>Permisos excesivos como <code>CAP_SYS_ADMIN</code> habilitan operaciones administrativas sobre el host</td></tr>
+<tr><td><strong>seccomp</strong></td><td>Filtrado de llamadas al sistema</td><td>Bloquea syscalls peligrosas o innecesarias (ej. <code>kexec_load</code>, <code>mount</code>)</td><td>Mayor superficie de ataque directa hacia vulnerabilidades del kernel</td></tr>
+<tr><td><strong>LSM (AppArmor / SELinux)</strong></td><td>Control de acceso obligatorio (MAC)</td><td>Restringe acceso a rutas, sockets y capacidades por perfil</td><td>Procesos comprometidos pueden operar libremente dentro de los límites de UID</td></tr>
+</tbody></table></div>
+<h3 id="cap-5-3-1-namespaces-la-frontera-de-visibilidad">1. Namespaces: La Frontera de Visibilidad</h3>
+<p>Los <em>namespaces</em> particionan los recursos globales del kernel de modo que un conjunto de procesos solo perciba sus propios recursos:</p>
+<ul><li><strong>PID (<code>pid</code>):</strong> Otorga al contenedor su propio árbol de procesos comenzando desde el PID <code>1</code>. Desde adentro no se observan los procesos de otros contenedores ni del host, aunque desde el host todos los procesos del contenedor son visibles con un PID real en el namespace raíz.</li><li><strong>Network (<code>net</code>):</strong> Proporciona una pila de red independiente (interfaces virtuales <code>veth</code>, tablas de ruteo, reglas <code>iptables</code> y puertos propios).</li><li><strong>Mount (<code>mnt</code>):</strong> Aísla la tabla de puntos de montaje del sistema de archivos (combinado con <code>pivot_root</code> y sistemas de archivos en capas como <strong>OverlayFS</strong>).</li><li><strong>IPC (<code>ipc</code>):</strong> Separa colas de mensajes POSIX, semáforos y segmentos de memoria compartida System V.</li><li><strong>User (<code>user</code>):</strong> Permite mapear el UID <code>0</code> (<code>root</code>) dentro del contenedor a un UID no privilegiado (por ejemplo, <code>100000</code>) en el sistema anfitrión (<em>Rootless / User Namespace Remapping</em>). Sin este mapeo activo, el UID <code>0</code> del contenedor coincide con el UID <code>0</code> del kernel del host.</li><li><strong>UTS (<code>uts</code>) y Cgroup (<code>cgroup</code>):</strong> Aíslan el nombre de host/dominio y la jerarquía visible de cgroups respectivamente.</li></ul>
+<h3 id="cap-5-3-2-control-groups-cgroups-v1-v2">2. Control Groups (cgroups v1/v2)</h3>
+<p>Mientras los <em>namespaces</em> definen qué puede <strong>ver</strong> un proceso, los <strong>cgroups</strong> definen cuánto puede <strong>consumir</strong>. Impiden que un contenedor consuma el 100 % de la memoria física (<code>--memory</code>), sature los núcleos de CPU (<code>--cpus</code>) o genere una bomba <em>fork</em> (<code>--pids-limit</code>) que paralice al nodo completo.</p>
+<h3 id="cap-5-3-3-linux-capabilities">3. Linux Capabilities</h3>
+<p>Históricamente en UNIX existía una dicotomía binaria: un usuario era <code>root</code> (omnipotente) o un usuario sin privilegios. Las <strong>Capabilities</strong> dividen el poder tradicional de <code>root</code> en más de 40 privilegios discretos. Por defecto, Docker elimina la mayoría de ellas y otorga únicamente un subconjunto reducido (como <code>CAP_NET_BIND_SERVICE</code> para abrir puertos menores a 1024, <code>CAP_CHOWN</code> o <code>CAP_NET_RAW</code>).</p>
+<p>Dos capabilities merecen atención prioritaria en cualquier auditoría:</p>
+<ul><li><strong><code>CAP_SYS_ADMIN</code>:</strong> Considerada el "nuevo <code>root</code>" en Linux por la enorme cantidad de operaciones administrativas que agrupa (montar sistemas de archivos, manipular namespaces, configurar trazas del kernel). Nunca debe concederse a contenedores de aplicación.</li><li><strong><code>CAP_NET_RAW</code>:</strong> Permite abrir sockets crudos (<em>raw sockets</em>) y fabricar paquetes arbitrarios (como ICMP o ARP spoofing en la red puente local de Docker). En aplicaciones web convencionales debe eliminarse explícitamente (<code>--cap-drop=ALL</code>).</li></ul>
+<h3 id="cap-5-3-4-seccomp-y-apparmor">4. Seccomp y AppArmor</h3>
+<ul><li><strong>seccomp (<em>Secure Computing Mode</em>):</strong> Intercepta las llamadas al sistema (<em>syscalls</em>) entre el espacio de usuario y el kernel. El perfil por defecto de Docker bloquea aproximadamente 44 syscalls de alto riesgo de un total superior a 300 (deshabilitando funciones como <code>reboot</code>, <code>swapon</code>, <code>init_module</code> o <code>ptrace</code> en configuraciones estrictas).</li><li><strong>AppArmor / SELinux:</strong> Implementan <em>Mandatory Access Control (MAC)</em>. El perfil <code>docker-default</code> de AppArmor bloquea escrituras sobre rutas críticas virtuales del kernel como <code>/proc/sysrq-trigger</code>, <code>/proc/kcore</code> o <code>/sys/firmware</code> incluso si el proceso dentro del contenedor corre como <code>root</code>.</li></ul>
+<h2 id="cap-5-3-riesgos-criticos-de-configuracion-en-docker">Riesgos Críticos de Configuración en Docker</h2>
+<p>En la práctica, casi ningún incidente de contenedores se produce por un fallo cero-día en <code>runc</code>, sino por decisiones operativas inseguras al ejecutar <code>docker run</code> o redactar archivos <code>docker-compose.yml</code>.</p>
+<h3 id="cap-5-3-1-el-flag-privileged">1. El flag <code>--privileged</code></h3>
+<p>Ejecutar un contenedor con <code>--privileged</code> desmantela prácticamente todas las capas de seguridad anteriores: otorga <strong>todas</strong> las Linux Capabilities (incluyendo <code>CAP_SYS_ADMIN</code>), desactiva el perfil de <strong>seccomp</strong>, deshabilita <strong>AppArmor/SELinux</strong> y expone todos los dispositivos físicos del host bajo <code>/dev</code> (incluidos los discos duros en bloque como <code>/dev/sda</code> o <code>/dev/nvme0n1</code>). Un contenedor privilegiado posee control administrativo equivalente al del sistema anfitrión.</p>
+<h3 id="cap-5-3-2-montaje-del-socket-var-run-docker-sock">2. Montaje del socket <code>/var/run/docker.sock</code></h3>
+<p>Es habitual observar herramientas de CI/CD, agentes de monitoreo o tableros de gestión montando el socket UNIX del demonio Docker dentro del contenedor (<code>-v /var/run/docker.sock:/var/run/docker.sock</code>) para "gestionar otros contenedores".</p>
+<p>El demonio <code>dockerd</code> escucha en ese socket con privilegios de <code>root</code> en el host y <strong>sin autenticación adicional</strong> para cualquier proceso que pueda escribir en él. Quien controla el socket dentro del contenedor puede emitir peticiones HTTP locales a la API de Docker para crear un nuevo contenedor con el sistema de archivos raíz del host montado, rompiendo por completo el aislamiento previsto.</p>
+<h3 id="cap-5-3-3-montaje-de-rutas-sensibles-del-host-bind-mounts">3. Montaje de rutas sensibles del host (<code>bind mounts</code>)</h3>
+<p>Montar directorios críticos como <code>/</code>, <code>/etc</code>, <code>/root</code>, <code>/var/log</code> o <code>/proc</code> en modo lectura/escritura (<code>rw</code>) rompe el aislamiento del <em>Mount Namespace</em>. Por ejemplo, montar <code>/etc</code> en modo escritura permite modificar archivos de configuración de autenticación o tareas programadas del sistema anfitrión directamente desde el interior del contenedor.</p>
+<h3 id="cap-5-3-4-ejecucion-como-usuario-root-uid-0-por-defecto">4. Ejecución como usuario <code>root</code> (UID 0) por defecto</h3>
+<p>Si un <code>Dockerfile</code> omite la directiva <code>USER</code>, el proceso principal del contenedor arranca como UID <code>0</code>. Si además existe cualquier volumen montado desde el host sin <em>User Namespace Remapping</em>, el proceso del contenedor interactúa con los archivos del host con identidad efectiva de <code>root</code>.</p>
+<h2 id="cap-5-3-mecanica-conceptual-de-escapes-de-contenedor-en-laboratorio">Mecánica Conceptual de Escapes de Contenedor en Laboratorio</h2>
+<p>En entornos de prueba propios, comprender cómo se produce conceptualmente un escape ayuda a verificar si las defensas del nodo están activas. Un escape de contenedor ocurre cuando un proceso logra cruzar la frontera del namespace hacia el sistema anfitrión debido a una configuración permisiva:</p>
+<ol><li><strong>Vía montaje de dispositivos o <code>CAP_SYS_ADMIN</code>:</strong> Cuando un contenedor posee <code>CAP_SYS_ADMIN</code> (o <code>--privileged</code>), puede invocar la syscall <code>mount</code> desde su propio espacio de usuario. Si accede a dispositivos de bloque del host en <code>/dev</code>, puede montar el disco raíz del anfitrión en un subdirectorio temporal del contenedor y leer o alterar archivos del host.</li><li><strong>Vía subsistema <code>cgroup</code> (<code>release_agent</code> en cgroups v1 heredados):</strong> En sistemas antiguos con cgroups v1 y <code>CAP_SYS_ADMIN</code>, un contenedor con acceso de escritura a la jerarquía de cgroups podía registrar un binario de limpieza (<code>release_agent</code>) que el <strong>kernel del host</strong> ejecutaba automáticamente en el namespace raíz al finalizar un grupo de procesos. La migración a <strong>cgroups v2</strong> y la eliminación de <code>CAP_SYS_ADMIN</code> cierran por diseño esta clase de vector.</li><li><strong>Vía API del daemon Docker (<code>docker.sock</code>):</strong> El contenedor no "rompe" el kernel; simplemente le solicita legítimamente al demonio del host a través del socket montado que lance un segundo contenedor sin restricciones y con <code>/</code> del host montado en <code>/mnt/host</code>.</li><li><strong>Vía exposición de <code>/proc</code> y depuración (<code>CAP_SYS_PTRACE</code> + <code>--pid=host</code>):</strong> Compartir el namespace de procesos del host (<code>--pid=host</code>) junto con <code>CAP_SYS_PTRACE</code> expone los procesos reales del anfitrión (incluidos servicios administrativos y variables de entorno en <code>/proc/&lt;pid&gt;/environ</code>) a inspección e interacción directa.</li></ol>
+<pre><code>[Contenedor mal configurado]
+  |-- (--privileged / CAP_SYS_ADMIN) --&gt; Acceso directo a /dev/* o mount() sobre host
+  |-- (-v /var/run/docker.sock)      --&gt; Petición API a dockerd para crear contenedor sin aislamiento
+  |-- (--pid=host + CAP_SYS_PTRACE)  --&gt; Visibilidad e interacción sobre procesos del host</code></pre>
+<h2 id="cap-5-3-hardening-de-dockerfiles-y-auditoria-de-imagenes">Hardening de Dockerfiles y Auditoría de Imágenes</h2>
+<p>La seguridad de un contenedor comienza al construir su imagen. Un <code>Dockerfile</code> endurecido reduce drásticamente el tamaño de la imagen, elimina herramientas innecesarias (compiladores, gestores de paquetes, shells interactivas) y ejecuta el proceso bajo un usuario no privilegiado.</p>
+<h3 id="cap-5-3-comparativa-dockerfile-inseguro-vs-dockerfile-endurecido">Comparativa: Dockerfile Inseguro vs Dockerfile Endurecido</h3>
+<p>Observá cómo transformar una definición clásica vulnerable en una imagen lista para producción usando <strong>multi-stage builds</strong> e imágenes mínimas (<code>distroless</code> o Alpine acotada):</p>
+<pre><code class="lenguaje-dockerfile"># --- PATRÓN INSEGURO (Evitar) ---
+FROM python:3.12
+WORKDIR /app
+COPY . .
+RUN pip install -r requirements.txt
+EXPOSE 8000
+CMD ["python", "app.py"]
+# Problemas: corre como root, incluye compiladores/curl/bash, copia secretos locales (.env/.git),
+# no fija digests ni versiones, imagen pesada (&gt;900 MB) con cientos de CVEs en paquetes del OS.</code></pre>
+<pre><code class="lenguaje-dockerfile"># --- PATRÓN ENDURECIDO (Recomendado) ---
+# Etapa 1: Construcción de dependencias en entorno completo temporal
+FROM python:3.12-slim-bookworm AS builder
+
+WORKDIR /build
+RUN apt-get update &amp;&amp; apt-get install -y --no-install-recommends gcc=4:12.* \
+    &amp;&amp; rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN python -m venv /opt/venv \
+    &amp;&amp; /opt/venv/bin/pip install --no-cache-dir --require-hashes -r requirements.txt
+
+# Etapa 2: Imagen final mínima sin compiladores ni gestor de paquetes
+FROM gcr.io/distroless/python3-debian12:nonroot AS runtime
+
+WORKDIR /app
+COPY --from=builder /opt/venv /opt/venv
+COPY --chown=nonroot:nonroot src/ ./src/
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+USER nonroot
+EXPOSE 8000
+ENTRYPOINT ["/opt/venv/bin/python", "src/app.py"]</code></pre>
+<h3 id="cap-5-3-controles-clave-en-tiempo-de-ejecucion-docker-run">Controles Clave en Tiempo de Ejecución (<code>docker run</code>)</h3>
+<p>Además de endurecer el <code>Dockerfile</code>, aplicá parámetros restrictivos al lanzar el contenedor:</p>
+<pre><code class="lenguaje-bash"># Ejecución endurecida: sin capabilities, sistema de archivos raíz de solo lectura y sin escalada de privilegios
+docker run -d \
+  --name api-endurecida \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges:true \
+  --pids-limit=128 \
+  --memory=256m \
+  --cpus=0.5 \
+  -p 127.0.0.1:8000:8000 \
+  mi-org/api-segura:1.0.0</code></pre>
+<p>La opción <code>--security-opt=no-new-privileges:true</code> impide que cualquier binario dentro del contenedor adquiera privilegios adicionales mediante bits <strong>SUID/SGID</strong> o capabilities de archivo durante <code>execve()</code>. Combinada con <code>--read-only</code> y <code>--cap-drop=ALL</code>, reduce al mínimo el margen de maniobra post-compromiso.</p>
+<h3 id="cap-5-3-auditoria-automatizada-hadolint-trivy-y-docker-bench">Auditoría Automatizada: Hadolint, Trivy y Docker Bench</h3>
+<p>Integrá herramientas de análisis estático y cumplimiento normativo tanto en desarrollo local como en pipelines CI/CD:</p>
+<pre><code class="lenguaje-bash"># 1. Análisis estático de buenas prácticas y seguridad en el Dockerfile con Hadolint
+docker run --rm -i hadolint/hadolint &lt; Dockerfile
+
+# 2. Escaneo de vulnerabilidades (CVEs) y configuraciones erróneas en la imagen construida con Trivy
+trivy image --severity HIGH,CRITICAL --ignore-unfixed mi-org/api-segura:1.0.0
+
+# 3. Auditoría del propio Dockerfile/Compose frente a reglas de configuración (misconfig)
+trivy config --severity HIGH,CRITICAL .
+
+# 4. Inspeccionar en tiempo real los privilegios efectivos de un contenedor en ejecución
+docker inspect --format '{{.Name}} | Privileged={{.HostConfig.Privileged}} | User={{.Config.User}} | CapDrop={{.HostConfig.CapDrop}} | ReadOnly={{.HostConfig.ReadonlyRootfs}}' api-endurecida</code></pre>
+<p>Para auditar la configuración completa del demonio Docker y del sistema anfitrión frente al <strong>CIS Docker Benchmark</strong>, se utiliza <strong>Docker Bench for Security</strong>, que verifica controles desde el cifrado TLS del socket remoto y la habilitación de <em>User Namespaces</em> (<code>userns-remap</code>) hasta la configuración de <em>live-restore</em> y límites de registro (<code>log-driver</code>).</p>
+<p>Una configuración endurecida base para <code>/etc/docker/daemon.json</code> en el nodo anfitrión luce así:</p>
+<pre><code class="lenguaje-json">{
+  "icc": false,
+  "no-new-privileges": true,
+  "userns-remap": "default",
+  "live-restore": true,
+  "userland-proxy": false,
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "5"
+  }
+}</code></pre>
+<p>Desactivar la comunicación inter-contenedores por defecto (<code>"icc": false</code>) obliga a que los servicios se comuniquen únicamente mediante redes Docker definidas explícitamente y puertos declarados, eliminando el tráfico lateral irrestricto dentro del puente <code>docker0</code>.</p>
+<h2 id="cap-5-3-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En tu laboratorio local con Docker instalado, tomá una aplicación web sencilla en Python o Node.js (por ejemplo, un servidor HTTP mínimo de laboratorio) y redactá dos versiones de <code>Dockerfile</code>: una versión base estándar y una versión endurecida utilizando <strong>multi-stage build</strong>, usuario no privilegiado (<code>USER nonroot</code> o <code>UID 10001</code>) e imagen base mínima (<code>alpine</code> o <code>distroless</code>). Ejecutá <code>hadolint</code> y <code>trivy image</code> sobre ambas imágenes para comparar la cantidad de advertencias y vulnerabilidades críticas reportadas, y lanzá la versión final aplicando <code>--cap-drop=ALL</code>, <code>--read-only</code> y <code>--security-opt=no-new-privileges:true</code>.</p>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Generá un informe breve <code>auditoria-docker-lab.md</code> que incluya:</p>
+<ol><li>El <code>Dockerfile</code> endurecido completo junto con el archivo <code>.dockerignore</code> utilizado para excluir archivos sensibles del contexto de compilación.</li><li>Tabla comparativa con los resultados de <code>trivy image</code> (cantidad de CVEs <code>HIGH</code>/<code>CRITICAL</code> y tamaño final en MB) entre la imagen base y la imagen endurecida.</li><li>La salida de <code>docker inspect</code> verificando <code>Privileged=false</code>, <code>ReadonlyRootfs=true</code>, usuario no root y <code>CapDrop=["ALL"]</code>.</li></ol></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y endurecimiento</p><ul><li><strong>Aplicá el CIS Docker Benchmark:</strong> Configurá el daemon con <code>no-new-privileges: true</code> por defecto en <code>/etc/docker/daemon.json</code>, activá <code>userns-remap</code> (o <strong>Rootless Docker</strong>), restringí la comunicación entre contenedores (<code>"icc": false</code>) y mantené habilitados seccomp y AppArmor.</li><li><strong>Prohibí cargas privilegiadas y montajes del socket:</strong> Nunca expongas <code>/var/run/docker.sock</code> a contenedores orientados a aplicaciones ni CI compartidos sin aislamiento fuerte (usá constructores sin daemon como <strong>Kaniko</strong> o <strong>BuildKit rootless</strong>).</li><li><strong>Imágenes inmutables y firmadas:</strong> Construí imágenes mínimas <code>distroless</code> fijadas por digest SHA-256, escanealas con <strong>Trivy</strong> en cada <em>pull request</em> y firmalas criptográficamente con <strong>Cosign (Sigstore)</strong> antes de admitirlas en producción.</li></ul></aside>
+<h2 id="cap-5-3-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué una vulnerabilidad o mala configuración dentro de un contenedor puede impactar al sistema operativo anfitrión de forma más directa que en una máquina virtual?</strong> Porque los contenedores comparten el mismo kernel Linux del host en lugar de ejecutar un núcleo independiente aislado por un hipervisor de hardware, dependiendo exclusivamente de <em>namespaces</em>, <em>cgroups</em>, <em>capabilities</em>, <em>seccomp</em> y módulos LSM para mantener las fronteras.</p>
+<p><strong>2. ¿Cuál es la diferencia funcional entre los <em>Namespaces</em> y los <em>Control Groups (cgroups)</em> en Linux?</strong> Los <em>namespaces</em> aíslan lo que un proceso puede ver (árbol de PIDs, interfaces de red, puntos de montaje, usuarios), mientras que los <em>cgroups</em> limitan cuántos recursos físicos puede consumir (memoria RAM, tiempo de CPU, operaciones de disco y número máximo de procesos).</p>
+<p><strong>3. ¿Por qué montar <code>/var/run/docker.sock</code> dentro de un contenedor equivale operativamente a otorgar privilegios de administrador en el host?</strong> Porque el socket permite enviar comandos directos sin autenticación al demonio <code>dockerd</code> que corre como <code>root</code> en el host, lo que habilita crear nuevos contenedores privilegiados o con la raíz <code>/</code> del sistema anfitrión montada en lectura y escritura.</p>
+<p><strong>4. ¿Qué efecto concreto producen las opciones <code>--cap-drop=ALL</code>, <code>--read-only</code> y <code>--security-opt=no-new-privileges:true</code> al ejecutar un contenedor?</strong> Eliminan todas las Linux Capabilities del proceso, montan su sistema de archivos raíz en modo de solo lectura para impedir la persistencia o modificación de binarios en disco, y bloquean la adquisición de privilegios elevados mediante bits SUID/SGID o capabilities de archivo al ejecutar nuevos procesos.</p>
+<p><strong>5. ¿Qué ventajas de seguridad aporta construir una imagen con <em>multi-stage builds</em> sobre una base <code>distroless</code>?</strong> Separa las herramientas de compilación y descarga de dependencias en una etapa temporal que se descarta, entregando en la imagen final únicamente el binario o runtime mínimo sin shell interactiva (<code>/bin/sh</code>), sin gestor de paquetes (<code>apt</code>/<code>apk</code>) y con una superficie de CVEs y tamaño drásticamente menores.</p>
+<h2 id="cap-5-3-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de dar el salto hacia la orquestación distribuida con Kubernetes, confirmá estos puntos clave:</p>
+<ul><li>Distinguís con claridad qué función cumple cada primitiva del kernel (Namespaces, cgroups, Capabilities, seccomp, AppArmor).</li><li>Sabés detectar al instante banderas peligrosas en despliegues Docker (<code>--privileged</code>, <code>docker.sock</code>, <code>--pid=host</code>, <code>CAP_SYS_ADMIN</code>).</li><li>Podés escribir un <code>Dockerfile</code> multi-stage con usuario no root y auditarlo mediante <code>hadolint</code> y <code>trivy</code>.</li></ul></aside>
+<h2 id="cap-5-3-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>CIS Docker Benchmark (Center for Internet Security):</strong> Estándar de referencia para configuración segura del host, demonio Docker, archivos de configuración e imágenes de contenedores.</li><li><strong>NIST SP 800-190 (Application Container Security Guide):</strong> Guía técnica integral sobre riesgos en imágenes, registros, orquestadores, contenedores y sistema operativo anfitrión.</li><li><strong>OWASP Docker Security Cheat Sheet:</strong> Lista práctica de endurecimiento para <code>Dockerfile</code>, <code>docker-compose</code> y parámetros de ejecución.</li><li><strong>Linux Kernel Documentation (Namespaces, cgroups v2, Capabilities, seccomp):</strong> Documentación oficial de las primitivas de aislamiento del núcleo Linux.</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="35-superficie-cloud-storage-redes-imds.html">← 5.2 Superficie Cloud: S3/Storage, redes VPC, Serverless, Secretos e IMDSv2</a></div><div><a href="37-seguridad-kubernetes-y-orquestacion.html">5.4 Seguridad en Kubernetes: RBAC, Pods, etcd, Network Policies y CIS Benchmark →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 6.1 · Web avanzado: Race Conditions HTTP/2, Cache Poisoning, WebSockets y DOM Clobbering · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar condiciones de carrera single-packet, envenenamiento de caché, WebSockets y CSPT siguiendo WSTG">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo6.html">Tomo VI</a><span aria-hidden="true">›</span><span>Cap. 6.1</span></nav>
+<h1 id="cap-6-1">Capítulo 6.1 · Web avanzado: Race Conditions HTTP/2, Cache Poisoning, WebSockets y DOM Clobbering</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Ingeniería Ofensiva y OPSEC</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo VI · Ruta 6 · Ingeniería Ofensiva y OPSEC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="42-oauth-oidc-avanzado-y-logica-negocio.html">6.2 OAuth 2.0 / OIDC complejo, lógica de negocio y checklists OWASP WSTG</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Dominar la auditoría y la remediación de vulnerabilidades web de alta complejidad temporal y arquitectónica: condiciones de carrera sincronizadas mediante HTTP/2, envenenamiento y engaño de cachés intermedias, fallas en canales bidireccionales WebSocket y colisiones en el DOM o rutas relativas del navegador. Al finalizar, vas a saber diagnosticar la causa raíz en arquitectura distribuida y aplicar controles atómicos, cabeceras estrictas y saneamiento seguro.</p></aside>
+<p>Las vulnerabilidades web clásicas suelen manifestarse en una única petición HTTP aislada: enviás un parámetro mal formado y el servidor responde con un error o un comportamiento inesperado. En aplicaciones modernas basadas en microservicios, balanceadores, CDN y clientes <em>Single Page Application</em> (SPA), las fallas más críticas emergen de la <strong>interacción entre componentes</strong> y de las <strong>ventanas temporales</strong> entre validación y ejecución.</p>
+<p>Este capítulo aborda cuatro superficies avanzadas siguiendo el criterio técnico de <em>PortSwigger Web Security Academy</em> y la guía <em>OWASP Web Security Testing Guide</em> (WSTG), priorizando el entendimiento profundo del protocolo y las defensas estructurales.</p>
+<hr>
+<h2 id="cap-6-1-1-race-conditions-avanzadas">1. Race Conditions avanzadas</h2>
+<p>Una condición de carrera (<em>race condition</em>) ocurre cuando múltiples hilos, procesos o peticiones concurrentes acceden y modifican un recurso compartido sin una sincronización adecuada. En aplicaciones web, el patrón clásico se conoce como <strong>TOCTOU</strong> (<em>Time-of-Check to Time-of-Use</em>): el servidor verifica una precondición (por ejemplo, si hay saldo suficiente o si un cupón no fue usado) y, milisegundos después, ejecuta la acción (descontar saldo o marcar el cupón). Si dos peticiones atraviesan la etapa de verificación antes de que la primera complete la escritura, ambas resultan aprobadas.</p>
+<h3 id="cap-6-1-1-1-limit-overrun-y-ventanas-de-concurrencia">1.1 Limit Overrun y ventanas de concurrencia</h3>
+<p>El escenario más frecuente es el <em>Limit Overrun</em>: superar un límite de negocio diseñado para aplicarse una sola vez (canje de créditos promocionales, votación única, retiro de fondos o creación duplicada de registros únicos).</p>
+<p>Considerá un endpoint típico de canje de saldo promocional implementado sin control de concurrencia:</p>
+<pre><code class="lenguaje-python"># Código vulnerable (patrón TOCTOU)
+@app.post("/api/v1/promos/redeem")
+def redeem_promo(user_id: int, code: str):
+    promo = db.query("SELECT id, amount, redeemed FROM promos WHERE code = %s", (code,))
+    if not promo or promo.redeemed:
+        return {"error": "Cupón inválido o ya utilizado"}, 400
+
+    # Ventana de carrera: entre la lectura y las escrituras siguientes,
+    # múltiples peticiones simultáneas ven promo.redeemed == False.
+    db.execute("UPDATE wallets SET balance = balance + %s WHERE user_id = %s", (promo.amount, user_id))
+    db.execute("UPDATE promos SET redeemed = TRUE WHERE id = %s", (promo.id,))
+    db.commit()
+    return {"status": "ok"}</code></pre>
+<p>En una prueba tradicional con peticiones HTTP/1.1 enviadas secuencialmente o en conexiones TCP separadas, la latencia de red (el <em>jitter</em> entre paquetes) suele dispersar la llegada al servidor a lo largo de decenas de milisegundos, lo que hace difícil reproducir ventanas sub-milisegundo.</p>
+<h3 id="cap-6-1-1-2-single-packet-attack-sobre-http-2">1.2 Single-Packet Attack sobre HTTP/2</h3>
+<p>La investigación moderna sobre concurrencia web (popularizada por James Kettle en PortSwigger) demostró que <strong>HTTP/2</strong> elimina prácticamente todo el <em>jitter</em> de red mediante la multiplexación de <em>streams</em> dentro de una única conexión TCP/TLS.</p>
+<p>En lugar de abrir veinte conexiones TCP independientes —donde cada una sufre distintas colas en el sistema operativo, handshakes TLS y congestión—, un cliente de auditoría puede agrupar múltiples peticiones lógicas en la misma conexión HTTP/2 utilizando una técnica de sincronización en dos fases:</p>
+<ol><li><strong>Pre-envío incompleto</strong>: el cliente envía las cabeceras (<code>HEADERS</code>) y la mayor parte del cuerpo (<code>DATA</code>) de N peticiones en paralelo en distintos <em>streams</em> HTTP/2, pero <strong>retiene el flag <code>END_STREAM</code></strong> (o deja pendiente el último byte de cada stream). El servidor o proxy inverso recibe los datos parciales y los mantiene en el buffer esperando el cierre de cada stream, sin despachar todavía la petición a la lógica de negocio.</li><li><strong>Disparo en un único paquete TCP</strong>: tras una breve pausa para vaciar buffers y estabilizar la ventana TCP, el cliente envía los frames finales con <code>END_STREAM</code> de todos los streams dentro de <strong>un único segmento TCP</strong> (hasta ~1460 bytes de payload MSS).</li></ol>
+<pre><code class="lenguaje-text">Cliente HTTP/2                         Proxy / Servidor Web
+  |                                             |
+  |--- Stream 1: HEADERS + DATA (sin END) -----&gt;| [En buffer]
+  |--- Stream 3: HEADERS + DATA (sin END) -----&gt;| [En buffer]
+  |--- Stream 5: HEADERS + DATA (sin END) -----&gt;| [En buffer]
+  |                                             |
+  |=== 1 Paquete TCP: END_STREAM (1, 3, 5) ====&gt;| ¡Despacho simultáneo (&lt; 100 µs)!</code></pre>
+<p>Como el kernel del servidor procesa ese último paquete TCP en una sola interrupción de red, el servidor web despacha los N hilos trabajadores casi en el mismo microsegundo. Incluso servidores en Node.js o Python con código asíncrono (<code>async/await</code>) quedan expuestos si ceden el <em>event loop</em> durante una consulta <code>await db.fetch(...)</code> antes de escribir.</p>
+<h3 id="cap-6-1-1-3-hidden-multi-step-sequences">1.3 Hidden Multi-Step Sequences</h3>
+<p>No todas las condiciones de carrera involucran dos llamadas al mismo endpoint. Muchas ocurren dentro de <strong>una sola petición HTTP</strong> que internamente ejecuta varios pasos, o entre <strong>dos endpoints distintos</strong> que comparten un estado intermedio transitorio (<em>sub-state</em>).</p>
+<p>Ejemplos reales observados en auditorías:</p>
+<ul><li><strong>Inicialización de sesión con privilegios temporales</strong>: un flujo de login crea primero el registro de sesión en Redis con estado predeterminado y luego consulta el rol o bloquea la cuenta si falló el MFA. Durante unos milisegundos existe una sesión válida previa a la verificación secundaria.</li><li><strong>Restablecimiento de contraseña y cambio de correo</strong>: si un endpoint genera un token de recuperación y tarda algunos milisegundos en asociarlo al usuario correcto en una tabla auxiliar, una petición paralela de actualización de perfil puede alterar el destinatario antes de que se envíe la notificación.</li><li><strong>Carga y validación de archivos</strong>: guardar un archivo en el directorio público temporal y ejecutar el análisis antivirus o la verificación de formato después, borrándolo solo si falla.</li></ul>
+<h3 id="cap-6-1-1-4-mitigacion-transaccional-y-atomica">1.4 Mitigación transaccional y atómica</h3>
+<p>Deshabilitar HTTP/2 no soluciona una condición de carrera: solo dificulta ligeramente la sincronización externa, mientras que el problema sigue presente bajo tráfico legítimo concurrente. La remediación debe ocurrir en la capa de datos y coordinación.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Mecanismo defensivo</th>
+<th>Cómo funciona</th>
+<th>Cuándo aplicarlo</th>
+</tr></thead><tbody>
+<tr><td><strong><code>SELECT ... FOR UPDATE</code></strong></td><td>Bloquea la fila leída dentro de una transacción ACID hasta el <code>COMMIT</code> o <code>ROLLBACK</code>.</td><td>Operaciones financieras, inventario o cupones en SQL relacional.</td></tr>
+<tr><td><strong>Actualización condicional atómica</strong></td><td><code>UPDATE promos SET redeemed = TRUE WHERE id = %s AND redeemed = FALSE</code> verificando <code>rowcount == 1</code>.</td><td>Cambios de estado simples sin lectura previa compleja.</td></tr>
+<tr><td><strong>Restricciones <code>UNIQUE</code> y <code>CHECK</code></strong></td><td>Delega al motor SQL la imposibilidad de duplicados (<code>UNIQUE(user_id, promo_id)</code>) o saldos negativos (<code>CHECK (balance &gt;= 0)</code>).</td><td>Reglas de unicidad y límites numéricos invariantes.</td></tr>
+<tr><td><strong>Locks distribuidos (Redis)</strong></td><td>Usa <code>SET lock_key token NX PX 5000</code> y liberación atómica mediante script Lua comparando el token dueño.</td><td>Microservicios sin base relacional compartida o acceso a APIs externas.</td></tr>
+<tr><td><strong>Idempotency Keys</strong></td><td>El cliente envía <code>Idempotency-Key: &lt;UUID&gt;</code>; el servidor guarda la clave en un índice único y devuelve la respuesta cacheada ante reintentos paralelos.</td><td>Pasarelas de pago, creación de órdenes y webhooks.</td></tr>
+</tbody></table></div>
+<p>Ejemplo de remediación segura en Python/PostgreSQL combinando bloqueo pesimista y verificación de integridad:</p>
+<pre><code class="lenguaje-python"># Código remediado con transacción atómica y bloqueo de fila
+@app.post("/api/v1/promos/redeem")
+def redeem_promo_safe(user_id: int, code: str):
+    with db.transaction():
+        # Bloquea la fila específica hasta finalizar la transacción
+        promo = db.query_one(
+            "SELECT id, amount, redeemed FROM promos WHERE code = %s FOR UPDATE",
+            (code,),
+        )
+        if not promo or promo.redeemed:
+            return {"error": "Cupón inválido o ya utilizado"}, 400
+
+        updated = db.execute(
+            "UPDATE promos SET redeemed = TRUE, redeemed_by = %s WHERE id = %s AND redeemed = FALSE",
+            (user_id, promo.id),
+        )
+        if updated.rowcount != 1:
+            raise ConcurrencyConflictError("Estado modificado concurrentemente")
+
+        db.execute(
+            "UPDATE wallets SET balance = balance + %s WHERE user_id = %s",
+            (promo.amount, user_id),
+        )
+    return {"status": "ok"}</code></pre>
+<aside class="callout aviso"><p class="callout-titulo">Evitá los sleeps artificiales como defensa</p><p>Introducir retardos aleatorios o bloqueos exclusivos en memoria local del proceso web (como <code>threading.Lock()</code> en Python) <strong>no protege</strong> despliegues con múltiples <em>workers</em> (Gunicorn, PM2) ni múltiples réplicas en Kubernetes. El bloqueo siempre debe residir en un almacén centralizado (base de datos transaccional o coordinador distribuido).</p></aside>
+<hr>
+<h2 id="cap-6-1-2-web-cache-poisoning-y-web-cache-deception">2. Web Cache Poisoning y Web Cache Deception</h2>
+<p>Las cachés intermedias (CDN como Cloudflare/Fastly, Varnish o Nginx en modo <em>reverse proxy cache</em>) almacenan respuestas generadas por el origen para acelerar la entrega a futuros usuarios. Aunque ambas familias de ataques abusan de esta capa, sus objetivos y mecanismos son inversos:</p>
+<ul><li><strong>Web Cache Poisoning (envenenamiento)</strong>: el atacante fuerza al servidor de origen a generar una respuesta maliciosa (por ejemplo, con un enlace <code>&lt;script&gt;</code> alterado) y logra que el caché la guarde bajo una clave normal para servirla a <strong>otros usuarios</strong>.</li><li><strong>Web Cache Deception (engaño)</strong>: el atacante engaña al caché para que almacene una respuesta <strong>privada y legítima</strong> de una víctima autenticada (por ejemplo, su perfil o token CSRF) bajo una URL aparentemente estática, y luego la lee directamente.</li></ul>
+<h3 id="cap-6-1-2-1-cache-keys-vs-unkeyed-inputs">2.1 Cache Keys vs Unkeyed Inputs</h3>
+<p>Para decidir si dos peticiones merecen la misma respuesta guardada, la caché calcula una <strong>Cache Key</strong> (clave de caché) usando normalmente el método HTTP, el esquema, el <code>Host</code> y la ruta con ciertos parámetros de consulta. Todo componente de la petición HTTP que <strong>no forma parte de la clave</strong> se denomina <strong>Unkeyed Input</strong>.</p>
+<p>Si el servidor de origen lee un <em>Unkeyed Input</em> para construir la respuesta HTML o los encabezados, surge una brecha arquitectónica:</p>
+<ol><li><strong>Cabeceras de reenvío (<code>X-Forwarded-Host</code>, <code>X-Host</code>, <code>X-Forwarded-Scheme</code>)</strong>: muchos frameworks generan URLs absolutas para cargar scripts o redirecciones leyendo estas cabeceras cuando confían ciegamente en cualquier proxy. Si el caché indexa solo por la URL <code>/inicio</code> e ignora <code>X-Forwarded-Host</code>, una respuesta que refleje ese host queda almacenada para todos los visitantes de <code>/inicio</code>.</li><li><strong>Parámetros excluidos (UTM / analytics)</strong> y <strong>cabeceras <code>Vary</code></strong>: algunas CDN descartan parámetros de seguimiento como <code>utm_source</code> de la clave de caché. Si la aplicación refleja un parámetro descartado en el DOM o en una redirección, la respuesta envenenada se sirve a quienes visiten la URL limpia. Por otro lado, si una respuesta varía según una cabecera (como <code>Origin</code> en CORS o <code>Accept-Encoding</code>), debe declararse explícitamente en la cabecera de respuesta <code>Vary</code>.</li></ol>
+<h3 id="cap-6-1-2-2-fat-get-requests">2.2 Fat GET Requests</h3>
+<p>En el estándar HTTP, una petición <code>GET</code> puede transportar un cuerpo (<em>body</em>), aunque la mayoría de los proxies y cachés ignoran el cuerpo al calcular la <em>Cache Key</em>. Sin embargo, algunos frameworks backend (o configuraciones con <code>X-HTTP-Method-Override</code>) parsean parámetros tanto de la <em>query string</em> como del cuerpo JSON o <em>form-urlencoded</em> en rutas <code>GET</code>, dando prioridad al cuerpo.</p>
+<pre><code class="lenguaje-http">GET /api/config?lang=es HTTP/1.1
+Host: app.ejemplo.com
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 19
+
+callback=validarCfg</code></pre>
+<p>Si la caché ignora el cuerpo y guarda la respuesta bajo la clave <code>GET /api/config?lang=es</code>, cualquier usuario que solicite esa ruta recibirá la respuesta alterada por el parámetro oculto en el cuerpo. La solución es rechazar peticiones <code>GET</code> o <code>HEAD</code> con <code>Content-Length &gt; 0</code> o <code>Transfer-Encoding</code> en el proxy inverso, y no mezclar parsers de body en manejadores <code>GET</code>.</p>
+<h3 id="cap-6-1-2-3-web-cache-deception-y-normalizacion-de-rutas">2.3 Web Cache Deception y normalización de rutas</h3>
+<p>En el <em>Web Cache Deception</em>, el problema radica en una <strong>discrepancia de interpretación de rutas</strong> entre el CDN/proxy y el servidor de origen.</p>
+<p>Imaginá que el servidor de origen usa un framework tolerante con sufijos o segmentos extra (como ciertos enrutadores PHP, Spring o Express mal configurados) donde <code>/cuenta/perfil/inexistente.css</code> resuelve al mismo controlador autenticado que <code>/cuenta/perfil</code>. Mientras tanto, el CDN aplica una regla simple basada en extensión: <em>"cachear cualquier ruta terminada en <code>.css</code>, <code>.js</code> o <code>.png</code> por 10 minutos, ignorando las cabeceras de sesión"</em>.</p>
+<pre><code class="lenguaje-text">Víctima (autenticada) ---&gt; GET /cuenta/perfil/estilo.css ---&gt; CDN (regla: .css es público/cacheable)
+                                                               |
+                                                               v (miss de caché)
+                                                        Servidor Origen
+                                                               |
+                                                               v (normaliza/ignora sufijo)
+                                                        Responde HTML privado de /cuenta/perfil
+                                                               |
+                                                               v
+CDN guarda el HTML privado bajo la clave "/cuenta/perfil/estilo.css"
+Auditor / Tercero ---&gt; GET /cuenta/perfil/estilo.css ---&gt; CDN devuelve HIT con datos privados</code></pre>
+<p>Variantes modernas explotan diferencias en la decodificación de delimitadores (<code>;</code>, <code>%2f</code>, <code>%3b</code>, <code>%23</code>) o normalización de barras (<code>..%2f</code>) entre el proxy de borde y el servidor de aplicaciones.</p>
+<h3 id="cap-6-1-2-4-controles-de-cache-y-validacion-estricta">2.4 Controles de caché y validación estricta</h3>
+<p>Para erradicar ambas clases de fallas:</p>
+<ul><li><strong>Contenido autenticado o dinámico</strong>: emití siempre <code>Cache-Control: private, no-store, max-age=0</code> y configurá el CDN para <strong>respetar las directivas del origen</strong> (<em>Honor Origin Cache-Control</em>), nunca sobrescribirlas por extensión de archivo.</li><li><strong>Rutas estrictas en origen</strong>: deshabilitá el <em>trailing path info</em> o coincidencia por prefijo tolerante. Si <code>/cuenta/perfil</code> recibe <code>/cuenta/perfil/algo.css</code>, debe responder <code>404 Not Found</code> y no renderizar el perfil.</li><li><strong>Sanitización de cabeceras de borde</strong>: el proxy inverso confiable debe sobrescribir o eliminar <code>X-Forwarded-Host</code>, <code>X-Original-URL</code>, <code>X-Rewrite-URL</code> y <code>X-HTTP-Method-Override</code> procedentes de Internet antes de reenviar al backend.</li><li><strong>Validación de <code>Vary</code></strong>: incluí en <code>Vary</code> toda cabecera que influya en la respuesta (por ejemplo <code>Vary: Origin, Accept-Encoding</code>), evitando incluir cabeceras de alta entropía como <code>User-Agent</code> o <code>Cookie</code> si se busca eficiencia de caché.</li></ul>
+<hr>
+<h2 id="cap-6-1-3-seguridad-en-websockets">3. Seguridad en WebSockets</h2>
+<p>HTTP sigue un modelo estricto de petición-respuesta iniciado por el cliente. Cuando una aplicación necesita comunicación bidireccional de baja latencia (chats en vivo, cotizaciones, notificaciones o consolas interactivas), utiliza <strong>WebSockets</strong> (RFC 6455).</p>
+<h3 id="cap-6-1-3-1-el-handshake-upgrade-websocket">3.1 El Handshake <code>Upgrade: websocket</code></h3>
+<p>Toda conexión WebSocket comienza como una petición HTTP/1.1 estándar con cabeceras de negociación de protocolo:</p>
+<pre><code class="lenguaje-http">GET /ws/notificaciones HTTP/1.1
+Host: app.ejemplo.com
+Upgrade: websocket
+Connection: Upgrade
+Origin: https://app.ejemplo.com
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Version: 13
+Cookie: session_id=eyJhbGciOi...</code></pre>
+<p>Si el servidor acepta, responde <code>101 Switching Protocols</code> con <code>Sec-WebSocket-Accept</code> calculado a partir de la clave del cliente. A partir de ese instante, el socket TCP deja de hablar HTTP y pasa a intercambiar <strong>frames binarios o de texto</strong> de forma asíncrona en ambas direcciones.</p>
+<h3 id="cap-6-1-3-2-cross-site-websocket-hijacking-cswsh">3.2 Cross-Site WebSocket Hijacking (CSWSH)</h3>
+<p>El navegador adjunta automáticamente las cookies de sesión (<code>Cookie: session_id=...</code>) en el handshake <code>Upgrade: websocket</code> hacia un dominio, exactamente igual que en una petición HTTP tradicional. Además, <strong>el protocolo WebSocket no aplica la Same-Origin Policy (SOP)</strong> para bloquear la apertura de conexiones desde un origen externo; la responsabilidad de decidir si un sitio tercero puede abrir el túnel recae por completo en el servidor durante el handshake.</p>
+<p>Si el servidor WebSocket cumple estas dos condiciones inseguras:</p>
+<ol><li>Autentica al usuario únicamente mediante cookies (especialmente si tienen <code>SameSite=None</code> o en escenarios donde el navegador permite el envío en navegación/subrecursos compatibles).</li><li><strong>No valida la cabecera <code>Origin</code></strong> ni exige un token anti-CSRF único vinculado a la sesión dentro del mensaje de apertura o query parameter seguro.</li></ol>
+<p>Entonces, un sitio externo malicioso visitado por la víctima puede abrir un objeto <code>new WebSocket("wss://app.ejemplo.com/ws/notificaciones")</code> en JavaScript, recibir datos confidenciales emitidos por el servidor o enviar comandos privilegiados actuando con la identidad de la víctima.</p>
+<p><strong>Remediación del handshake:</strong></p>
+<pre><code class="lenguaje-javascript">// Verificación estricta de Origin y token efímero en servidor WebSocket (Node.js 'ws')
+const ALLOWED_ORIGINS = new Set(["https://app.ejemplo.com"]);
+
+wss.on("connection", async (ws, req) =&gt; {
+  const origin = req.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+    ws.close(1008, "Origin no autorizado");
+    return;
+  }
+
+  // Además del Origin, exigí un ticket efímero de un solo uso generado vía API autenticada con CSRF protection
+  const url = new URL(req.url, "https://app.ejemplo.com");
+  const ticket = url.searchParams.get("ticket");
+  const userSession = await consumeOneTimeWsTicket(ticket, req);
+  if (!userSession) {
+    ws.close(1008, "Ticket de sesión inválido");
+    return;
+  }
+
+  ws.user = userSession;
+});</code></pre>
+<h3 id="cap-6-1-3-3-manipulacion-de-mensajes-y-sanitizacion-bidireccional">3.3 Manipulación de mensajes y sanitización bidireccional</h3>
+<p>Una vez establecido el túnel, muchos equipos de desarrollo cometen el error de asumir que los datos que llegan por WebSocket son "seguros" porque el cliente JS oficial los serializó correctamente, o porque existe un WAF perimetral HTTP. Sin embargo:</p>
+<ul><li>Muchos WAF tradicionales inspeccionan el handshake <code>101</code> pero <strong>no analizan los frames posteriores</strong> enviados sobre el socket abierto.</li><li>Cualquier cliente puede interceptar el tráfico o abrir el socket directamente enviando JSON manipulado, tipos inesperados (por ejemplo enviar un objeto en lugar de un string) o mensajes binarios malformados.</li></ul>
+<p>Por lo tanto, <strong>cada mensaje entrante</strong> en el manejador <code>onmessage</code> del servidor debe tratarse con el mismo rigor que un endpoint REST:</p>
+<ol><li><strong>Validación de esquema estricto</strong> (con <em>Zod</em>, <em>Pydantic</em> o <em>JSON Schema</em>): verificar tipos, longitudes máximas y rechazo de propiedades extra (<code>additionalProperties: false</code>).</li><li><strong>Autorización por mensaje</strong>: nunca confíes en un campo <code>userId</code> o <code>role</code> dentro del payload JSON del mensaje; usá siempre el contexto autenticado en el handshake (<code>ws.user.id</code>).</li><li><strong>Consultas parametrizadas y escape contextual</strong>: si un mensaje de WebSocket se guarda en SQL o se reenvía a otros participantes del chat, deben aplicarse consultas preparadas en backend y renderizado seguro (<code>textContent</code> en lugar de <code>innerHTML</code>) en todos los clientes receptores para prevenir Stored XSS a través del canal en tiempo real.</li></ol>
+<hr>
+<h2 id="cap-6-1-4-dom-clobbering-y-client-side-path-traversal-cspt">4. DOM Clobbering y Client-Side Path Traversal (CSPT)</h2>
+<p>A medida que la lógica se desplaza al navegador, surgen vulnerabilidades puramente de cliente que pueden escalar a ejecución de scripts (XSS) o abuso de APIs autenticadas sin necesidad de tocar el backend inicialmente.</p>
+<h3 id="cap-6-1-4-1-dom-clobbering">4.1 DOM Clobbering</h3>
+<p>Los navegadores mantienen por compatibilidad histórica una característica peligrosa llamada <em>named access on the Window object</em>: cuando un elemento HTML tiene un atributo <code>id</code> o <code>name</code>, el navegador puede crear automáticamente una propiedad en <code>window</code> o <code>document</code> con ese mismo nombre.</p>
+<p>Si la aplicación permite insertar HTML controlado (incluso HTML <strong>sin</strong> etiquetas <code>&lt;script&gt;</code> ni manejadores <code>onerror</code>, filtrado por un sanitizador permisivo que conserva <code>id</code> o <code>name</code>), un atacante puede provocar una <strong>colisión sobre variables globales</strong> no inicializadas o propiedades del DOM.</p>
+<pre><code class="lenguaje-html">&lt;!-- HTML inyectado sin JavaScript explícito (solo atributos id/name) --&gt;
+&lt;a id="appConfig" href="https://cdn-externo.ejemplo/malicioso.js"&gt;&lt;/a&gt;
+
+&lt;!-- O un árbol de dos niveles usando form/input o dos anchors con el mismo id --&gt;
+&lt;a id="appConfig"&gt;&lt;/a&gt;
+&lt;a id="appConfig" name="scriptUrl" href="https://cdn-externo.ejemplo/app.js"&gt;&lt;/a&gt;</code></pre>
+<p>Cuando el código JavaScript de la página evalúa una referencia global por defecto usando el patrón <code>||</code>:</p>
+<pre><code class="lenguaje-javascript">// Patrón JavaScript vulnerable a DOM Clobbering
+const config = window.appConfig || { scriptUrl: "/static/app.js" };
+const script = document.createElement("script");
+// Al acceder a config.scriptUrl, obtiene el href del segundo &lt;a&gt;
+script.src = config.scriptUrl;
+document.head.appendChild(script);</code></pre>
+<p>El navegador resuelve <code>window.appConfig</code> a una <code>HTMLCollection</code> con los dos enlaces; dentro de esa colección, la propiedad <code>.scriptUrl</code> apunta al segundo <code>&lt;a&gt;</code>, y al convertir un <code>HTMLAnchorElement</code> a string (al asignarlo a <code>script.src</code>), JavaScript devuelve su atributo <code>href</code>. Resultado: carga de un script externo arbitrario sin haber inyectado ninguna etiqueta <code>&lt;script&gt;</code>.</p>
+<p>Un caso similar ocurre sobre propiedades del propio <code>document</code> o elementos <code>&lt;form&gt;</code>: un <code>&lt;input name="action"&gt;</code> dentro de un <code>&lt;form&gt;</code> sobrescribe <code>form.action</code>, rompiendo validaciones que verifican <code>if (form.action.startsWith(...))</code>.</p>
+<h3 id="cap-6-1-4-2-client-side-path-traversal-cspt">4.2 Client-Side Path Traversal (CSPT)</h3>
+<p>El <em>Client-Side Path Traversal</em> ocurre cuando el código JavaScript del navegador construye dinámicamente la ruta de una petición <code>fetch()</code> o <code>XMLHttpRequest</code> concatenando un parámetro controlado por el usuario (por ejemplo, extraído de <code>location.search</code>, <code>location.hash</code> o un parámetro de ruta SPA) <strong>sin codificación ni validación</strong>, permitiendo navegar hacia arriba en la jerarquía de rutas del servidor (<code>../</code>).</p>
+<pre><code class="lenguaje-javascript">// Código cliente vulnerable a CSPT
+const params = new URLSearchParams(window.location.search);
+const itemId = params.get("id"); // Si alguien pasa "123/../../admin/export-tokens"
+
+fetch(`/api/v1/items/${itemId}/details`, {
+  credentials: "include", // Envía cookies de sesión automáticamente
+})
+  .then((r) =&gt; r.json())
+  .then((data) =&gt; renderItem(data));</code></pre>
+<p>Cuando el navegador ejecuta <code>fetch("/api/v1/items/123/../../admin/export-tokens/details")</code>, <strong>normaliza automáticamente</strong> los segmentos <code>..</code> antes de enviar la petición HTTP al servidor, convirtiéndola en <code>GET /api/v1/admin/export-tokens/details</code>. Si ese otro endpoint responde datos sensibles que el cliente luego renderiza en pantalla o envía a un <em>sink</em> secundario (como un <em>webhook</em> o parámetro <code>redirect</code>), el flujo del cliente queda desviado hacia acciones no previstas.</p>
+<h3 id="cap-6-1-4-3-mitigaciones-en-el-frontend">4.3 Mitigaciones en el Frontend</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Riesgo</th>
+<th>Estrategia de mitigación</th>
+<th>Implementación recomendada</th>
+</tr></thead><tbody>
+<tr><td><strong>DOM Clobbering</strong></td><td>Evitar depender de variables globales implícitas en <code>window</code>.</td><td>Encapsular estado en módulos ES (<code>import</code>/<code>export</code>), declarar con <code>const</code>/<code>let</code> antes de usar, y evitar `window.miVar \</td></tr>
+<tr><td><strong>DOM Clobbering</strong></td><td>Proteger objetos de configuración y formularios.</td><td>Aplicar <code>Object.freeze(window.APP_CONFIG)</code> al inicio del <code>&lt;head&gt;</code>, usar <code>Object.getOwnPropertyDescriptor</code> o <code>FormData</code> en lugar de <code>form.campo</code>.</td></tr>
+<tr><td><strong>DOM Clobbering</strong></td><td>Sanitización estricta de HTML de usuario.</td><td>Usar <strong>DOMPurify</strong> con <code>SANITIZE_DOM: true</code> (activo por defecto, prefija/bloquea colisiones <code>id</code>/<code>name</code>) y habilitar CSP estricta (<code>script-src 'self'</code>).</td></tr>
+<tr><td><strong>CSPT</strong></td><td>Codificación de segmentos individuales y validación de formato.</td><td>Aplicar <code>encodeURIComponent(itemId)</code> y validar con regex estricta (<code>/^[a-zA-Z0-9_-]{1,64}$/</code>) antes de construir la URL.</td></tr>
+<tr><td><strong>CSPT</strong></td><td>Construcción segura con objeto <code>URL</code> y verificación de prefijo post-normalización.</td><td>Construir <code>const url = new URL(...)</code> y validar <code>url.pathname.startsWith("/api/v1/items/")</code> luego de normalizar.</td></tr>
+</tbody></table></div>
+<p>Ejemplo de cliente blindado frente a ambos vectores:</p>
+<pre><code class="lenguaje-javascript">// Configuración inmutable en módulo ES
+const CONFIG = Object.freeze({
+  apiBase: "https://app.ejemplo.com/api/v1/items/",
+});
+
+export async function loadItemDetails(rawId) {
+  // 1. Validar formato estricto de identificador (previene CSPT)
+  if (typeof rawId !== "string" || !/^[0-9a-fA-F-]{36}$/.test(rawId)) {
+    throw new Error("Identificador de ítem inválido");
+  }
+
+  // 2. Construir y verificar ruta normalizada
+  const targetUrl = new URL(`${encodeURIComponent(rawId)}/details`, CONFIG.apiBase);
+  if (targetUrl.origin !== "https://app.ejemplo.com" || !targetUrl.pathname.startsWith("/api/v1/items/")) {
+    throw new Error("Ruta de API fuera del alcance permitido");
+  }
+
+  const response = await fetch(targetUrl.toString(), { credentials: "include" });
+  return response.json();
+}</code></pre>
+<hr>
+<h2 id="cap-6-1-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En tu entorno de laboratorio local (por ejemplo, una instancia controlada de Docker con una aplicación de pruebas propia o laboratorios locales educativos), diseñá una verificación reproducible para validar la resistencia ante concurrencia y engaño de caché:</p>
+<ol><li><strong>Prueba de concurrencia con bloqueo SQL</strong>: levantá un servicio local simple con dos rutas de canje de cupón: una sin transacción (<code>v1</code>) y otra con <code>SELECT ... FOR UPDATE</code> (<code>v2</code>). Enviá 15 peticiones concurrentes usando multiplexación HTTP/2 (por ejemplo, mediante el módulo <code>h2</code> o <code>httpx</code> en un entorno local controlado) sobre ambas rutas y compará cuántas veces se acredita el saldo en la base de datos.</li><li><strong>Auditoría de discrepancia proxy-origen</strong>: colocá un Nginx delante de tu aplicación de laboratorio con una regla simulada de caché estática para <code>*.css</code> y verificá que una petición a <code>/perfil/test.css</code> devuelva explícitamente <code>404 Not Found</code> y que toda respuesta autenticada incluya <code>Cache-Control: private, no-store</code>.</li><li><strong>Inspección de handshake WebSocket</strong>: comprobá que el servidor rechace con código <code>1008</code> cualquier intento de conexión donde la cabecera <code>Origin</code> no coincida con tu dominio local permitido.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Documentá en un informe breve de laboratorio: (a) el fragmento de código SQL/transaccional antes y después de aplicar <code>FOR UPDATE</code> junto con la evidencia de las filas afectadas en la prueba concurrente, (b) los encabezados HTTP de respuesta que garantizan la no-cacheabilidad de rutas privadas, y (c) el resultado de validación de <code>Origin</code> y <code>DOMPurify</code> en tus componentes WebSocket y frontend.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y remediación</p><p>Los cuatro vectores de este capítulo comparten un principio común: <strong>nunca confíes en las suposiciones de orden temporal o de interpretación uniforme entre capas</strong>. El backend no puede asumir que dos peticiones llegan una después de otra, el origen no puede asumir cómo normaliza rutas o qué cabeceras ignora una CDN, el servidor WebSocket no puede asumir que el navegador aplica Same-Origin Policy, y el JavaScript del navegador no puede asumir que <code>window</code> o las rutas relativas están libres de colisiones. Blindar estas fronteras requiere atomicidad en base de datos, contratos HTTP explícitos (<code>Cache-Control</code>, <code>Vary</code>, validación de <code>Origin</code>) y validación de esquema tanto en mensajes bidireccionales como en parámetros del cliente.</p></aside>
+<h2 id="cap-6-1-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué el ataque de paquete único (<em>Single-Packet Attack</em>) sobre HTTP/2 es significativamente más efectivo que enviar peticiones concurrentes en múltiples conexiones HTTP/1.1?</strong> Porque HTTP/2 multiplexa múltiples <em>streams</em> dentro de una única conexión TCP/TLS y permite retener el flag <code>END_STREAM</code> hasta el último momento; al enviar todos los cierres de stream dentro de un único paquete TCP, se elimina el <em>jitter</em> de red y el servidor despacha los hilos prácticamente en el mismo microsegundo.</p>
+<p><strong>2. ¿Cuál es la diferencia fundamental entre <em>Web Cache Poisoning</em> y <em>Web Cache Deception</em>?</strong> En <em>Web Cache Poisoning</em> el objetivo es forzar al origen a generar una respuesta alterada (usando <em>Unkeyed Inputs</em>) para que la caché la almacene y la sirva a otros usuarios; en <em>Web Cache Deception</em> el objetivo es engañar a la caché para que guarde una respuesta privada y legítima de una víctima (aprovechando diferencias de normalización de rutas) y luego leerla como un tercero.</p>
+<p><strong>3. ¿Por qué validar únicamente la cookie de sesión en un handshake WebSocket expone a la aplicación a <em>Cross-Site WebSocket Hijacking</em>?</strong> Porque los navegadores adjuntan cookies automáticamente en las solicitudes <code>Upgrade: websocket</code> sin aplicar la <em>Same-Origin Policy</em> para bloquear la conexión desde dominios terceros; si el servidor no verifica la cabecera <code>Origin</code> ni exige un token anti-CSRF vinculado a la sesión, un sitio externo puede abrir un túnel autenticado en nombre de la víctima.</p>
+<p><strong>4. ¿Cómo puede derivar una inyección HTML sin etiquetas <code>&lt;script&gt;</code> en ejecución de código arbitrario mediante <em>DOM Clobbering</em>?</strong> Al inyectar elementos con atributos <code>id</code> o <code>name</code> coincidentes con variables globales no declaradas o propiedades del DOM, el navegador expone esas referencias en <code>window</code> o <code>document</code>; si la aplicación lee esas variables para construir URLs de scripts o destinos dinámicos, termina cargando recursos controlados por el atacante.</p>
+<p><strong>5. ¿Qué combinación de controles previene de forma robusta el <em>Client-Side Path Traversal (CSPT)</em> en llamadas <code>fetch()</code> del navegador?</strong> Validar el parámetro de entrada con una lista blanca o expresión regular estricta (por ejemplo, solo caracteres alfanuméricos o UUID), codificar cada segmento con <code>encodeURIComponent()</code> y verificar tras construir un objeto <code>URL</code> que tanto el <code>origin</code> como el <code>pathname</code> normalizado permanezcan dentro del prefijo de API esperado.</p>
+<h2 id="cap-6-1-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de pasar al capítulo sobre OAuth 2.0, OIDC y lógica de negocio, asegurate de poder explicar con tus propias palabras la diferencia entre un <em>Unkeyed Input</em> y una discrepancia de normalización de rutas, y de haber verificado al menos una transacción SQL con bloqueo pesimista (<code>FOR UPDATE</code>) o clave de idempotencia frente a peticiones paralelas.</p></aside>
+<h2 id="cap-6-1-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>OWASP Web Security Testing Guide (WSTG v4.2)</strong> — Secciones de <em>Testing for Race Conditions</em>, <em>Testing for Web Cache Poisoning</em> y <em>Testing WebSockets</em> (<code>WSTG-CLNT-10</code>).</li><li><strong>RFC 9113 (HTTP/2)</strong> — Especificación oficial de multiplexación de <em>streams</em> y framing.</li><li><strong>RFC 6455 (The WebSocket Protocol)</strong> — Sección 10: Consideraciones de seguridad, validación de <code>Origin</code> y protección del handshake.</li><li><strong>RFC 9111 (HTTP Caching)</strong> — Semántica de <em>Cache Keys</em>, directivas <code>Cache-Control</code> y cabecera <code>Vary</code>.</li><li><strong>PortSwigger Research</strong> — Documentación técnica sobre <em>Smashing the State Machine: The True Potential of Web Race Conditions</em> y <em>Practical Web Cache Poisoning</em>.</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="40-forense-cloud-y-respuesta-incidentes.html">← 5.7 Forense Cloud y respuesta a incidentes en AWS, Azure y GCP</a></div><div><a href="42-oauth-oidc-avanzado-y-logica-negocio.html">6.2 OAuth 2.0 / OIDC complejo, lógica de negocio y checklists OWASP WSTG →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

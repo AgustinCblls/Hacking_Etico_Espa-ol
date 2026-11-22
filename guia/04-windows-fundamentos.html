@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 1.4 · Windows para seguridad: NTFS, Registro, servicios y arquitectura · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Inspeccionar ACLs NTFS, claves Run, servicios y procesos en Windows">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo1.html">Tomo I</a><span aria-hidden="true">›</span><span>Cap. 1.4</span></nav>
+<h1 id="cap-1-4">Capítulo 1.4 · Windows para seguridad: NTFS, Registro, servicios y arquitectura</h1>
+<div class="meta-nivel"><span class="nivel-badge principiante">Principiante</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo I · Ruta 1 · Principiante</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="05-bash-y-powershell.html">1.5 Automatización y análisis con Bash y PowerShell</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender cómo Windows separa privilegios entre modo usuario y modo kernel, cómo evalúa permisos mediante SIDs, tokens y listas de control de acceso (ACLs) en NTFS, dónde se concentran los vectores de configuración y persistencia en el Registro, servicios y tareas programadas, y cómo auditar el estado vivo de una estación Windows con comandos nativos, WMI/CIM y Sysinternals.</p></aside>
+<p><strong>Prerrequisitos:</strong> Manejo básico de consola y conceptos de sistemas operativos (Capítulos 1.1 a 1.3), más una VM Windows 10/11 o Server aislada en red Host-Only. <strong>Duración sugerida:</strong> 2 horas y media.</p>
+<h2 id="cap-1-4-arquitectura-de-windows-modos-sesiones-sids-y-tokens-de-acceso">Arquitectura de Windows: modos, sesiones, SIDs y tokens de acceso</h2>
+<p>El diseño de seguridad de Windows NT se apoya en dos planos protegidos por hardware (anillos x86-64): <strong>modo usuario</strong> (Ring 3), donde corren aplicaciones y servicios, y <strong>modo kernel</strong> (Ring 0), donde operan <code>ntoskrnl.exe</code>, el HAL y los controladores. Ningún proceso de usuario puede leer memoria del kernel ni tocar el hardware directamente; debe invocar llamadas al sistema mediante <code>ntdll.dll</code>. Desde Windows Vista rige además el <strong>aislamiento de Sesión 0</strong>: todos los servicios corren en la Sesión 0 sin escritorio interactivo, mientras las sesiones humanas comienzan en la Sesión 1, bloqueando inyecciones clásicas de mensajes entre ventanas (<em>shatter attacks</em>).</p>
+<h3 id="cap-1-4-sids-cuentas-integradas-y-anatomia-del-token">SIDs, cuentas integradas y anatomía del token</h3>
+<p>Windows identifica cada entidad de seguridad mediante un <strong>Security Identifier (SID)</strong> inmutable con formato <code>S-1-5-21-&lt;dominio&gt;-&lt;RID&gt;</code>. Al iniciar sesión vía LSASS (<code>lsass.exe</code>), se crea un <strong>token de acceso</strong> heredado por cada proceso hijo que almacena: SID del usuario, SIDs de grupos, lista de <strong>privilegios</strong> (<code>SeImpersonatePrivilege</code>, <code>SeDebugPrivilege</code>, <code>SeBackupPrivilege</code>) y el <strong>Nivel de Integridad</strong> (<em>Mandatory Integrity Control</em>, MIC: Untrusted, Low, Medium, High o System). Con <strong>UAC</strong> activo, un miembro de <code>Administrators</code> recibe un token filtrado <em>Medium</em> hasta aprobar una elevación explícita a <em>High</em>.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Cuenta o entidad</th>
+<th>SID característico</th>
+<th>Identidad en red</th>
+<th>Privilegio local y exposición</th>
+</tr></thead><tbody>
+<tr><td><code>NT AUTHORITY\SYSTEM</code></td><td><code>S-1-5-18</code></td><td>Cuenta de equipo (<code>EQUIPO$</code>)</td><td>Control total local; equivalente a <code>root</code> en Linux.</td></tr>
+<tr><td><code>NT AUTHORITY\LocalService</code></td><td><code>S-1-5-19</code></td><td>Sesión anónima</td><td>Privilegios locales mínimos; pensado para servicios aislados.</td></tr>
+<tr><td><code>NT AUTHORITY\NetworkService</code></td><td><code>S-1-5-20</code></td><td>Cuenta de equipo (<code>EQUIPO$</code>)</td><td>Privilegios locales mínimos, pero autentica en red como el host.</td></tr>
+<tr><td>Administrador integrado</td><td><code>S-1-5-21-...-500</code></td><td>Usuario local / dominio</td><td>Control administrativo total; RID fijo <code>500</code>.</td></tr>
+<tr><td>Usuario estándar</td><td><code>S-1-5-21-...-1001+</code></td><td>Usuario local / dominio</td><td>Integridad <em>Medium</em>; sin escritura en <code>C:\Windows</code>.</td></tr>
+</tbody></table></div>
+<p>Para inspeccionar tu token activo en CMD o PowerShell, ejecutá <code>whoami /all</code>:</p>
+<pre><code class="lenguaje-text">C:\Users\auditor&gt; whoami /all
+USER INFORMATION
+User Name       SID
+lab-win\auditor S-1-5-21-3819201411-942108732-119402819-1002
+
+GROUP INFORMATION
+Group Name                             Type  SID          Attributes
+BUILTIN\Users                          Alias S-1-5-32-545 Mandatory group, Enabled
+Mandatory Label\Medium Mandatory Level Label S-1-16-8192  ... # Integridad Medium (sin UAC elevado)
+
+PRIVILEGES INFORMATION
+Privilege Name                Description                     State
+SeShutdownPrivilege           Shut down the system            Disabled
+SeChangeNotifyPrivilege       Bypass traverse checking        Enabled
+SeIncreaseWorkingSetPrivilege Increase a process working set  Disabled</code></pre>
+<aside class="callout aviso"><p class="callout-titulo">Privilegios peligrosos en cuentas de servicio</p><p>Si detectás <code>SeImpersonatePrivilege</code>, <code>SeAssignPrimaryTokenPrivilege</code>, <code>SeDebugPrivilege</code> o <code>SeBackupPrivilege</code> en un token de servicio (incluso en estado <code>Disabled</code>, porque el proceso puede habilitarlos con <code>AdjustTokenPrivileges</code>), tenés un hallazgo de alta prioridad: permiten escalar hacia <code>SYSTEM</code> o leer colmenas protegidas del sistema.</p></aside>
+<h2 id="cap-1-4-sistema-de-archivos-ntfs-y-control-de-acceso-acls">Sistema de archivos NTFS y control de acceso (ACLs)</h2>
+<p>A diferencia del esquema POSIX <code>rwx</code>, NTFS asigna a cada archivo y carpeta un <strong>Descriptor de Seguridad</strong> con propietario (<em>Owner</em>), una <strong>DACL</strong> (<em>Discretionary Access Control List</em>, qué SIDs pueden acceder y con qué permisos) y una <strong>SACL</strong> (<em>System Access Control List</em>, qué eventos se auditan). Cada lista agrupa entradas <strong>ACE</strong> (<em>Access Control Entry</em>). El Monitor de Referencia de Seguridad (SRM, en kernel) evalúa la DACL de arriba hacia abajo: cualquier <strong>Deny explícito</strong> prevalece sobre un <strong>Allow</strong>, y si ninguna ACE coincide con el token, el acceso se deniega por defecto.</p>
+<h3 id="cap-1-4-inspeccion-practica-con-icacls-y-powershell">Inspección práctica con icacls y PowerShell</h3>
+<p>NTFS soporta además flujos alternativos de datos (<strong>ADS</strong>, visibles con <code>dir /R</code> o <code>Get-Item -Stream *</code>), como <code>Zone.Identifier</code> para marcar archivos descargados de internet. Sin embargo, el vector más habitual en auditoría local son permisos NTFS demasiado permisivos sobre carpetas de aplicaciones o binarios de servicios.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Código <code>icacls</code></th>
+<th>Significado técnico</th>
+<th>Impacto en seguridad</th>
+</tr></thead><tbody>
+<tr><td><code>F</code></td><td>Control total (<em>Full Control</em>)</td><td>Permite modificar, borrar y alterar permisos o propietario.</td></tr>
+<tr><td><code>M</code></td><td>Modificar (<em>Modify</em>)</td><td>Permite sobrescribir binarios o scripts ejecutados por terceros.</td></tr>
+<tr><td><code>RX</code></td><td>Lectura y ejecución (<em>Read &amp; Execute</em>)</td><td>Permiso seguro estándar para ejecutables en <code>Program Files</code>.</td></tr>
+<tr><td><code>W</code></td><td>Escritura (<em>Write</em>)</td><td>Permite crear archivos en la carpeta (riesgo de <em>DLL hijacking</em>).</td></tr>
+<tr><td><code>(OI)(CI)</code></td><td><em>Object Inherit</em> / <em>Container Inherit</em></td><td>Propaga la ACE a archivos y subcarpetas hijas.</td></tr>
+<tr><td><code>(I)</code></td><td>Permiso heredado</td><td>Indica herencia activa desde el directorio padre.</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-powershell"># Revisar ACLs de una carpeta de aplicación
+icacls "C:\Program Files\LabApp"
+# Salida comentada:
+# C:\Program Files\LabApp NT AUTHORITY\SYSTEM:(OI)(CI)(F)
+#                         BUILTIN\Administrators:(OI)(CI)(F)
+#                         BUILTIN\Users:(OI)(CI)(RX)        # Seguro: solo lectura/ejecución
+#                         BUILTIN\Authenticated Users:(M)   # HALLAZGO: escritura para cualquier usuario
+
+# Buscar archivos escribibles por Users o Everyone en un árbol
+Get-ChildItem "C:\Program Files\LabApp" -Recurse | ForEach-Object {
+    (Get-Acl $_.FullName).Access | Where-Object {
+        $_.IdentityReference -match "Users|Everyone" -and $_.FileSystemRights -match "Write|Modify|FullControl"
+    } | Select-Object @{N='Ruta';E={$_.PSPath}}, IdentityReference, FileSystemRights
+}</code></pre>
+<h2 id="cap-1-4-el-registro-de-windows-como-mapa-de-configuracion-y-persistencia">El Registro de Windows como mapa de configuración y persistencia</h2>
+<p>El <strong>Registro</strong> es una base de datos jerárquica que centraliza parámetros del kernel, controladores, políticas, servicios y perfiles de usuario. Presenta cinco colmenas raíz (<em>hives</em>), de las cuales solo <code>HKLM</code> y <code>HKU</code> corresponden a almacenamiento físico directo; el resto son enlaces simbólicos dinámicos.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Colmena raíz</th>
+<th>Alcance</th>
+<th>Archivo físico en disco (<code>C:\Windows\System32\config\</code> o perfil)</th>
+</tr></thead><tbody>
+<tr><td><code>HKEY_LOCAL_MACHINE</code> (<code>HKLM</code>)</td><td>Configuración global del host</td><td><code>SAM</code>, <code>SECURITY</code>, <code>SOFTWARE</code>, <code>SYSTEM</code></td></tr>
+<tr><td><code>HKEY_USERS</code> (<code>HKU</code>)</td><td>Perfiles cargados por SID</td><td><code>NTUSER.DAT</code> y <code>UsrClass.dat</code> por usuario</td></tr>
+<tr><td><code>HKEY_CURRENT_USER</code> (<code>HKCU</code>)</td><td>Enlace a <code>HKU\&lt;SID_actual&gt;</code></td><td><code>%USERPROFILE%\NTUSER.DAT</code></td></tr>
+<tr><td><code>HKEY_CLASSES_ROOT</code> (<code>HKCR</code>)</td><td>Asociaciones y objetos COM</td><td>Fusión de <code>HKLM\SOFTWARE\Classes</code> y <code>HKCU\SOFTWARE\Classes</code></td></tr>
+<tr><td><code>HKEY_CURRENT_CONFIG</code> (<code>HKCC</code>)</td><td>Perfil de hardware activo</td><td>Enlace a <code>HKLM\SYSTEM\CurrentControlSet\Hardware Profiles\Current</code></td></tr>
+</tbody></table></div>
+<h3 id="cap-1-4-claves-criticas-run-runonce-y-services">Claves críticas: Run, RunOnce y Services</h3>
+<p>En auditorías de configuración y análisis de persistencia, tres ramas requieren inspección sistemática:</p>
+<ul><li><strong>Inicio por usuario (sin elevación):</strong> <code>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</code> y <code>RunOnce</code>.</li><li><strong>Inicio global (requiere privilegios administrativos):</strong> <code>HKLM\Software\Microsoft\Windows\CurrentVersion\Run</code>, <code>RunOnce</code> y su rama de 32 bits bajo <code>WOW6432Node</code>.</li><li><strong>Servicios y drivers:</strong> <code>HKLM\SYSTEM\CurrentControlSet\Services\&lt;Servicio&gt;</code>, cuyos valores clave son <code>ImagePath</code> (ruta del ejecutable), <code>ObjectName</code> (cuenta de ejecución) y <code>Start</code> (<code>2</code> = automático, <code>3</code> = manual, <code>4</code> = deshabilitado).</li></ul>
+<pre><code class="lenguaje-powershell"># Consultar entradas de inicio automático globales y del usuario actual
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+reg query "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+
+# Leer configuración de un servicio directamente desde el Registro
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Spooler" |
+    Select-Object DisplayName, ImagePath, ObjectName, Start</code></pre>
+<h2 id="cap-1-4-servicios-tareas-programadas-wmi-cim-y-sysinternals">Servicios, tareas programadas, WMI/CIM y Sysinternals</h2>
+<p>El <strong>Service Control Manager (<code>services.exe</code>)</strong> controla el ciclo de vida de los servicios. Dos fallos frecuentes en software de terceros son permisos NTFS débiles sobre el ejecutable en <code>ImagePath</code> y <strong>rutas sin comillas con espacios</strong> (<em>Unquoted Service Paths</em>) fuera de <code>C:\Windows</code>, que llevan a Windows a probar rutas intermedias en orden. Las <strong>Tareas Programadas</strong> guardan sus definiciones XML en <code>C:\Windows\System32\Tasks</code> y ejecutan scripts o binarios por horario o evento, a menudo como <code>SYSTEM</code>.</p>
+<h3 id="cap-1-4-inspeccion-con-sc-get-service-schtasks-y-cim">Inspección con sc, Get-Service, schtasks y CIM</h3>
+<p>Para enumerar el sistema sin depender del deprecado <code>wmic</code>, utilizá <code>sc.exe</code>, <code>Get-Service</code>, <code>schtasks</code> y los cmdlets <strong>CIM</strong> (<code>Get-CimInstance</code>), que consultan el espacio de nombres <code>root\cimv2</code> sobre el estándar WS-Man.</p>
+<pre><code class="lenguaje-powershell"># Estado rápido y configuración detallada de un servicio
+Get-Service -Name wuauserv | Format-List Name, Status, StartType
+sc.exe qc wuauserv
+
+# Servicios no nativos con ruta, cuenta y estado vía WMI/CIM
+Get-CimInstance -ClassName Win32_Service |
+    Where-Object { $_.PathName -and $_.PathName -notmatch '^"?C:\\Windows\\' } |
+    Select-Object Name, StartMode, State, StartName, PathName | Format-Table -AutoSize
+
+# Tareas programadas en CMD y filtradas en PowerShell
+schtasks /query /fo TABLE /nh
+Get-ScheduledTask | Where-Object { $_.TaskPath -notlike "\Microsoft\*" -and $_.State -ne "Disabled" } |
+    Select-Object TaskName, TaskPath, @{N='Usuario';E={$_.Principal.UserId}}</code></pre>
+<h3 id="cap-1-4-cmd-esencial-y-suite-sysinternals-para-visibilidad-en-vivo">CMD esencial y suite Sysinternals para visibilidad en vivo</h3>
+<p>Comandos nativos como <code>systeminfo</code>, <code>net user</code>, <code>net localgroup Administrators</code>, <code>tasklist /svc</code> y <code>netstat -ano</code> brindan contexto inmediato. La suite oficial <strong>Microsoft Sysinternals</strong> profundiza esa visibilidad en tiempo real y reduce falsos positivos mediante verificación de firmas digitales.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Herramienta Sysinternals</th>
+<th>Equivalente nativo</th>
+<th>Aporte concreto en auditoría de seguridad</th>
+</tr></thead><tbody>
+<tr><td><strong>Process Explorer</strong> (<code>procexp64.exe</code>)</td><td><code>tasklist /svc</code></td><td>Árbol padre-hijo, argumentos, DLLs cargadas, verificación de firma y pestaña <em>Security</em> con tokens/privilegios.</td></tr>
+<tr><td><strong>Autoruns</strong> (<code>autoruns64.exe</code>)</td><td><code>reg query</code> + <code>schtasks</code> + <code>sc</code></td><td>Inventario unificado de más de 100 ubicaciones de inicio (Run, servicios, tareas, WMI) filtrando entradas firmadas por Microsoft.</td></tr>
+<tr><td><strong>TCPView</strong> (<code>tcpview64.exe</code>)</td><td><code>netstat -anob</code></td><td>Mapa vivo de sockets TCP/UDP locales y remotos vinculados al PID y ruta exacta del ejecutable.</td></tr>
+<tr><td><strong>AccessChk</strong> (<code>accesschk64.exe</code>)</td><td><code>icacls</code> + <code>sc sdshow</code></td><td>Evalúa permisos efectivos sobre archivos, claves del Registro y servicios para un usuario o grupo específico.</td></tr>
+</tbody></table></div>
+<h2 id="cap-1-4-ejemplo-paso-a-paso-auditoria-de-superficie-local-en-una-vm-windows-aislada">Ejemplo paso a paso: auditoría de superficie local en una VM Windows aislada</h2>
+<p>Supongamos que auditás una estación Windows 11 en tu laboratorio local (<code>127.0.0.1</code> / VM Host-Only) donde corre un servicio interno llamado <code>LabMonitorSvc</code>. Seguí esta secuencia reproducible:</p>
+<p><strong>Paso 1 — Verificar contexto de identidad y puertos abiertos:</strong></p>
+<pre><code class="lenguaje-powershell">whoami /groups | findstr /I "Administrators Users Mandatory"
+netstat -ano | findstr "LISTENING"
+# BUILTIN\Users                          Alias  S-1-5-32-545  Mandatory group, Enabled
+# Mandatory Label\Medium Mandatory Level Label  S-1-16-8192   # Sesión sin elevación UAC
+#   TCP    127.0.0.1:8443         0.0.0.0:0              LISTENING       4120</code></pre>
+<p><strong>Paso 2 — Correlacionar el PID <code>4120</code> con su servicio vía CIM:</strong></p>
+<pre><code class="lenguaje-powershell">Get-CimInstance Win32_Service -Filter "ProcessId = 4120" |
+    Select-Object Name, DisplayName, StartName, PathName
+# Name      : LabMonitorSvc
+# StartName : LocalSystem                                      # Privilegios máximos (SYSTEM)
+# PathName  : C:\LabTools\Monitor App\agent.exe --port 8443    # Ruta con espacio sin comillas</code></pre>
+<p><strong>Paso 3 — Auditar permisos NTFS del ejecutable y su directorio:</strong></p>
+<pre><code class="lenguaje-powershell">icacls "C:\LabTools\Monitor App\agent.exe"
+# C:\LabTools\Monitor App\agent.exe NT AUTHORITY\SYSTEM:(I)(F)
+#                                   BUILTIN\Administrators:(I)(F)
+#                                   BUILTIN\Users:(I)(M)   # RIESGO CRÍTICO: sobrescribible por usuario estándar</code></pre>
+<p><strong>Paso 4 — Corroborar persistencia y comportamiento con Sysinternals:</strong> Abrís <code>autoruns64.exe</code>, activás <em>Options → Hide Microsoft Entries</em> y confirmás que <code>LabMonitorSvc</code> figura sin firma digital verificada. En <code>tcpview64.exe</code> comprobás que <code>agent.exe</code> escucha solo en <code>127.0.0.1:8443</code>, y en <code>procexp64.exe</code> validás que su token pertenece a <code>NT AUTHORITY\SYSTEM</code>. El hallazgo queda documentado con evidencia verificable: binario no firmado, ruta sin comillas, permiso <code>M</code> para <code>BUILTIN\Users</code> y cuenta excesivamente privilegiada.</p>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>Aplicá controles complementarios sobre cada capa revisada:</p>
+<ol><li><strong>Mínimo privilegio en servicios:</strong> ejecutá servicios de terceros con cuentas dedicadas sin privilegios administrativos o <code>NT AUTHORITY\LocalService</code>, reservando <code>SYSTEM</code> solo para componentes esenciales del SO.</li><li><strong>Endurecimiento de ACLs NTFS:</strong> instalá ejecutables de servicios bajo <code>C:\Program Files</code>, cortá herencias inseguras (<code>icacls &lt;ruta&gt; /inheritance:r</code>), limitá <code>BUILTIN\Users</code> a <code>RX</code> (nunca <code>W</code>, <code>M</code> ni <code>F</code>) y encerrá <code>ImagePath</code> entre comillas dobles si contiene espacios.</li><li><strong>UAC y control de ejecución:</strong> mantené UAC habilitado y restringí la ejecución de binarios no firmados fuera de directorios autorizados mediante <strong>AppLocker</strong> o <strong>WDAC</strong>.</li><li><strong>Detección y auditoría:</strong> habilitá creación de procesos con línea de comandos (<strong>Event ID 4688</strong> o <strong>Sysmon Event ID 1</strong>), instalación de servicios (<strong>Event ID 7045</strong>) y alta de tareas programadas (<strong>Event ID 4698</strong>).</li></ol></aside>
+<h2 id="cap-1-4-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>Realizá esta práctica únicamente en tu VM Windows aislada (Host-Only):</p>
+<ol><li>Desde una consola sin elevar ejecutá <code>whoami /all</code> y <code>net localgroup Administrators</code>. Anotá tu SID, tu nivel de integridad y los privilegios presentes.</li><li>Creá <code>C:\LabAuditoria\prueba.txt</code>, inspeccioná sus permisos con <code>icacls C:\LabAuditoria</code> y endurecelos para que solo <code>SYSTEM</code>, <code>Administrators</code> y tu usuario conserven acceso.</li><li>Consultá las claves <code>Run</code> de <code>HKLM</code> y <code>HKCU</code>, enumerá servicios fuera de <code>C:\Windows</code> con <code>Get-CimInstance Win32_Service</code> y listá tareas activas con <code>schtasks</code> y <code>Get-ScheduledTask</code>.</li><li>Ejecutá <code>procexp64.exe</code>, <code>autoruns64.exe</code> y <code>tcpview64.exe</code> de Sysinternals en la VM y contrastá un servicio activo con lo relevado por consola.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un informe corto (<code>auditoria-windows-local.md</code>) que incluya: (a) tu SID y nivel de integridad obtenidos con <code>whoami /all</code>; (b) salida de <code>icacls</code> antes y después de endurecer <code>C:\LabAuditoria</code>; (c) tabla con 3 servicios de tu VM detallando <code>Name</code>, <code>StartName</code> y <code>PathName</code>; y (d) una entrada detectada en <strong>Autoruns</strong> con su clave de Registro o tarea asociada.</p></aside>
+<h2 id="cap-1-4-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué un usuario perteneciente a <code>Administrators</code> no puede modificar <code>C:\Windows\System32</code> desde una consola estándar con UAC activo?</strong> Porque UAC entrega al iniciar sesión un token filtrado de integridad <em>Medium</em> con los privilegios administrativos deshabilitados; hasta aprobar una elevación explícita a integridad <em>High</em>, el acceso se evalúa como el de un usuario sin privilegios.</p>
+<p><strong>2. ¿Qué diferencia operativa existe entre <code>NT AUTHORITY\LocalService</code> y <code>NT AUTHORITY\NetworkService</code>?</strong> Ambas disponen de privilegios locales mínimos en el equipo, pero <code>LocalService</code> accede a la red de forma anónima, mientras que <code>NetworkService</code> autentica frente a recursos remotos usando las credenciales de la cuenta de equipo (<code>EQUIPO$</code>).</p>
+<p><strong>3. En una DACL de NTFS, ¿qué sucede si un usuario recibe <code>Allow (F)</code> por un grupo y <code>Deny (W)</code> explícito por otro sobre el mismo archivo?</strong> La escritura queda bloqueada, ya que el Monitor de Referencia de Seguridad evalúa todas las entradas explícitas de denegación antes que las de permiso.</p>
+<p><strong>4. ¿Por qué son críticas una ruta de servicio sin comillas con espacios y un permiso <code>Modify</code> para <code>BUILTIN\Users</code> sobre <code>ImagePath</code>?</strong> La ruta sin comillas puede llevar al Service Control Manager a ejecutar un binario plantado en un directorio intermedio escribible; el permiso <code>Modify</code> permite sobrescribir directamente el ejecutable para correr código bajo la cuenta del servicio (a menudo <code>SYSTEM</code>).</p>
+<p><strong>5. ¿Qué ventaja ofrece combinar consultas CIM/PowerShell con Autoruns y Process Explorer durante una auditoría?</strong> PowerShell y CIM permiten automatizar filtros y generar evidencia reproducible en texto, mientras Autoruns unifica más de cien puntos de persistencia con verificación de firmas y Process Explorer muestra en vivo el árbol de procesos, DLLs cargadas y tokens activos.</p>
+<h2 id="cap-1-4-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Avanzá al próximo capítulo cuando puedas explicar qué información contiene un token de acceso de Windows, leer una salida de <code>icacls</code> detectando permisos de riesgo, enumerar servicios y tareas con <code>sc.exe</code>, <code>Get-CimInstance</code> y <code>schtasks</code>, y validar un proceso junto con su persistencia usando Process Explorer y Autoruns en tu VM local.</p></aside>
+<h2 id="cap-1-4-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>Microsoft Learn — <em>Access Control Overview, SIDs and Access Tokens</em>: https://learn.microsoft.com/en-us/windows/win32/secauthz/access-control-overview</li><li>Microsoft Learn — <em>Windows Registry Information for Advanced Users</em>: https://learn.microsoft.com/en-us/troubleshoot/windows-server/performance/windows-registry-advanced-users</li><li>Microsoft Learn — <em>icacls, sc.exe and schtasks Command-Line References</em>: https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls</li><li>Microsoft Learn — <em>Sysinternals Utilities Index (Process Explorer, Autoruns, TCPView, AccessChk)</em>: https://learn.microsoft.com/en-us/sysinternals/</li><li>CIS Benchmarks — <em>Microsoft Windows Desktop &amp; Server Hardening</em>: https://www.cisecurity.org/cis-benchmarks</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 3 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Windows Fundamentals</td><td>Fundamental</td><td>General</td><td>15</td></tr><tr><td>Introduction to Windows Command Line</td><td>Easy</td><td>General</td><td>23</td></tr><tr><td>Windows Fundamentals (LetsDefend)</td><td>Easy</td><td>General</td><td>15</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="03-linux-fundamentos.html">← 1.3 Linux para seguridad: permisos, procesos, systemd y logs</a></div><div><a href="05-bash-y-powershell.html">1.5 Automatización y análisis con Bash y PowerShell →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

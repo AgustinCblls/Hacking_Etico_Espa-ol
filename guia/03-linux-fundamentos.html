@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 1.3 · Linux para seguridad: permisos, procesos, systemd y logs · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar usuarios, permisos SUID, servicios activos y journalctl">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo1.html">Tomo I</a><span aria-hidden="true">›</span><span>Cap. 1.3</span></nav>
+<h1 id="cap-1-3">Capítulo 1.3 · Linux para seguridad: permisos, procesos, systemd y logs</h1>
+<div class="meta-nivel"><span class="nivel-badge principiante">Principiante</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo I · Ruta 1 · Principiante</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="04-windows-fundamentos.html">1.4 Windows para seguridad: NTFS, Registro, servicios y arquitectura</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a poder navegar y auditar la jerarquía FHS de Linux, interpretar cuentas y privilegios en <code>/etc/passwd</code>, <code>/etc/shadow</code> y <code>/etc/sudoers</code>, calcular y revisar permisos octales, bits especiales (SUID, SGID, Sticky Bit) y ACLs POSIX, inspeccionar procesos en <code>/proc</code>, administrar servicios <code>systemd</code>, revisar sockets locales con <code>ss</code> y analizar registros con <code>journalctl</code> y <code>/var/log/auth.log</code>.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 1.2 completado y una máquina virtual Linux de laboratorio (Debian o Ubuntu LTS recomendada) en red aislada. <strong>Duración sugerida:</strong> 2,5 horas.</p>
+<h2 id="cap-1-3-jerarquia-del-sistema-de-archivos-fhs-con-foco-de-seguridad">Jerarquía del sistema de archivos (FHS) con foco de seguridad</h2>
+<p>En Linux, todo recurso (archivos, directorios, discos, sockets y datos del kernel) se representa bajo un único árbol que comienza en <code>/</code>. El estándar <strong>FHS (Filesystem Hierarchy Standard)</strong> organiza cada ruta con un propósito definido; conocerlo acelera tanto la auditoría de configuración como la respuesta ante incidentes.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Ruta FHS</th>
+<th>Contenido habitual</th>
+<th>Interés en auditoría y defensa</th>
+</tr></thead><tbody>
+<tr><td><code>/etc</code></td><td>Archivos de configuración globales del sistema y servicios.</td><td>Verificar permisos de escritura restrictivos (<code>root:root</code>), <code>sudoers</code>, <code>sshd_config</code> y tareas <code>cron</code>.</td></tr>
+<tr><td><code>/var/log</code></td><td>Registros persistentes del kernel, autenticación y demonios.</td><td>Fuente primaria de evidencia (<code>auth.log</code>, <code>syslog</code>, <code>nginx/access.log</code>).</td></tr>
+<tr><td><code>/proc</code></td><td>Pseudosistema de archivos en memoria expuesto por el kernel.</td><td>Inspección viva de procesos (<code>/proc/&lt;pid&gt;</code>), sockets y parámetros de red (<code>/proc/sys</code>).</td></tr>
+<tr><td><code>/tmp</code> y <code>/dev/shm</code></td><td>Directorios temporales escribibles por cualquier usuario.</td><td>Puntos frecuentes para binarios temporales o scripts; deben montarse con <code>noexec,nosuid,nodev</code>.</td></tr>
+<tr><td><code>/usr/bin</code>, <code>/usr/sbin</code></td><td>Binarios estándar de usuario y administración del sistema.</td><td>Controlar integridad y auditar ejecutables con bit SUID/SGID habilitado.</td></tr>
+<tr><td><code>/opt</code> y <code>/srv</code></td><td>Software de terceros y datos servidos por aplicaciones.</td><td>Suelen albergar servicios personalizados fuera del gestor de paquetes oficial.</td></tr>
+<tr><td><code>/home</code> y <code>/root</code></td><td>Directorios personales de usuarios y del superusuario (<code>UID 0</code>).</td><td>Almacenan claves <code>~/.ssh</code>, historiales de shell y configuraciones sensibles.</td></tr>
+</tbody></table></div>
+<h2 id="cap-1-3-usuarios-grupos-y-delegacion-de-privilegios">Usuarios, grupos y delegación de privilegios</h2>
+<p>Linux controla la identidad mediante identificadores numéricos: <strong>UID</strong> (usuario) y <strong>GID</strong> (grupo). El usuario <code>root</code> posee siempre <code>UID 0</code>.</p>
+<h3 id="cap-1-3-estructura-de-etc-passwd-etc-shadow-y-etc-sudoers">Estructura de <code>/etc/passwd</code>, <code>/etc/shadow</code> y <code>/etc/sudoers</code></h3>
+<ul><li><strong><code>/etc/passwd</code></strong> (legible por todos los usuarios, <code>0644</code>): lista las cuentas del sistema en siete campos separados por dos puntos (<code>usuario:x:UID:GID:comentario:home:shell</code>). La <code>x</code> en el segundo campo indica que el hash de contraseña se almacena en <code>/etc/shadow</code>. Las cuentas de servicio deben llevar shell no interactiva como <code>/usr/sbin/nologin</code> o <code>/bin/false</code>.</li><li><strong><code>/etc/shadow</code></strong> (legible solo por <code>root</code> y el grupo <code>shadow</code>, <code>0640</code>): almacena los hashes criptográficos junto con el algoritmo usado (campo con identificador <code>6</code> para SHA-512 o <code>y</code> para yescrypt), la sal aleatoria y las políticas de expiración. Un campo con <code>!</code> o <code>*</code> indica cuenta bloqueada sin contraseña directa.</li><li><strong><code>/etc/group</code></strong>: define los grupos secundarios que otorgan privilegios clave (por ejemplo <code>sudo</code>, <code>wheel</code>, <code>adm</code>, <code>docker</code>). Pertenecer al grupo <code>docker</code> equivale funcionalmente a privilegios de <code>root</code> sobre el host porque permite montar <code>/</code> dentro de un contenedor.</li><li><strong><code>/etc/sudoers</code></strong> y <strong><code>/etc/sudoers.d/</code></strong>: definen qué usuarios pueden ejecutar comandos como otro usuario mediante <code>sudo</code>. Deben editarse únicamente con <code>visudo</code> para validar sintaxis antes de guardar.</li></ul>
+<aside class="callout peligro"><p class="callout-titulo">Riesgo de reglas permisivas en <code>sudoers</code></p><p>Otorgar <code>NOPASSWD</code> sobre editores, paginadores o intérpretes (<code>vim</code>, <code>less</code>, <code>find</code>, <code>python3</code>, <code>tar</code>) permite abrir una shell con privilegios elevados mediante funciones legítimas del propio binario. Concedé <code>sudo</code> solo a comandos acotados, con ruta absoluta y argumentos explícitos.</p></aside>
+<h2 id="cap-1-3-permisos-dac-bits-especiales-y-acls-posix">Permisos DAC, bits especiales y ACLs POSIX</h2>
+<p>El control de acceso discrecional (<strong>DAC</strong>) asigna tres clases de sujeto —propietario (<code>u</code>), grupo (<code>g</code>) y otros (<code>o</code>)— y tres permisos básicos: lectura (<code>r = 4</code>), escritura (<code>w = 2</code>) y ejecución/travesía (<code>x = 1</code>). Al sumar los pesos se obtiene la notación octal: por ejemplo, <code>0750</code> equivale a <code>rwxr-x---</code> (el propietario lee, escribe y ejecuta; el grupo lee y ejecuta; otros no tienen acceso). La máscara <code>umask</code> (usualmente <code>0022</code> o <code>0027</code> en entornos endurecidos) resta permisos por defecto al crear archivos nuevos.</p>
+<h3 id="cap-1-3-bits-especiales-suid-sgid-y-sticky-bit">Bits especiales: SUID, SGID y Sticky Bit</h3>
+<p>Un cuarto dígito octal a la izquierda activa comportamientos especiales críticos para la seguridad del sistema:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Bit especial</th>
+<th>Valor octal</th>
+<th>Letra en <code>ls -l</code></th>
+<th>Efecto sobre archivos ejecutables</th>
+<th>Efecto sobre directorios</th>
+</tr></thead><tbody>
+<tr><td><strong>SUID</strong></td><td><code>4000</code></td><td><code>s</code> / <code>S</code> en propietario</td><td>Ejecuta el proceso con el <strong>EUID del propietario</strong> (ej. <code>/usr/bin/passwd</code>).</td><td>Sin efecto estándar en Linux.</td></tr>
+<tr><td><strong>SGID</strong></td><td><code>2000</code></td><td><code>s</code> / <code>S</code> en grupo</td><td>Ejecuta el proceso con el <strong>EGID del grupo</strong> del archivo.</td><td>Los archivos creados heredan el grupo del directorio padre.</td></tr>
+<tr><td><strong>Sticky Bit</strong></td><td><code>1000</code></td><td><code>t</code> / <code>T</code> en otros</td><td>Obsoleto en archivos regulares.</td><td>Solo el propietario del archivo, el del directorio o <code>root</code> puede borrarlo (ej. <code>/tmp</code> con <code>1777</code>).</td></tr>
+</tbody></table></div>
+<p>Cuando aparece una letra mayúscula (<code>S</code> o <code>T</code>), significa que el bit especial está activo pero falta el permiso de ejecución (<code>x</code>) subyacente.</p>
+<h3 id="cap-1-3-acls-posix-extendidas">ACLs POSIX extendidas</h3>
+<p>Cuando el modelo propietario/grupo/otros resulta insuficiente, Linux soporta listas de control de acceso granulares mediante <code>getfacl</code> y <code>setfacl</code>. Un archivo con ACL extendida muestra un signo <code>+</code> al final de la cadena de permisos en <code>ls -la</code> (por ejemplo <code>-rw-r-----+</code>).</p>
+<pre><code class="lenguaje-bash"># Consultar ACLs efectivas de un directorio de aplicación
+getfacl /var/log/mi_app
+
+# Conceder lectura puntual al usuario auditor sin incluirlo en el grupo adm
+sudo setfacl -m u:auditor:r-- /var/log/mi_app/eventos.log</code></pre>
+<h2 id="cap-1-3-gestion-de-procesos-senales-y-el-pseudosistema-proc">Gestión de procesos, señales y el pseudosistema <code>/proc</code></h2>
+<p>Todo comando ejecutado en Linux crea un proceso identificado por un <strong>PID</strong> y vinculado a un proceso padre (<strong>PPID</strong>). Cada proceso transita por estados visibles en <code>ps</code> y <code>top</code>: <code>R</code> (en ejecución), <code>S</code> (esperando evento), <code>D</code> (espera ininterrumpida de E/S), <code>T</code> (detenido) y <code>Z</code> (zombi, finalizado pero aún sin ser recogido por su padre).</p>
+<p>Para controlar procesos se envían <strong>señales</strong> con <code>kill</code>:</p>
+<ul><li><code>SIGHUP</code> (<code>1</code>): solicita a muchos demonios recargar su configuración sin reiniciar el servicio.</li><li><code>SIGTERM</code> (<code>15</code>, predeterminada): pide cierre ordenado para liberar memoria y cerrar archivos limpiamente.</li><li><code>SIGKILL</code> (<code>9</code>): finalización inmediata impuesta por el kernel; el proceso no puede interceptarla ni ignorarla.</li></ul>
+<p>Cuando auditás un proceso sospechoso o desconocido, el directorio <code>/proc/&lt;pid&gt;/</code> ofrece visibilidad directa desde el kernel, incluso si el binario fue borrado del disco después de arrancar:</p>
+<ul><li><code>/proc/&lt;pid&gt;/cmdline</code>: línea de comandos exacta con la que inició el proceso.</li><li><code>/proc/&lt;pid&gt;/exe</code>: enlace simbólico al binario real ejecutado (marca <code>(deleted)</code> si se borró en disco).</li><li><code>/proc/&lt;pid&gt;/fd/</code>: descriptores de archivo abiertos (archivos locales, tuberías y sockets).</li><li><code>/proc/&lt;pid&gt;/status</code>: UIDs/GIDs reales y efectivos (<code>Uid</code>, <code>Gid</code>) y capacidades Linux (<code>CapEff</code>).</li></ul>
+<h2 id="cap-1-3-servicios-systemd-red-local-y-analisis-de-logs">Servicios <code>systemd</code>, red local y análisis de logs</h2>
+<p>En distribuciones modernas, <strong><code>systemd</code></strong> (PID 1) gestiona el arranque, los servicios (<code>.service</code>), las tareas periódicas (<code>.timer</code>) y los sockets. Los archivos de unidad distribuidos por paquetes residen en <code>/usr/lib/systemd/system/</code>, mientras que las personalizaciones locales del administrador se ubican en <code>/etc/systemd/system/</code> y tienen prioridad.</p>
+<p>Para inspeccionar la superficie de red local y los controles de filtrado:</p>
+<ul><li><strong><code>ip a</code></strong> y <strong><code>ip r</code></strong>: muestran interfaces, direcciones CIDR y tabla de enrutamiento (reemplazan a los obsoletos <code>ifconfig</code> y <code>route</code>).</li><li><strong><code>ss -tulnap</code></strong>: lista sockets TCP (<code>-t</code>) y UDP (<code>-u</code>) en estado de escucha (<code>-l</code>), sin resolver nombres (<code>-n</code>), mostrando direcciones (<code>-a</code>) y el proceso propietario (<code>-p</code>).</li><li><strong><code>ufw status verbose</code></strong> o <strong><code>sudo nft list ruleset</code></strong>: muestran las reglas activas del firewall local basadas en el subsistema <code>netfilter</code>/<code>nftables</code> del kernel.</li></ul>
+<p>Finalmente, la telemetría del sistema se consulta por dos vías complementarias: el diario binario estructurado mediante <strong><code>journalctl</code></strong> (<code>-u servicio</code>, <code>-p err</code>, <code>--since "1 hour ago"</code>) y los archivos de texto rotados en <code>/var/log/</code> —especialmente <code>/var/log/auth.log</code> en Debian/Ubuntu (o <code>/var/log/secure</code> en RHEL/Rocky) para inicios de sesión SSH, invocaciones de <code>sudo</code> y fallos de PAM.</p>
+<h2 id="cap-1-3-ejemplo-paso-a-paso-auditoria-rapida-de-permisos-procesos-sockets-y-logs-en-linux">Ejemplo paso a paso: Auditoría rápida de permisos, procesos, sockets y logs en Linux</h2>
+<p>Ejecutá esta secuencia de solo lectura en tu VM Linux de laboratorio para construir una línea base de seguridad en menos de tres minutos.</p>
+<h3 id="cap-1-3-paso-1-identidad-actual-grupos-y-privilegios-sudo">Paso 1: Identidad actual, grupos y privilegios <code>sudo</code></h3>
+<pre><code class="lenguaje-bash">id
+sudo -l</code></pre>
+<p>Salida real comentada:</p>
+<pre><code class="lenguaje-text">uid=1000(analista) gid=1000(analista) groups=1000(analista),27(sudo),108(adm)
+# El grupo adm permite leer la mayoría de los archivos en /var/log sin usar root.
+
+User analista may run the following commands on lab-ubuntu:
+    (ALL : ALL) ALL</code></pre>
+<h3 id="cap-1-3-paso-2-inventario-de-binarios-suid-y-verificacion-de-permisos-en-tmp">Paso 2: Inventario de binarios SUID y verificación de permisos en <code>/tmp</code></h3>
+<pre><code class="lenguaje-bash"># Buscar binarios SUID silenciando errores de lectura sobre rutas sin permiso
+find /usr/bin /usr/sbin -type f -perm -4000 -ls 2&gt;/dev/null | head -n 5
+
+# Verificar Sticky Bit (t) en /tmp
+ls -ld /tmp</code></pre>
+<pre><code class="lenguaje-text">  134521   64 -rwsr-xr-x 1 root root   63960 Feb  6  2024 /usr/bin/passwd
+  134802  232 -rwsr-xr-x 1 root root  232416 Apr  8  2024 /usr/bin/sudo
+# Ambos binarios son SUID legítimos de la distribución; cualquier binario
+# no estándar o en /opt o /usr/local/bin amerita revisión inmediata.
+
+drwxrwxrwt 12 root root 4096 Nov 22 19:40 /tmp
+# La "t" final confirma Sticky Bit activo (1777).</code></pre>
+<h3 id="cap-1-3-paso-3-inspeccionar-sockets-en-escucha-y-correlacionar-con-proc-y-systemd">Paso 3: Inspeccionar sockets en escucha y correlacionar con <code>/proc</code> y <code>systemd</code></h3>
+<pre><code class="lenguaje-bash">sudo ss -tulnap</code></pre>
+<pre><code class="lenguaje-text">Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+udp   UNCONN 0      0      127.0.0.53%lo:53    0.0.0.0:*         users:(("systemd-resolve",pid=612,fd=13))
+tcp   LISTEN 0      128    127.0.0.1:8080      0.0.0.0:*         users:(("docker-proxy",pid=1482,fd=4))
+tcp   LISTEN 0      128    0.0.0.0:22          0.0.0.0:*         users:(("sshd",pid=841,fd=3))
+# Clave de lectura: 127.0.0.1:8080 solo acepta conexiones locales;
+# 0.0.0.0:22 expone SSH en todas las interfaces activas de la VM.</code></pre>
+<p>Ahora inspeccionamos el proceso <code>sshd</code> (PID <code>841</code>) en <code>/proc</code> y su unidad <code>systemd</code>:</p>
+<pre><code class="lenguaje-bash">sudo ls -l /proc/841/exe
+tr '\0' ' ' &lt; /proc/841/cmdline; echo
+systemctl status ssh --no-pager | head -n 8</code></pre>
+<pre><code class="lenguaje-text">lrwxrwxrwx 1 root root 0 Nov 22 19:01 /proc/841/exe -&gt; /usr/sbin/sshd
+sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups
+
+● ssh.service - OpenBSD Secure Shell server
+     Loaded: loaded (/usr/lib/systemd/system/ssh.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-11-22 19:01:08 -03; 41min ago
+   Main PID: 841 (sshd)</code></pre>
+<h3 id="cap-1-3-paso-4-revisar-eventos-de-autenticacion-con-journalctl-y-auth-log">Paso 4: Revisar eventos de autenticación con <code>journalctl</code> y <code>auth.log</code></h3>
+<pre><code class="lenguaje-bash">sudo journalctl -u ssh --since "1 hour ago" -n 5 --no-pager
+sudo grep -E "Accepted|Failed|sudo:" /var/log/auth.log | tail -n 5</code></pre>
+<pre><code class="lenguaje-text">Nov 22 19:15:42 lab-ubuntu sshd[1204]: Accepted publickey for analista from 192.168.56.1 port 53118 ssh2
+Nov 22 19:22:10 lab-ubuntu sudo[1390]: analista : TTY=pts/0 ; PWD=/home/analista ; USER=root ; COMMAND=/usr/bin/ss -tulnap
+# Cada acceso SSH y comando elevado queda trazado con marca temporal, origen, usuario y binario exacto.</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>Endurecer un servidor Linux se basa en reducir superficie y aumentar trazabilidad antes de exponer cualquier servicio:</p>
+<ol><li><strong>Aislamiento en unidades <code>systemd</code>:</strong> en servicios propios añadí directivas de sandboxing como <code>User=servicio_no_priv</code>, <code>NoNewPrivileges=yes</code>, <code>ProtectSystem=strict</code>, <code>PrivateTmp=yes</code> y <code>ProtectHome=yes</code>. Verificá el puntaje de exposición con <code>systemd-analyze security</code>.</li><li><strong>Montaje seguro de particiones:</strong> configurá <code>/tmp</code> y <code>/dev/shm</code> en <code>/etc/fstab</code> con <code>nodev,nosuid,noexec</code> para frenar la ejecución directa de artefactos dejados en rutas temporales.</li><li><strong>Auditoría del kernel con <code>auditd</code> y logs centralizados:</strong> registrá cambios en <code>/etc/passwd</code>, <code>/etc/shadow</code>, <code>/etc/sudoers</code> y ejecuciones privilegiadas mediante reglas de <code>auditd</code>, y reenviá logs en tiempo real a un servidor externo (<code>rsyslog</code>/SIEM) para impedir que un atacante borre sus huellas localmente.</li></ol></aside>
+<h2 id="cap-1-3-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>En tu VM Linux aislada, creá un directorio de pruebas <code>/tmp/lab_permisos</code> y un archivo interno <code>secreto.txt</code>. Aplicá permisos <code>0640</code>, probá asignarle una ACL puntual con <code>setfacl</code> y verificá el resultado con <code>ls -la</code> y <code>getfacl</code>.</li><li>Ejecutá un inventario completo de sockets locales (<code>sudo ss -tulnap</code>), interfaces (<code>ip -br a</code>) y reglas de firewall (<code>sudo ufw status verbose</code> o <code>sudo nft list ruleset</code>), guardando la salida en <code>evidencias/cap1_3/red_local.txt</code>.</li><li>Elegí un servicio activo (como <code>ssh</code> o <code>cron</code>), inspeccioná su archivo de unidad con <code>systemctl cat &lt;servicio&gt;</code>, verificá su PID en <code>/proc/&lt;pid&gt;/exe</code> y revisá sus últimas 10 líneas de registro con <code>journalctl -u &lt;servicio&gt; -n 10</code>.</li><li>Generá el inventario de binarios SUID de tu VM (<code>evidencias/cap1_3/suid_baseline.txt</code>) y sellá todos los entregables con <code>sha256sum</code>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>En <code>evidencias/cap1_3/</code> debés almacenar:</p>
+<ul><li><code>red_local.txt</code>: salida de <code>ip -br a</code>, <code>ss -tulnap</code> y estado del firewall.</li><li><code>suid_baseline.txt</code>: listado base de binarios SUID en <code>/usr/bin</code> y <code>/usr/sbin</code>.</li><li><code>auditoria_servicio.txt</code>: análisis de una unidad <code>systemd</code>, su entrada en <code>/proc/&lt;pid&gt;</code> y sus últimos logs en <code>journalctl</code>.</li><li><code>manifest.sha256</code>: hashes verificados con <code>sha256sum -c</code>.</li></ul></aside>
+<h2 id="cap-1-3-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué separar <code>/etc/passwd</code> de <code>/etc/shadow</code> mejora la seguridad frente al diseño clásico de UNIX?</strong> Porque numerosos programas del sistema necesitan resolver nombres de usuario, UIDs y directorios personales leyendo <code>/etc/passwd</code>, por lo que ese archivo debe ser legible por todos (<code>0644</code>). Al trasladar los hashes de contraseña a <code>/etc/shadow</code> con permisos restringidos (<code>0640</code>, solo <code>root</code> y grupo <code>shadow</code>), los usuarios sin privilegios no pueden leer los hashes ni intentar crackearlos fuera de línea.</p>
+<p><strong>2. ¿Qué ocurre exactamente cuando un usuario normal ejecuta un binario con permiso <code>4755</code> (<code>-rwsr-xr-x</code>) cuyo propietario es <code>root</code>?</strong> El kernel asigna al nuevo proceso un identificador de usuario efectivo (<strong>EUID</strong>) igual a <code>0</code> (<code>root</code>) en lugar del UID del usuario que lo invocó, permitiendo realizar operaciones privilegiadas específicas (como modificar <code>/etc/shadow</code> mediante <code>passwd</code>). Si ese binario tiene fallas de diseño o permite ejecutar comandos arbitrarios, se convierte en un vector directo de escalamiento de privilegios.</p>
+<p><strong>3. ¿Cuál es la función del Sticky Bit (<code>1777</code>) en el directorio <code>/tmp</code>?</strong> Permite que cualquier usuario cree y modifique sus propios archivos dentro de <code>/tmp</code>, pero impide que un usuario elimine o renombre archivos pertenecientes a otros usuarios. Sin este bit, cualquier cuenta local podría borrar o reemplazar archivos temporales ajenos dentro de <code>/tmp</code>.</p>
+<p><strong>4. ¿Qué ventaja ofrece inspeccionar <code>/proc/&lt;pid&gt;/exe</code> y <code>/proc/&lt;pid&gt;/cmdline</code> respecto a mirar únicamente el nombre del proceso en <code>ps</code>?</strong> Un proceso puede alterar su cadena <code>argv[0]</code> para disfrazar su nombre en listados simples de <code>ps</code>. En cambio, <code>/proc/&lt;pid&gt;/exe</code> es un enlace simbólico gestionado directamente por el kernel hacia el inodo real del ejecutable en disco (e incluso señala <code>(deleted)</code> si el archivo fue borrado tras iniciarse), proporcionando evidencia mucho más confiable.</p>
+<p><strong>5. ¿Qué diferencia hay en <code>ss -tulnap</code> entre un servicio escuchando en <code>127.0.0.1:8080</code> y otro escuchando en <code>0.0.0.0:8080</code>?</strong> Un socket ligado a <code>127.0.0.1:8080</code> solo acepta conexiones originadas dentro del mismo host a través de la interfaz loopback. Un socket ligado a <code>0.0.0.0:8080</code> escucha en todas las interfaces IPv4 activas del equipo, exponiendo el servicio a cualquier host de la red que alcance esas interfaces si no existe una regla de firewall que lo bloquee.</p>
+<h2 id="cap-1-3-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Identificás sin dudar el rol de <code>/etc</code>, <code>/var/log</code>, <code>/proc</code>, <code>/tmp</code> y las diferencias entre <code>/etc/passwd</code> y <code>/etc/shadow</code>.</li><li>☐ Calculás permisos octales de cuatro dígitos (incluyendo SUID, SGID y Sticky Bit) y sabés detectar ACLs extendidas con <code>getfacl</code>.</li><li>☐ Correlacionás un puerto abierto en <code>ss -tulnap</code> con su PID en <code>/proc</code>, su unidad <code>systemd</code> y sus registros en <code>journalctl</code>.</li><li>☐ Tenés la línea base de SUID y red local sellada con <code>SHA-256</code>.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de avanzar al Capítulo 1.4, asegurate de poder rastrear un servicio Linux de punta a punta: desde el puerto abierto en <code>ss</code> hasta el archivo de unidad <code>systemd</code>, el ejecutable en <code>/proc/&lt;pid&gt;/exe</code> y sus eventos en <code>journalctl</code>. En el próximo capítulo trasladarás exactamente esa misma disciplina de inspección a Windows.</p></aside>
+<h2 id="cap-1-3-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>Linux Foundation: <em>Filesystem Hierarchy Standard (FHS) 3.0</em> — https://refspecs.linuxfoundation.org/FHS_3.0/fhs/index.html</li><li>Linux man-pages project: <code>passwd(5)</code>, <code>shadow(5)</code>, <code>proc(5)</code>, <code>chmod(1)</code>, <code>ss(8)</code> — https://man7.org/linux/man-pages/</li><li>Documentación oficial de <code>systemd</code>: <code>systemd.service(5)</code> y <code>systemd.exec(5)</code> — https://www.freedesktop.org/software/systemd/man/</li><li>NIST Special Publication 800-123: <em>Guide to General Server Security</em> — https://csrc.nist.gov/publications/detail/sp/800-123/final</li><li>CIS Benchmarks: <em>Distribution Independent Linux Benchmark</em> — https://www.cisecurity.org/cis-benchmarks</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 2 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Linux Fundamentals</td><td>Fundamental</td><td>General</td><td>30</td></tr><tr><td>Linux for Blue Team</td><td>Fundamental</td><td>Defensive</td><td>14</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="02-redes-tcp-ip.html">← 1.2 Redes TCP/IP, modelo OSI, subredes y análisis de paquetes</a></div><div><a href="04-windows-fundamentos.html">1.4 Windows para seguridad: NTFS, Registro, servicios y arquitectura →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

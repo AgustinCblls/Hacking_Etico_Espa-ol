@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 4.3 · SIEM en práctica: Splunk (SPL), Elastic (KQL) y correlación de alertas · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Escribir consultas SPL/KQL para detectar fuerza bruta, lateral movement y persistencia">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo4.html">Tomo IV</a><span aria-hidden="true">›</span><span>Cap. 4.3</span></nav>
+<h1 id="cap-4-3">Capítulo 4.3 · SIEM en práctica: Splunk (SPL), Elastic (KQL) y correlación de alertas</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Especialista Blue/SOC</span> <span class="nivel-badge defensivo">Defensivo</span> <span><strong>Tomo IV · Ruta 4 · Especialista Blue/SOC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="29-analisis-trafico-ids-ips.html">4.4 Network Security Monitoring: Wireshark, Zeek y reglas IDS/IPS Suricata</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a dominar la arquitectura de un SIEM (ingestión, normalización con ECS/CIM, indexado y retención) y vas a saber construir búsquedas y correlaciones prácticas lado a lado en Splunk (SPL) y Elastic (KQL/Lucene), además de automatizar el análisis inicial de logs web con Python en tu laboratorio.</p></aside>
+<p><strong>Prerrequisitos:</strong> Conocimiento de logs de Windows/Sysmon y Linux (Capítulo 4.2), sintaxis básica de expresiones regulares y fundamentos HTTP. <strong>Duración sugerida:</strong> 3 horas de lectura y práctica en laboratorio aislado.</p>
+<h2 id="cap-4-3-1-arquitectura-interna-de-un-siem-y-normalizacion-de-datos">1. Arquitectura interna de un SIEM y normalización de datos</h2>
+<p>Un <strong>SIEM</strong> (<em>Security Information and Event Management</em>) transforma millones de líneas de texto heterogéneas en eventos consultables y alertas accionables. Su flujo interno sigue cinco etapas secuenciales:</p>
+<ol><li><strong>Recolección:</strong> Agentes livianos en los endpoints (como Splunk Universal Forwarder, Elastic Agent/Filebeat o reenvío por Syslog) capturan logs y los envían cifrados hacia el colector central.</li><li><strong>Ingestión y Parsing:</strong> El SIEM recibe el flujo, extrae la marca horaria (normalizada a UTC) y separa cada evento en campos clave-valor (IP origen, usuario, proceso, código de resultado).</li><li><strong>Normalización (CIM y ECS):</strong> Distintos fabricantes nombran igual concepto de formas distintas (<code>src_ip</code>, <code>ClientIP</code>, <code>IpAddress</code>). Para correlacionar fuentes diversas, <strong>Splunk</strong> utiliza el <em>Common Information Model</em> (<strong>CIM</strong>) y <strong>Elastic</strong> utiliza el <em>Elastic Common Schema</em> (<strong>ECS</strong>).</li><li><strong>Indexado y Retención:</strong> Los eventos se almacenan en índices optimizados para búsqueda rápida y se rigen por políticas de ciclo de vida (<em>Hot → Warm → Cold → Frozen</em>) según requisitos legales y operativos.</li><li><strong>Correlación y Alertado:</strong> Consultas programadas o reglas en tiempo real detectan secuencias anómalas, generan alertas y alimentan tableros de monitoreo.</li></ol>
+<div class="tabla"><table>
+<thead><tr>
+<th>Concepto común</th>
+<th>Campo en Splunk (CIM)</th>
+<th>Campo en Elastic (ECS)</th>
+</tr></thead><tbody>
+<tr><td>IP origen</td><td><code>src_ip</code> / <code>src</code></td><td><code>source.ip</code></td></tr>
+<tr><td>Usuario objetivo</td><td><code>user</code></td><td><code>user.name</code></td></tr>
+<tr><td>Nombre del proceso</td><td><code>process_name</code></td><td><code>process.name</code></td></tr>
+<tr><td>Línea de comandos</td><td><code>process</code></td><td><code>process.command_line</code></td></tr>
+<tr><td>Código de respuesta HTTP</td><td><code>status</code></td><td><code>http.response.status_code</code></td></tr>
+</tbody></table></div>
+<h2 id="cap-4-3-2-fundamentos-practicos-splunk-spl-frente-a-elastic-kql">2. Fundamentos prácticos: Splunk SPL frente a Elastic KQL</h2>
+<p><strong>SPL</strong> (<em>Search Processing Language</em>) opera como una tubería (<em>pipeline</em>) similar a Unix: filtrás primero a la izquierda del carácter <code>|</code> y luego transformás o agregás datos con comandos como <code>stats</code>, <code>eval</code>, <code>rex</code>, <code>transaction</code>, <code>lookup</code> y <code>timechart</code>.</p>
+<p><strong>KQL</strong> (<em>Kibana Query Language</em>) está optimizado para filtrado rápido sobre campos indexados en Elastic (mediante operadores <code>and</code>, <code>or</code>, <code>not</code> y comodines <code>*</code>), mientras que las agregaciones temporales y correlaciones de secuencia se construyen con visualizaciones, alertas EQL o filtros Lucene cuando se requieren expresiones regulares.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Operación analítica</th>
+<th>Splunk (SPL)</th>
+<th>Elastic (KQL / Lucene)</th>
+</tr></thead><tbody>
+<tr><td>Filtrado exacto</td><td><code>index=win EventCode=4625</code></td><td><code>event.code: "4625"</code></td></tr>
+<tr><td>Coincidencia parcial</td><td><code>CommandLine="*Encoded*"</code></td><td><code>process.command_line: *Encoded*</code></td></tr>
+<tr><td>Negación / exclusión</td><td><code>NOT user="svc_backup"</code></td><td><code>not user.name: "svc_backup"</code></td></tr>
+<tr><td>Agregación y conteo</td><td>`\</td><td>stats count by src_ip`</td></tr>
+<tr><td>Serie temporal</td><td>`\</td><td>timechart span=5m count`</td></tr>
+</tbody></table></div>
+<h2 id="cap-4-3-3-casos-de-deteccion-lado-a-lado-spl-y-kql">3. Casos de detección lado a lado (SPL y KQL)</h2>
+<p>A continuación se presentan cuatro escenarios esenciales de monitoreo en un SOC, alineados con tácticas padre de MITRE ATT&amp;CK (<strong>Acceso a Credenciales</strong>, <strong>Ejecución</strong> y <strong>Persistencia</strong>).</p>
+<h3 id="cap-4-3-caso-a-fuerza-bruta-seguida-de-inicio-de-sesion-exitoso">Caso A: Fuerza bruta seguida de inicio de sesión exitoso</h3>
+<p>Buscamos múltiples fallos de autenticación desde una misma IP seguidos de un acceso exitoso dentro de una ventana corta, usando <code>transaction</code> y <code>eval</code> en SPL.</p>
+<pre><code class="lenguaje-splunk">index=wineventlog (EventCode=4625 OR EventCode=4624)
+| eval estado=if(EventCode=4625, "fallo", "exito")
+| transaction src_ip maxspan=10m
+| eval fallos=mvcount(mvfilter(match(estado, "fallo")))
+| eval exitos=mvcount(mvfilter(match(estado, "exito")))
+| where fallos &gt;= 10 AND exitos &gt;= 1
+| table _time, src_ip, user, fallos, exitos</code></pre>
+<pre><code class="lenguaje-kql"># Filtro KQL en Discover para auditar el mismo patrón por IP origen en ventana de 10 minutos
+event.code: ("4625" or "4624") and source.ip: * and not source.ip: "127.0.0.1"</code></pre>
+<p><em>(En Elastic SIEM, la regla de umbral o secuencia se activa cuando <code>event.code: "4625"</code> supera ≥ 10 eventos seguidos de <code>event.code: "4624"</code> agrupados por <code>source.ip</code>.)</em></p>
+<h3 id="cap-4-3-caso-b-ejecucion-sospechosa-de-powershell-con-argumentos-ofuscados">Caso B: Ejecución sospechosa de PowerShell con argumentos ofuscados</h3>
+<p>Usamos <code>rex</code> para extraer indicadores del comando y <code>lookup</code> para enriquecer o excluir hosts de administración autorizados.</p>
+<pre><code class="lenguaje-splunk">index=sysmon EventCode=1 Image="*\\powershell.exe"
+| rex field=CommandLine "(?i)(?&lt;bandera&gt;-enc|-encodedcommand|-nop|-w\s+hidden)"
+| where isnotnull(bandera)
+| lookup servidores_admin.csv host OUTPUT rol_equipo
+| where isnull(rol_equipo)
+| stats count values(CommandLine) as comandos by host, user, bandera</code></pre>
+<pre><code class="lenguaje-kql">event.code: "1" and process.name: "powershell.exe" and
+(process.command_line: *-enc* or process.command_line: *hidden*) and
+not host.name: ("adm-srv-01")</code></pre>
+<h3 id="cap-4-3-caso-c-creacion-de-cuentas-y-asignacion-a-grupos-privilegiados">Caso C: Creación de cuentas y asignación a grupos privilegiados</h3>
+<p>Monitorear altas de cuentas locales o de dominio permite detectar persistencia temprana en el entorno.</p>
+<pre><code class="lenguaje-splunk">index=wineventlog EventCode IN (4720, 4732)
+| timechart span=1h count by EventCode</code></pre>
+<pre><code class="lenguaje-kql">event.code: ("4720" or "4732") and not user.name: "SYSTEM"</code></pre>
+<h3 id="cap-4-3-caso-d-anomalias-en-logs-web-escaneo-y-errores-masivos">Caso D: Anomalías en logs web (escaneo y errores masivos)</h3>
+<p>El incremento brusco de respuestas <code>404</code> o <code>401/403</code> desde un mismo origen suele delatar enumeración automatizada o intentos de acceso indebido.</p>
+<pre><code class="lenguaje-splunk">index=web_access status&gt;=400
+| stats count as errores, dc(uri_path) as rutas_unicas by src_ip
+| where errores &gt;= 50 AND rutas_unicas &gt;= 20
+| sort -errores</code></pre>
+<pre><code class="lenguaje-kql">http.response.status_code &gt;= 400 and not source.ip: ("192.168.56.1")</code></pre>
+<h2 id="cap-4-3-4-afinado-de-alertas-tuning-y-reduccion-de-falsos-positivos">4. Afinado de alertas (Tuning) y reducción de falsos positivos</h2>
+<p>Una regla recién desplegada rara vez es perfecta. El afinado disciplinado evita la fatiga del analista L1:</p>
+<ul><li><strong>Establecé línea base (<em>baseline</em>):</strong> Ejecutá la consulta en modo informativo durante varios días antes de convertirla en alerta crítica.</li><li><strong>Usá listas de contexto (<em>lookups</em>):</strong> Documentá cuentas de servicio, escáneres autorizados y servidores de mantenimiento en tablas mantenibles en lugar de llenar la consulta de excepciones fijas.</li><li><strong>Ajustá umbrales y ventanas:</strong> Combiná volumen con diversidad (por ejemplo, <code>errores &gt;= 50</code> <strong>y</strong> <code>rutas_unicas &gt;= 20</code>) para distinguir un usuario distraído de un barrido automatizado.</li></ul>
+<h2 id="cap-4-3-normalizacion-multi-siem-ecs-cim-ibm-qradar-y-soar-con-thehive">Normalización multi-SIEM (<code>ECS</code>, <code>CIM</code>, <em>IBM QRadar</em>) y SOAR con <em>TheHive</em></h2>
+<p>En organizaciones medianas o grandes raramente existe un único producto de registro. Un ingeniero o analista SOC necesita trasladar lógicas de correlación entre distintos esquemas y conectar las alertas hacia plataformas de respuesta:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Plataforma / Estándar</th>
+<th>Campo IP origen / Evento normalizado</th>
+<th>Lógica de correlación y concepto clave</th>
+</tr></thead><tbody>
+<tr><td><strong>Elastic (<code>ECS</code>)</strong></td><td><code>source.ip</code>, <code>user.name</code>, <code>event.code</code></td><td>Documentos JSON tipados; <em>Event Query Language</em> (<code>EQL</code>) para secuencias temporales y reglas KQL programadas.</td></tr>
+<tr><td><strong>Splunk (<code>CIM</code>)</strong></td><td><code>src_ip</code>, <code>user</code>, <code>signature_id</code></td><td><em>Data Models</em> acelerados (<code>Authentication</code>, <code>Network_Traffic</code>, <code>Web</code>) que desacoplan las búsquedas <code>tstats</code> del proveedor del log.</td></tr>
+<tr><td><strong>IBM QRadar</strong></td><td>Propiedades parseadas por DSM + identificador <strong>QID</strong> (<em>QRadar Identifier</em>)</td><td>El <strong>CRE</strong> (<em>Custom Rule Engine</em>) agrupa eventos y flujos relacionados en una <strong>Offense</strong> única deduplicada por magnitud, credibilidad y relevancia.</td></tr>
+</tbody></table></div>
+<ul><li><strong>Gestión de casos (<em>Case Management</em>) con <em>TheHive</em> y orquestación SOAR:</strong> Cuando una regla de SIEM o una <em>Offense</em> requiere investigación formal, la alerta se promueve a un <strong>caso en TheHive</strong>. Cada caso agrupa <strong>observables</strong> clasificados (IP, hash, dominio, cuenta) etiquetados con <code>TLP</code> (<em>Traffic Light Protocol</em>), tareas secuenciales estandarizadas y analizadores automáticos (como <strong>Cortex</strong>) que consultan reputación o contexto interno sin intervención manual repetitiva.</li><li><strong>Playbooks SOAR con control humano (<em>Human-in-the-Loop</em>):</strong> Un flujo <strong>SOAR</strong> (<em>Security Orchestration, Automation and Response</em>) automatiza primero tareas de bajo riesgo y solo lectura —enriquecer la IP en CMDB, consultar sesiones VPN activas y adjuntar contexto del usuario—, pero exige confirmación explícita del analista antes de ejecutar acciones destructivas o de contención (aislar un controlador de dominio o revocar tokens críticos).</li></ul>
+<h2 id="cap-4-3-ejemplo-paso-a-paso-analisis-rapido-de-logs-con-laboratorios-analizador-logs-soc-py">Ejemplo paso a paso: Análisis rápido de logs con <code>laboratorios/analizador_logs_soc.py</code></h2>
+<p>Cuando todavía no desplegaste un clúster SIEM completo o necesitás hacer triage reproducible en tu laboratorio local, el repositorio ya incluye el script defensivo en Python <a href="../laboratorios/analizador_logs_soc.py"><code>laboratorios/analizador_logs_soc.py</code></a> junto a bitácoras simuladas listas para auditar. El script evalúa fallos SSH (<code>SOC-AUTH-001</code>) y escaneos HTTP 401/403/404 (<code>SOC-WEB-002</code>), emitiendo alertas normalizadas en formato JSON.</p>
+<p><strong>Paso 1:</strong> Ejecutar el analizador sobre las muestras de autenticación SSH y acceso web incluidas en <code>laboratorios/muestras/</code>.</p>
+<pre><code class="lenguaje-bash">python3 laboratorios/analizador_logs_soc.py laboratorios/muestras/auth_ssh_simulado.log
+python3 laboratorios/analizador_logs_soc.py laboratorios/muestras/web_access_simulado.log</code></pre>
+<p><strong>Paso 2:</strong> Inspeccionar las alertas JSON emitidas (con el umbral por defecto <code>5</code> para SSH y <code>umbral * 3 = 15</code> para HTTP 4xx).</p>
+<pre><code class="lenguaje-json">{
+  "archivo": "laboratorios/muestras/auth_ssh_simulado.log",
+  "total_alertas": 1,
+  "alertas": [
+    {
+      "regla": "SOC-AUTH-001",
+      "severidad": "media",
+      "tactica_mitre": "Credential Access",
+      "ip_origen": "198.51.100.42",
+      "intentos_fallidos": 7,
+      "usuarios_distintos": [
+        "admin",
+        "admin_lab",
+        "backup",
+        "deploy",
+        "oracle",
+        "root",
+        "test"
+      ]
+    }
+  ]
+}</code></pre>
+<pre><code class="lenguaje-json">{
+  "archivo": "laboratorios/muestras/web_access_simulado.log",
+  "total_alertas": 1,
+  "alertas": [
+    {
+      "regla": "SOC-WEB-002",
+      "severidad": "media",
+      "tactica_mitre": "Discovery",
+      "ip_origen": "198.51.100.88",
+      "respuestas_4xx": 15
+    }
+  ]
+}</code></pre>
+<p><em>(En la salida web real, <code>198.51.100.88</code> dispara <code>SOC-WEB-002</code> al acumular exactamente 15 respuestas <code>403</code>/<code>404</code> contra rutas administrativas como <code>/admin</code>, <code>/.env</code>, <code>/.git/config</code> y <code>/phpmyadmin</code>, mientras que el cliente legítimo <code>192.168.56.10</code> no genera falsos positivos).</em></p>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>Para que un SIEM aporte valor sostenido en defensa:</p>
+<ul><li><strong>Integridad de relojes:</strong> Sincronizá todos los hosts mediante NTP en UTC; un desfase de minutos rompe las correlaciones basadas en ventanas (<code>transaction</code> o reglas EQL).</li><li><strong>Retención y respaldo:</strong> Aplicá permisos de solo lectura a los analistas sobre los índices históricos y verificá alertas de salud de agentes (<em>heartbeat</em>) para detectar equipos que dejaron de reportar logs.</li><li><strong>Respuesta acoplada:</strong> Cada alerta de alta fidelidad (como fuerza bruta exitosa o alta no autorizada de cuenta privilegiada) debe asociarse a un procedimiento claro de bloqueo de cuenta y revisión de sesiones activas.</li></ul></aside>
+<h2 id="cap-4-3-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>Levantá una instancia local de pruebas (por ejemplo, Splunk Free o Elastic Stack en Docker dentro de tu red Host-Only) o utilizá un conjunto de logs exportados de tus VMs del Capítulo 4.2 junto con <code>laboratorios/analizador_logs_soc.py</code>. Simulá de forma benigna tres eventos: varios intentos fallidos de acceso seguidos de un ingreso válido, un comando PowerShell benigno con <code>-NoProfile</code> y un grupo de peticiones <code>404</code> contra tu servidor web local.</p>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Entregá un archivo <code>consultas_siem_lab.md</code> que incluya:</p>
+<ol><li>Tabla con al menos 4 campos mapeados entre el log crudo de tu laboratorio, CIM y ECS.</li><li>Dos consultas probadas (una en SPL y su equivalente en KQL) con una captura o salida resumida de resultados.</li><li>La salida ejecutada de <code>laboratorios/analizador_logs_soc.py</code> sobre un <code>access.log</code> generado en tu laboratorio.</li><li>Una propuesta concreta de afinado (<em>tuning</em>) para reducir al menos un falso positivo identificado.</li></ol></aside>
+<h2 id="cap-4-3-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué son indispensables los esquemas de normalización como CIM (Splunk) y ECS (Elastic) en un SIEM?</strong> Porque permiten escribir una sola regla de detección o tablero reutilizable sobre campos estandarizados (<code>source.ip</code>, <code>user.name</code>), sin depender del formato propietario de cada firewall, servidor o endpoint.</p>
+<p><strong>2. ¿Qué diferencia práctica existe entre <code>stats</code> y <code>transaction</code> en Splunk SPL?</strong> <code>stats</code> agrega eventos de forma muy eficiente en memoria y escala bien en grandes volúmenes, mientras que <code>transaction</code> agrupa eventos relacionados en el tiempo dentro de una misma sesión o secuencia, pero consume más recursos y debe usarse tras filtrar al máximo.</p>
+<p><strong>3. ¿Por qué conviene combinar conteo de errores HTTP con diversidad de rutas (<code>dc(uri_path)</code>) al detectar anomalías web?</strong> Porque un cliente con una aplicación mal configurada puede repetir 100 errores contra la misma URL, mientras que una exploración de directorios o vulnerabilidades suele tocar decenas de rutas diferentes en poco tiempo.</p>
+<p><strong>4. ¿Qué riesgo introduce el desfase horario entre servidores que envían logs al SIEM?</strong> Impide reconstruir la línea de tiempo real de un incidente y hace fallar las reglas de correlación secuencial (por ejemplo, detectar fallos seguidos de un inicio de sesión exitoso dentro de una ventana de pocos minutos).</p>
+<p><strong>5. ¿Cuál es la forma recomendada de gestionar excepciones durante el afinado (tuning) de alertas?</strong> Centralizar entidades autorizadas (cuentas de servicio, escáneres internos, equipos de administración) en tablas <em>lookup</em> auditadas y con fecha de revisión, en lugar de incrustar exclusiones sueltas difíciles de mantener.</p>
+<h2 id="cap-4-3-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Comprendés el flujo completo del SIEM: recolección, parsing, normalización, indexado y correlación.</li><li>☐ Sabés traducir una lógica básica de búsqueda entre Splunk SPL y Elastic KQL.</li><li>☐ Ejecutaste <code>laboratorios/analizador_logs_soc.py</code> sobre un archivo de logs local.</li><li>☐ Aplicaste criterios de afinado para distinguir actividad benigna de alertas accionables.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con la telemetría de endpoints centralizada y correlacionada en el SIEM, el paso final de esta parte es sumar la perspectiva de red: inspección de paquetes con Wireshark/tshark, metadatos con Zeek y reglas IDS/IPS en Suricata.</p></aside>
+<h2 id="cap-4-3-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>Splunk Documentation — <em>Search Reference (SPL) &amp; Common Information Model (CIM)</em>: https://docs.splunk.com/</li><li>Elastic Documentation — <em>Elastic Common Schema (ECS) &amp; Kibana Query Language (KQL)</em>: https://www.elastic.co/guide/</li><li>NIST Special Publication 800-92 — <em>Guide to Computer Security Log Management</em>: https://csrc.nist.gov/publications/detail/sp/800-92/final</li><li>SigmaHQ — <em>Generic Signature Format for SIEM Systems</em>: https://sigmahq.io/</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 16 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Security Monitoring &amp; SIEM Fundamentals</td><td>Easy</td><td>Defensive</td><td>11</td></tr><tr><td>Windows Event Logs &amp; Finding Evil</td><td>Medium</td><td>Defensive</td><td>6</td></tr><tr><td>Understanding Log Sources &amp; Investigating with Splunk</td><td>Medium</td><td>Defensive</td><td>6</td></tr><tr><td>SIEM 101</td><td>Fundamental</td><td>Defensive</td><td>6</td></tr><tr><td>Splunk</td><td>Medium</td><td>Defensive</td><td>11</td></tr><tr><td>Event Log Analysis</td><td>Hard</td><td>Defensive</td><td>11</td></tr><tr><td>Monitoring and Auditing</td><td>Hard</td><td>Defensive</td><td>7</td></tr><tr><td>SIEM Basics, Installation and Configuration</td><td>Easy</td><td>Defensive</td><td>8</td></tr><tr><td>SIEM Log Collection and Parsing</td><td>Hard</td><td>Defensive</td><td>9</td></tr><tr><td>SIEM Alert Generation</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>SIEM Log Search, Analysis and Reporting</td><td>Hard</td><td>Defensive</td><td>7</td></tr><tr><td>SIEM Alert Tuning</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>SOAR Fundamentals</td><td>Medium</td><td>Defensive</td><td>6</td></tr><tr><td>Open Source SOAR: TheHive</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>Advanced Event Log Analysis</td><td>Hard</td><td>Defensive</td><td>7</td></tr><tr><td>How to Investigate a SIEM Alert?</td><td>Easy</td><td>Defensive</td><td>7</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="27-telemetria-windows-y-sysmon.html">← 4.2 Telemetría Windows, Event Logs críticos, Sysmon y auditd en Linux</a></div><div><a href="29-analisis-trafico-ids-ips.html">4.4 Network Security Monitoring: Wireshark, Zeek y reglas IDS/IPS Suricata →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

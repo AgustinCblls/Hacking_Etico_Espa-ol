@@ -1,0 +1,24 @@
+Return-Path: <soporte-falso@notificaciones-seguridad.invalid>
+Received: from mail-relay.ejemplo-externo.invalid (198.51.100.99) by mx.empresa.local with ESMTPS; Sun, 22 Nov 2026 14:10:05 +0000
+Authentication-Results: mx.empresa.local;
+    spf=fail (mx.empresa.local: domain of soporte@empresa.local does not designate 198.51.100.99 as permitted sender) smtp.mailfrom=soporte-falso@notificaciones-seguridad.invalid;
+    dkim=fail (no signature);
+    dmarc=fail (p=REJECT) header.from=empresa.local
+From: "Soporte TI Empresa" <soporte@empresa.local>
+Reply-To: "Mesa Externa" <respuesta-urgente@dominio-externo.invalid>
+To: analista@empresa.local
+Subject: URGENTE: Verificacion de cuenta requerida en 2 horas
+Date: Sun, 22 Nov 2026 14:10:02 +0000
+Message-ID: <demo-phish-20261122-001@notificaciones-seguridad.invalid>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+[ARCHIVO EDUCATIVO PARA PRACTICA SOC DEL CAPITULO 4.6 - DOMINIOS RESERVADOS RFC 2606]
+
+Estimado usuario,
+
+Detectamos un inicio de sesion inusual. Valide su acceso inmediatamente en el siguiente portal:
+hxxps://portal-verificacion[.]ejemplo[.]invalid/login?id=99182
+
+Atentamente,
+Equipo de Soporte (simulacion didactica de laboratorio)

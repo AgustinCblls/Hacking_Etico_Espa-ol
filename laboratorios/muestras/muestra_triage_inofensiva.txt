@@ -1,0 +1,9 @@
+# Muestra educativa 100% INOFENSIVA para triage estatico y prueba YARA (Cap. 4.8)
+# Contiene cadenas de demostracion que activan Lab_Triage_Script_Ofuscado_Generico en reglas_yara_ejemplo.yar.
+# El bloque Base64 (UTF-16LE) decodifica unicamente a: Write-Output "Hola Laboratorio DFIR Local"
+
+$texto_codificado = "VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAiAEgAbwBsAGEAIABMAGEAYgBvAHIAYQB0AG8AcgBpAG8AIABEAEYASQBSACAATABvAGMAYQBsACIA"
+# Patron simulado de decodificacion (solo texto de estudio; NO ejecutar sin revisar):
+$decodificado = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String($texto_codificado))
+# Simulacion comentada de invocacion dinamica para analisis estatico:
+# Invoke-Expression $decodificado

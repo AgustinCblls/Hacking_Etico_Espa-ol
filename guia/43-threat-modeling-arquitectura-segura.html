@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 6.3 · Threat Modeling sistemático: STRIDE, PASTA, árboles de ataque y ASVS · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Construir un DFD completo con fronteras de confianza, matriz STRIDE, árbol de ataque y controles ASVS">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo6.html">Tomo VI</a><span aria-hidden="true">›</span><span>Cap. 6.3</span></nav>
+<h1 id="cap-6-3">Capítulo 6.3 · Threat Modeling sistemático: STRIDE, PASTA, árboles de ataque y ASVS</h1>
+<div class="meta-nivel"><span class="nivel-badge intermedio">Ingeniería Ofensiva y OPSEC</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo VI · Ruta 6 · Ingeniería Ofensiva y OPSEC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="44-whitebox-pentesting-y-code-review.html">6.4 White-Box Pentesting y Secure Code Review (Python, Node, PHP, Java y .NET)</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Aplicar el modelado de amenazas (<em>Threat Modeling</em>) de forma sistemática antes de escribir código o desplegar infraestructura. Vas a dominar las cuatro preguntas fundamentales, la construcción de Diagramas de Flujo de Datos (DFD) con fronteras de confianza, las metodologías STRIDE y PASTA, el diseño de Árboles de Ataque (<code>AND</code>/<code>OR</code>) y el mapeo directo de contramedidas hacia requisitos verificables del estándar OWASP ASVS sobre una API de pagos y autenticación.</p></aside>
+<p>Corregir una falla de diseño arquitectónico cuando la aplicación ya está en producción cuesta entre diez y cien veces más que detectarla sobre una pizarra antes de escribir la primera línea de código. Mientras que las pruebas dinámicas (<em>pentesting</em>) y la revisión de código detectan errores de implementación, el <strong>Threat Modeling</strong> descubre fallas de diseño estructural: suposiciones falsas de confianza, ausencia de verificación entre microservicios, falta de no-repudio o canales sin cifrar.</p>
+<hr>
+<h2 id="cap-6-3-1-threat-modeling-sistematico-las-4-preguntas-clave">1. Threat Modeling sistemático: las 4 preguntas clave</h2>
+<p>El <em>Threat Modeling Manifesto</em> y el marco de referencia popularizado por Adam Shostack estructuran cualquier sesión de modelado de amenazas alrededor de cuatro preguntas iterativas que todo equipo de ingeniería y seguridad debe responder de manera continua:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Pregunta</th>
+<th>Objetivo operativo</th>
+<th>Artefactos resultantes</th>
+</tr></thead><tbody>
+<tr><td><strong>1. ¿Qué estamos construyendo?</strong></td><td>Comprender alcance, activos críticos, arquitectura, actores y flujos de datos.</td><td>Diagrama de Flujo de Datos (DFD), inventario de activos y <em>Trust Boundaries</em>.</td></tr>
+<tr><td><strong>2. ¿Qué puede salir mal?</strong></td><td>Enumerar sistemáticamente amenazas realistas sobre cada componente y frontera.</td><td>Matriz STRIDE, análisis PASTA, Árboles de Ataque (<code>AND</code>/<code>OR</code>).</td></tr>
+<tr><td><strong>3. ¿Qué haremos al respecto?</strong></td><td>Decidir para cada amenaza: mitigar, eliminar, transferir o aceptar formalmente.</td><td>Requisitos de seguridad en backlog mapeados a <strong>OWASP ASVS</strong>.</td></tr>
+<tr><td><strong>4. ¿Hicimos un buen trabajo?</strong></td><td>Validar si el modelo refleja el sistema real y si las mitigaciones fueron efectivas.</td><td>Pruebas de integración, revisión de pares y verificación post-despliegue.</td></tr>
+</tbody></table></div>
+<aside class="callout nota"><p class="callout-titulo">Momento ideal de ejecución</p><p>El modelado no debe ser un evento burocrático único al final del proyecto. Aplicá una sesión corta (45 a 60 minutos) en cada nuevo RFC, historia de usuario con impacto en autenticación/pagos o cambio en fronteras de red.</p></aside>
+<hr>
+<h2 id="cap-6-3-2-diagramas-de-flujo-de-datos-dfd-y-fronteras-de-confianza">2. Diagramas de Flujo de Datos (DFD) y Fronteras de Confianza</h2>
+<p>Un diagrama de arquitectura de red tradicional muestra servidores, subredes y balanceadores, pero rara vez deja claro <strong>cómo viajan los datos</strong> ni <strong>quién confía en quién</strong>. Para modelar amenazas se utilizan <strong>Diagramas de Flujo de Datos (DFD)</strong> compuestos por cinco elementos estándar:</p>
+<ol><li><strong>Entidades Externas</strong> (<em>External Entities</em>): actores o sistemas fuera de nuestro control directo (usuarios finales, navegadores, apps móviles, pasarelas de pago externas, IdPs).</li><li><strong>Procesos</strong> (<em>Processes</em>): unidades de cómputo que reciben, transforman o enrutan datos (API Gateway, servicio de login, worker de facturación).</li><li><strong>Almacenes de Datos</strong> (<em>Data Stores</em>): repositorios persistentes o temporales (bases PostgreSQL, clúster Redis, buckets S3, archivos de logs).</li><li><strong>Flujos de Datos</strong> (<em>Data Flows</em>): flechas unidireccionales o bidireccionales que indican el protocolo y el tipo de carga útil que circula entre elementos.</li><li><strong>Fronteras de Confianza</strong> (<em>Trust Boundaries</em>): líneas punteadas o recuadros que delimitan zonas donde cambia el nivel de privilegio, autenticación o control administrativo. <strong>Toda flecha que cruza una frontera de confianza exige validación, autenticación y autorización.</strong></li></ol>
+<h3 id="cap-6-3-ejemplo-dfd-plataforma-de-login-y-api-de-pagos">Ejemplo DFD: Plataforma de Login y API de Pagos</h3>
+<p>Consideremos el diseño previo al desarrollo de un módulo de autenticación y procesamiento de pagos con tarjeta tokenizada:</p>
+<pre><code class="lenguaje-text">+-----------------------------------------------------------------------+
+| ZONA NO CONFIABLE (Internet / Cliente)                                |
+|                                                                       |
+|  [Usuario / Navegador SPA]                                            |
++-----------------------------------+-----------------------------------+
+                                    | (1) HTTPS / JSON (Credenciales, Token pago)
+============ FRONTERA DE CONFIANZA 1: Edge / TLS / Autenticación =======|
+                                    v
++-----------------------------------------------------------------------+
+| ZONA DMZ / BORDE DE APLICACIÓN                                        |
+|                                                                       |
+|  (( P1: API Gateway / WAF ))                                          |
++-----------------+---------------------------------+-------------------+
+                  | (2) gRPC interno (mTLS)         | (3) HTTP interno
+                  v                                 v
+====== FRONTERA DE CONFIANZA 2: Segmento de Microservicios =============|
+                  |                                 |
+    +-------------+-------------+     +-------------+-------------+
+    | (( P2: Servicio Auth ))   |     | (( P3: Servicio Pagos ))  |
+    +------+-------------+------+     +------+-------------+------+
+           |             |                   |             |
+    (4) SQL/TLS    (5) RESP/TLS       (6) SQL/TLS    (7) HTTPS + HMAC
+           v             v                   v             |
+    [ D1: DB Users ] [ D2: Redis ]    [ D3: DB Órdenes ]   |
+                                                           v
+====== FRONTERA DE CONFIANZA 3: Proveedor Externo =========|============|
+                                                           v
+                                              [ E2: Pasarela Externa ]</code></pre>
+<p>Fijate cómo las tres <strong>Fronteras de Confianza</strong> revelan de inmediato puntos de inspección obligatorios:</p>
+<ul><li><strong>Frontera 1</strong> (Internet hacia API Gateway): cualquier dato entrante es potencialmente malicioso; aquí aplican TLS estricto, limitación de tasa, validación de esquema y autenticación de sesión.</li><li><strong>Frontera 2</strong> (API Gateway hacia microservicios internos): aunque estén en la misma VPC, si un servicio periférico resulta comprometido no debe poder suplantar identidades hacia <code>P3: Servicio Pagos</code>. Por eso se exige <code>mTLS</code> y verificación de tokens internos firmados.</li><li><strong>Frontera 3</strong> (<code>P3</code> hacia <code>E2: Pasarela Externa</code> y webhooks de retorno): la pasarela externa es otra entidad fuera de nuestro control; las respuestas y webhooks de retorno que cruzan de vuelta esa frontera deben validarse criptográficamente con firma HMAC.</li></ul>
+<hr>
+<h2 id="cap-6-3-3-metodologia-stride-aplicada-por-elemento">3. Metodología STRIDE aplicada por elemento</h2>
+<p>Creada originalmente en Microsoft, <strong>STRIDE</strong> es una mnemotecnia de seis categorías de amenazas que se contraponen directamente a seis propiedades fundamentales de seguridad:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Letra</th>
+<th>Amenaza</th>
+<th>Definición técnica</th>
+<th>Propiedad violada</th>
+</tr></thead><tbody>
+<tr><td><strong>S</strong></td><td><em>Spoofing</em> (Suplantación)</td><td>Hacerse pasar por otro usuario, servicio o componente legítimo.</td><td><strong>Autenticación</strong></td></tr>
+<tr><td><strong>T</strong></td><td><em>Tampering</em> (Manipulación)</td><td>Alterar datos en tránsito, en memoria o almacenados sin autorización.</td><td><strong>Integridad</strong></td></tr>
+<tr><td><strong>R</strong></td><td><em>Repudiation</em> (Repudio)</td><td>Negar haber ejecutado una acción por falta de evidencia auditable íntegra.</td><td><strong>No Repudio</strong></td></tr>
+<tr><td><strong>I</strong></td><td><em>Information Disclosure</em></td><td>Exponer información sensible a actores no autorizados (datos, errores, secretos).</td><td><strong>Confidencialidad</strong></td></tr>
+<tr><td><strong>D</strong></td><td><em>Denial of Service</em></td><td>Agotar recursos o bloquear la operación normal del sistema.</td><td><strong>Disponibilidad</strong></td></tr>
+<tr><td><strong>E</strong></td><td><em>Elevation of Privilege</em></td><td>Obtener capacidades o permisos por encima del rol asignado.</td><td><strong>Autorización</strong></td></tr>
+</tbody></table></div>
+<h3 id="cap-6-3-stride-por-elemento-stride-per-element">STRIDE por elemento (<em>STRIDE-per-element</em>)</h3>
+<p>En lugar de aplicar las seis letras al azar a todo el sistema, la variante profesional <strong>STRIDE-per-element</strong> asocia a cada tipo de elemento del DFD exactamente las amenazas que tienen sentido físico sobre él:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Elemento del DFD</th>
+<th>S</th>
+<th>T</th>
+<th>R</th>
+<th>I</th>
+<th>D</th>
+<th>E</th>
+<th>Foco principal de análisis</th>
+</tr></thead><tbody>
+<tr><td><strong>Entidad Externa</strong></td><td>X</td><td></td><td>X</td><td></td><td></td><td></td><td>¿Cómo sabemos que el cliente o pasarela externa es quien dice ser? ¿Puede negar una transacción?</td></tr>
+<tr><td><strong>Proceso</strong></td><td>X</td><td>X</td><td>X</td><td>X</td><td>X</td><td>X</td><td>Es el único elemento sujeto a las 6 categorías: valida entradas, ejecuta lógica, escribe logs y controla roles.</td></tr>
+<tr><td><strong>Almacén de Datos</strong></td><td></td><td>X</td><td>X*</td><td>X</td><td>X</td><td></td><td>¿Quién puede modificar registros (<code>T</code>), leer datos en reposo/backups (<code>I</code>) o llenar el disco (<code>D</code>)? (*<code>R</code> aplica si guarda logs de auditoría).</td></tr>
+<tr><td><strong>Flujo de Datos</strong></td><td></td><td>X</td><td></td><td>X</td><td>X</td><td></td><td>¿El canal puede ser interceptado (<code>I</code>), alterado en tránsito (<code>T</code>) o saturado (<code>D</code>)?</td></tr>
+</tbody></table></div>
+<p>Aplicando <strong>STRIDE-per-element</strong> sobre nuestro DFD de pagos y login obtenemos hallazgos accionables concretos:</p>
+<ul><li><strong>Flujo (1) Cliente -&gt; P1</strong>: <em>Tampering</em> / <em>Information Disclosure</em> en tránsito (mitigado con TLS 1.3 y HSTS) y <em>Denial of Service</em> por peticiones masivas al login (mitigado con rate limiting y WAF).</li><li><strong>Proceso P2 (Servicio Auth)</strong>: <em>Spoofing</em> mediante robo de credenciales o tokens JWT débiles; <em>Elevation of Privilege</em> si un usuario modifica su campo <code>role</code> en el perfil; <em>Repudiation</em> si los inicios de sesión y cambios de contraseña no registran timestamp, IP, user-agent y resultado en log inmutable.</li><li><strong>Almacén D3 (DB Órdenes)</strong>: <em>Information Disclosure</em> por backups sin cifrar o consultas SQL sin parametrizar; <em>Tampering</em> si no hay integridad referencial ni control de acceso mínimo por servicio (<code>least privilege</code>).</li><li><strong>Entidad E2 (Pasarela Externa -&gt; Webhook hacia P3)</strong>: <em>Spoofing</em> si cualquiera puede invocar el endpoint de webhook fingiendo una confirmación de pago sin verificar la firma HMAC de la pasarela.</li></ul>
+<hr>
+<h2 id="cap-6-3-4-pasta-7-etapas-orientadas-al-riesgo-del-negocio">4. PASTA: 7 etapas orientadas al riesgo del negocio</h2>
+<p>Mientras STRIDE es ideal para equipos de ingeniería centrados en el diseño de software, <strong>PASTA</strong> (<em>Process for Attack Simulation and Threat Analysis</em>) adopta una perspectiva <strong>centrada en el riesgo del negocio y el perfil real del atacante</strong>. Se ejecuta en siete etapas progresivas:</p>
+<ol><li><strong>Definir los objetivos del negocio y requisitos de seguridad</strong>: identificar qué activos protegen los ingresos, la continuidad operativa y el cumplimiento regulatorio (por ejemplo, PCI-DSS en pagos o GDPR/Ley de Protección de Datos).</li><li><strong>Definir el alcance técnico</strong>: enumerar infraestructura, APIs, librerías, dependencias, contenedores y servicios en la nube incluidos en el límite del análisis.</li><li><strong>Descomposición de la aplicación</strong>: construir DFDs, mapear casos de uso, roles, <em>trust boundaries</em> y puntos de entrada de datos.</li><li><strong>Análisis de amenazas</strong>: correlacionar inteligencia de amenazas reales (tácticas de atacantes relevantes para el sector fintech/SaaS) sobre el sistema descompuesto.</li><li><strong>Análisis de vulnerabilidades y debilidades</strong>: cruzar los componentes con debilidades conocidas (CWE, fallas de diseño previas, hallazgos SAST/DAST o reportes pasados).</li><li><strong>Modelado de ataques</strong>: construir <strong>Árboles de Ataque</strong> y secuencias encadenadas que muestren cómo un adversario real combinaría fallas menores para lograr el objetivo de negocio adverso.</li><li><strong>Análisis de riesgo e impacto</strong>: calcular impacto financiero/reputacional frente a costo de remediación y priorizar las contramedidas con mayor reducción de riesgo.</li></ol>
+<aside class="callout aviso"><p class="callout-titulo">¿Cuándo usar STRIDE y cuándo PASTA?</p><p>Usá <strong>STRIDE</strong> en el día a día de desarrollo (sprints, diseño de nuevas funcionalidades y microservicios) por su rapidez y exhaustividad técnica. Reservá <strong>PASTA</strong> para plataformas críticas de alto impacto financiero o regulatorio donde la gerencia de riesgo necesita priorizar inversiones en base a escenarios adversos concretos.</p></aside>
+<h3 id="cap-6-3-aplicacion-concreta-de-pasta-sobre-la-api-de-pagos">Aplicación concreta de PASTA sobre la API de Pagos</h3>
+<p>Para visualizar cómo PASTA conecta la estrategia del negocio con el detalle técnico, observá los entregables de las siete etapas aplicadas a nuestra plataforma de checkout y pagos:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Etapa PASTA</th>
+<th>Entregable concreto en la API de Pagos</th>
+</tr></thead><tbody>
+<tr><td><strong>1. Objetivos de negocio</strong></td><td>Garantizar cero cobros fraudulentos o acreditaciones sin pago real; cumplir PCI-DSS SAQ A evitando tocar PAN en backend.</td></tr>
+<tr><td><strong>2. Alcance técnico</strong></td><td>API Gateway (Nginx/Envoy), Servicio Auth (Python), Servicio Pagos (Go), PostgreSQL 16, Redis 7 y pasarela externa vía HTTPS.</td></tr>
+<tr><td><strong>3. Descomposición</strong></td><td>El DFD anterior con 3 <em>Trust Boundaries</em>, roles (<code>customer</code>, <code>support</code>, <code>admin</code>) y casos de uso críticos (login, pago, webhook).</td></tr>
+<tr><td><strong>4. Análisis de amenazas</strong></td><td>Tácticas relevantes para fintech: relleno de credenciales, manipulación de webhooks, condiciones de carrera en cupones y robo de JWT.</td></tr>
+<tr><td><strong>5. Debilidades</strong></td><td>Revisión de CWE aplicables (<code>CWE-362</code> concurrencia, <code>CWE-345</code> firma HMAC ausente, <code>CWE-639</code> IDOR en órdenes).</td></tr>
+<tr><td><strong>6. Modelado de ataques</strong></td><td>Construcción de Árboles de Ataque (<code>AND</code>/<code>OR</code>) para demostrar el camino mínimo hacia el objetivo adverso <em>"Acreditar orden sin pagar"</em>.</td></tr>
+<tr><td><strong>7. Riesgo e impacto</strong></td><td>Priorización cuantitativa: exigir firma HMAC + <code>FOR UPDATE</code> + tokenización antes de salir a producción (riesgo crítico residual reducido a bajo).</td></tr>
+</tbody></table></div>
+<hr>
+<h2 id="cap-6-3-5-arboles-de-ataque-attack-trees-con-nodos-and-or">5. Árboles de Ataque (<em>Attack Trees</em>) con nodos <code>AND</code>/<code>OR</code></h2>
+<p>Los <strong>Árboles de Ataque</strong>, formalizados por Bruce Schneier, modelan de manera visual y lógica las rutas que debe recorrer un atacante para alcanzar un objetivo prohibido (el <strong>nodo raíz</strong>). Cada nivel inferior descompone el objetivo en sub-metas conectadas mediante dos operadores booleanos:</p>
+<ul><li><strong>Nodos <code>OR</code> (disyunción)</strong>: basta con que se cumpla <strong>cualquiera</strong> de los nodos hijos para satisfacer el nodo padre. Representan caminos alternativos.</li><li><strong>Nodos <code>AND</code> (conjunción)</strong>: deben cumplirse <strong>todos</strong> los nodos hijos simultáneamente para avanzar. Aquí es donde la <strong>defensa en profundidad</strong> tiene mayor impacto, porque bloquear un único hijo <code>AND</code> neutraliza toda esa rama.</li></ul>
+<p>Ejemplo de Árbol de Ataque para el objetivo raíz: <strong>"Acreditar una orden sin realizar el pago real en la API de Pagos"</strong>:</p>
+<pre><code class="lenguaje-text">[RAÍZ] Acreditar orden sin pagar
+  |
+  +-- (OR) 1. Falsificar confirmación del Webhook de Pasarela
+  |     |
+  |     +-- (AND) 1a. Endpoint webhook accesible públicamente
+  |     +-- (AND) 1b. Ausencia de validación de firma HMAC / secreto filtrado
+  |
+  +-- (OR) 2. Explotar falla de lógica o concurrencia en Checkout
+  |     |
+  |     +-- (OR) 2a. Enviar monto total negativo o alterado desde cliente
+  |     +-- (OR) 2b. Condición de carrera en aplicación de cupón / saldo
+  |
+  +-- (OR) 3. Secuestrar sesión de usuario con tarjeta guardada
+        |
+        +-- (AND) 3a. Obtener cookie/token (XSS o fuga en log)
+        +-- (AND) 3b. Compra en 1 clic sin re-autenticación ni CVV/3DS</code></pre>
+<p>Al anotar cada hoja con atributos como <strong>Costo/Dificultad (Bajo/Medio/Alto)</strong> y <strong>Detectabilidad</strong>, el arquitecto observa de inmediato que las ramas <code>1a AND 1b</code> o <code>2a</code> son las más baratas para un atacante y requieren contramedidas inmediatas antes del lanzamiento.</p>
+<hr>
+<h2 id="cap-6-3-6-mapeo-de-mitigaciones-a-requisitos-verificables-owasp-asvs">6. Mapeo de mitigaciones a requisitos verificables OWASP ASVS</h2>
+<p>Un error clásico del modelado de amenazas es terminar con recomendaciones vagas como <em>"asegurar la API"</em> o <em>"agregar monitoreo"</em>. Todo hallazgo priorizado debe traducirse en un <strong>requisito verificable</strong> que QA o seguridad puedan comprobar objetivamente.</p>
+<p>El estándar <strong>OWASP ASVS (Application Security Verification Standard v4.0)</strong> ofrece el catálogo exacto de controles divididos en niveles (L1 básico, L2 estándar para la mayoría de apps con datos sensibles, L3 crítico como banca/salud).</p>
+<p>A continuación tenés el mapeo completo para nuestra <strong>API de Pagos y Login</strong>:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Componente DFD</th>
+<th>Amenaza STRIDE identificada</th>
+<th>Mitigación arquitectónica concreta</th>
+<th>Requisito OWASP ASVS v4.0</th>
+</tr></thead><tbody>
+<tr><td><strong>P2: Servicio Auth</strong></td><td><em>Spoofing</em> por fuerza bruta o credenciales comprometidas</td><td>Rate limiting por cuenta/IP, contraseñas con Argon2id y soporte MFA FIDO2/TOTP.</td><td><strong><code>V2.2.1</code></strong> (Anti-automatización), <strong><code>V2.4.1</code></strong> (Hashing resistente), <strong><code>V2.8</code></strong> (MFA).</td></tr>
+<tr><td><strong>Flujo (1) -&gt; P1</strong></td><td><em>Spoofing</em> / <em>Information Disclosure</em> de tokens de sesión</td><td>Emitir tokens opacos o JWT firmados con vida corta; cookies con <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Lax</code>.</td><td><strong><code>V3.2.1</code></strong> (Entropía de sesión), <strong><code>V3.4.1-3.4.5</code></strong> (Atributos seguros de cookie).</td></tr>
+<tr><td><strong>P3: Servicio Pagos</strong></td><td><em>Elevation of Privilege</em> (IDOR sobre órdenes ajenas)</td><td>Validar <code>order.owner_id == auth_context.user_id</code> en el servicio antes de leer o confirmar orden.</td><td><strong><code>V4.1.3</code></strong> / <strong><code>V4.2.1</code></strong> (Control de acceso a nivel de objeto y rechazo por defecto).</td></tr>
+<tr><td><strong>P3: Servicio Pagos</strong></td><td><em>Tampering</em> de precios o cantidades en payload</td><td>Ignorar montos enviados por el cliente; recalcular precios desde catálogo DB y usar <code>Decimal</code>/centavos.</td><td><strong><code>V5.1.3</code></strong> (Validación de esquema) y <strong><code>V11.1.4</code></strong> (Integridad de flujos de negocio).</td></tr>
+<tr><td><strong>P3: Servicio Pagos</strong></td><td><em>Tampering</em> / Race condition en cobros y cupones</td><td>Implementar <code>Idempotency-Key</code> único y bloqueo pesimista <code>SELECT ... FOR UPDATE</code> en base de datos.</td><td><strong><code>V11.1.5</code></strong> (Protección contra abuso concurrente y límites de lógica de negocio).</td></tr>
+<tr><td><strong>P2 &amp; P3 (Logs)</strong></td><td><em>Repudiation</em> en transacciones y cambios de cuenta</td><td>Registrar eventos de login, fallos, pagos y cambios de rol en log centralizado inmutable sin guardar secretos/PAN.</td><td><strong><code>V7.1.1</code></strong> (No registrar datos sensibles), <strong><code>V7.2.2</code></strong> (Registro de eventos de seguridad).</td></tr>
+<tr><td><strong>E2 -&gt; P3 (Webhook)</strong></td><td><em>Spoofing</em> de confirmaciones de la pasarela externa</td><td>Verificar firma HMAC-SHA256 sobre payload crudo con <code>constant_time_compare</code> y validar timestamp contra replay.</td><td><strong><code>V9.2.1</code></strong> (TLS mutuo/autenticado entre servicios) y <strong><code>V13.1.3</code></strong> (Validación de origen de APIs).</td></tr>
+<tr><td><strong>D1 / D3 (Bases)</strong></td><td><em>Information Disclosure</em> de datos en reposo/tránsito</td><td>Cifrado TLS hacia DB, tokenización PCI en proveedor externo (nunca persistir PAN/CVV), cuentas DB con mínimos privilegios.</td><td><strong><code>V6.1.1</code></strong> (Datos clasificados), <strong><code>V9.1.1</code></strong> (TLS en todas las conexiones).</td></tr>
+</tbody></table></div>
+<h3 id="cap-6-3-responder-la-pregunta-4-verificacion-continua-y-antipatrones-frecuentes">Responder la pregunta 4: verificación continua y antipatrones frecuentes</h3>
+<p>Un modelo de amenazas queda obsoleto si nadie comprueba que las contramedidas mapeadas a <strong>OWASP ASVS</strong> realmente existen en el código desplegado. Para cerrar el ciclo con la pregunta <em>"¿Hicimos un buen trabajo?"</em>, asociá cada fila de la tabla anterior a una prueba automatizada en integración continua:</p>
+<ul><li><strong>Pruebas de contrato e integración</strong>: verificar que toda llamada al endpoint de órdenes sin JWT válido devuelva <code>401</code>, que intentar leer la orden de otro usuario devuelva <code>403</code>/<code>404</code> (<code>V4.2.1</code>) y que un webhook con firma HMAC inválida sea rechazado (<code>V13.1.3</code>).</li><li><strong>Pruebas de concurrencia y aritmética</strong>: ejecutar tests paralelos contra <code>POST /checkout/confirm</code> verificando que solo una transacción avance y que montos negativos sean rechazados (<code>V11.1.4</code>, <code>V11.1.5</code>).</li><li><strong>Antipatrones que debés evitar</strong>: considerar que "estar dentro de la misma VPC" elimina la necesidad de autenticación entre servicios (ignorando la <em>Frontera de Confianza 2</em>), copiar un DFD genérico sin actualizarlo cuando se agrega un nuevo webhook o almacenamiento S3, y redactar amenazas sin asignar un responsable ni un criterio de verificación ASVS.</li></ul>
+<hr>
+<h2 id="cap-6-3-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>Elegí una arquitectura pequeña que estés construyendo o un escenario de laboratorio estándar (por ejemplo, un sistema de <strong>Transferencias Internas con Autenticación JWT y Notificaciones por Webhook</strong>) y realizá un ejercicio completo de modelado antes de implementar nuevas funcionalidades:</p>
+<ol><li><strong>Dibujá el DFD</strong>: representá al menos 2 entidades externas, 3 procesos, 2 almacenes de datos, sus flujos etiquetados con protocolo y al menos 2 <strong>Fronteras de Confianza</strong> claras.</li><li><strong>Aplicá STRIDE-per-element</strong>: seleccioná 1 flujo que cruce una frontera de confianza, 1 proceso crítico y 1 almacén de datos; documentá al menos 6 amenazas concretas derivadas de la matriz STRIDE.</li><li><strong>Construí un Árbol de Ataque</strong>: modelá un único objetivo adverso (por ejemplo, <em>"Ejecutar transferencia no autorizada desde cuenta ajena"</em>) usando al menos un nodo <code>AND</code> y un nodo <code>OR</code>.</li><li><strong>Mapeá a ASVS</strong>: vinculá cada amenaza detectada con una contramedida técnica específica y su identificador correspondiente de <strong>OWASP ASVS v4.0</strong> (Nivel 2).</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un documento Markdown de arquitectura segura (<code>threat-model.md</code>) que contenga: (a) el diagrama DFD con fronteras de confianza numeradas, (b) la tabla STRIDE-per-element con al menos 6 filas, (c) el árbol de ataque ASCII con nodos <code>AND</code>/<code>OR</code>, y (d) la tabla de mitigaciones mapeadas a códigos <code>OWASP ASVS</code> listos para convertirse en tickets verificables.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y remediación</p><p>El <em>Threat Modeling</em> transforma la seguridad de un cuello de botella reactivo al final del desarrollo en una disciplina de diseño ingenieril. Su mayor valor no reside en producir un diagrama decorativo, sino en <strong>hacer visibles las fronteras de confianza ocultas</strong> y convertir cada amenaza abstracta (STRIDE) en un requisito verificable (OWASP ASVS) que pueda probarse automáticamente en integración continua. Cuando un equipo se acostumbra a preguntar <em>"¿qué puede salir mal en esta frontera?"</em> antes de codificar, elimina familias enteras de vulnerabilidades de diseño por construcción.</p></aside>
+<h2 id="cap-6-3-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Cuáles son las cuatro preguntas fundamentales del modelado de amenazas y qué artefacto principal responde a la primera?</strong> Las cuatro preguntas son: <em>¿Qué estamos construyendo?</em>, <em>¿Qué puede salir mal?</em>, <em>¿Qué haremos al respecto?</em> y <em>¿Hicimos un buen trabajo?</em>. La primera pregunta se responde principalmente construyendo un <strong>Diagrama de Flujo de Datos (DFD)</strong> con los activos, actores y fronteras de confianza.</p>
+<p><strong>2. ¿Por qué las Fronteras de Confianza (<em>Trust Boundaries</em>) son el elemento más crítico de un DFD desde el punto de vista de la seguridad?</strong> Porque señalan exactamente los puntos donde los datos cruzan de una zona con menor nivel de confianza o privilegio a otra diferente; toda transición a través de una frontera de confianza requiere validación de entrada, autenticación y verificación de autorización explícitas.</p>
+<p><strong>3. ¿En qué se diferencia aplicar <em>STRIDE-per-element</em> respecto a evaluar las seis categorías sobre cada componente de forma genérica?</strong> <em>STRIDE-per-element</em> restringe el análisis en cada elemento del DFD a las categorías físicamente aplicables a su naturaleza (por ejemplo, un flujo de datos sufre <em>Tampering</em>, <em>Information Disclosure</em> y <em>Denial of Service</em>, mientras que un proceso está sujeto a las seis), reduciendo el ruido y acelerando la cobertura sistemática.</p>
+<p><strong>4. ¿Qué ventaja práctica aporta modelar nodos <code>AND</code> frente a nodos <code>OR</code> en un Árbol de Ataque?</strong> Un nodo <code>OR</code> indica caminos alternativos independientes donde el atacante solo necesita tener éxito en uno, mientras que un nodo <code>AND</code> exige cumplir múltiples condiciones simultáneamente; por lo tanto, mitigar cualquiera de los hijos de un nodo <code>AND</code> bloquea por completo esa rama de ataque, optimizando la inversión en defensa en profundidad.</p>
+<p><strong>5. ¿Cuál es el principal beneficio de elegir PASTA frente a STRIDE en sistemas críticos de negocio?</strong> Mientras STRIDE está enfocado en la arquitectura técnica del software, PASTA conecta en siete etapas los objetivos de negocio, el cumplimiento regulatorio, la inteligencia de amenazas reales y el análisis de impacto financiero, permitiendo priorizar controles según el riesgo real para la organización.</p>
+<h2 id="cap-6-3-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de avanzar hacia el pentesting <em>White-Box</em> y la revisión segura de código fuente, asegurate de poder diferenciar cada categoría de STRIDE con un ejemplo propio y de saber traducir al menos tres amenazas arquitectónicas en requisitos concretos de <strong>OWASP ASVS</strong>.</p></aside>
+<h2 id="cap-6-3-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>Threat Modeling Manifesto</strong> (<em>threatmodelingmanifesto.org</em>) — Principios, valores y antipatrones del modelado de amenazas.</li><li><strong>OWASP Application Security Verification Standard (ASVS v4.0.3)</strong> — Catálogo completo de requisitos verificables (<code>V1</code> a <code>V14</code>).</li><li><strong>OWASP Threat Modeling Cheat Sheet</strong> — Guía práctica de DFD, STRIDE y priorización de contramedidas.</li><li><strong>Adam Shostack — <em>Threat Modeling: Designing for Security</strong></em> — Referencia fundacional de las 4 preguntas y <em>STRIDE-per-element</em>.</li><li><strong>PASTA (<em>Process for Attack Simulation and Threat Analysis</em>)</strong> — Marco de modelado centrado en riesgo de negocio (UcedaVélez &amp; Morana).</li></ul>
+
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="42-oauth-oidc-avanzado-y-logica-negocio.html">← 6.2 OAuth 2.0 / OIDC complejo, lógica de negocio y checklists OWASP WSTG</a></div><div><a href="44-whitebox-pentesting-y-code-review.html">6.4 White-Box Pentesting y Secure Code Review (Python, Node, PHP, Java y .NET) →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

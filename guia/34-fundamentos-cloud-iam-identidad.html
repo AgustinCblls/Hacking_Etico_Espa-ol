@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 5.1 · Arquitectura Multi-Cloud, IAM, Entra ID y escalada de identidades · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar políticas IAM JSON, detectar rutas PassRole/AssumeRole y endurecer identidad híbrida Entra ID">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo5.html">Tomo V</a><span aria-hidden="true">›</span><span>Cap. 5.1</span></nav>
+<h1 id="cap-5-1">Capítulo 5.1 · Arquitectura Multi-Cloud, IAM, Entra ID y escalada de identidades</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Cloud y DevSecOps</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo V · Ruta 5 · Cloud y DevSecOps</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="35-superficie-cloud-storage-redes-imds.html">5.2 Superficie Cloud: S3/Storage, redes VPC, Serverless, Secretos e IMDSv2</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a comprender los fundamentos arquitectónicos de la computación en la nube multi-proveedor (AWS, Azure y GCP), los límites reales del Modelo de Responsabilidad Compartida y la mecánica interna de la virtualización mediante hipervisores. Además, vas a dominar el modelo de evaluación de identidades y accesos (IAM), analizar rutas conceptuales de escalada de privilegios en políticas JSON y arquitectura híbrida con Microsoft Entra ID, y aplicar controles de endurecimiento y auditoría con herramientas CLI en entornos de laboratorio propios.</p></aside>
+<p>La transición desde centros de datos físicos hacia infraestructuras definidas por software desplazó el perímetro de seguridad tradicional. En entornos de nube pública y privada, la red deja de ser el principal límite de confianza: <strong>la identidad pasa a ser el plano de control crítico</strong>. Un error en una política JSON, un rol sobredimensionado o una relación de confianza mal acotada puede exponer la infraestructura completa sin necesidad de vulnerar un solo servicio de red.</p>
+<p>Este capítulo consolida la base conceptual y operativa necesaria para auditar identidades en la nube, cubriendo el recorrido de los módulos <em>Virtualization and Cloud Security</em>, <em>AWS Identity and Access Management</em> e <em>Identity and Access Management</em>.</p>
+<h2 id="cap-5-1-arquitectura-multi-cloud-y-modelo-de-responsabilidad-compartida">Arquitectura Multi-Cloud y Modelo de Responsabilidad Compartida</h2>
+<p>Las organizaciones modernas raramente dependen de un único proveedor. Adoptan estrategias <strong>multi-cloud</strong> (combinando <strong>Amazon Web Services (AWS)</strong>, <strong>Microsoft Azure</strong> y <strong>Google Cloud Platform (GCP)</strong>) para evitar el bloqueo de proveedor (<em>vendor lock-in</em>), cumplir normativas de residencia de datos o aprovechar servicios especializados de analítica e inteligencia artificial. Sin embargo, operar múltiples nubes multiplica la complejidad del plano de control porque cada plataforma nombra, agrupa y delega sus recursos con jerarquías distintas.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Capa o Concepto</th>
+<th>AWS</th>
+<th>Microsoft Azure</th>
+<th>Google Cloud (GCP)</th>
+</tr></thead><tbody>
+<tr><td><strong>Unidad de aislamiento superior</strong></td><td>Organization / Root</td><td>Tenant (Entra ID) / Management Group</td><td>Organization</td></tr>
+<tr><td><strong>Contenedor de facturación y límites</strong></td><td>AWS Account</td><td>Subscription</td><td>Project (y Folders)</td></tr>
+<tr><td><strong>Identidad humana / servicio</strong></td><td>IAM User / IAM Role</td><td>Entra ID User / Service Principal</td><td>Cloud Identity / Service Account</td></tr>
+<tr><td><strong>Unidad de permisos</strong></td><td>IAM Policy (JSON)</td><td>RBAC Role Definition (JSON)</td><td>IAM Role (conjunto de permisos)</td></tr>
+<tr><td><strong>Plano de metadatos local</strong></td><td>IMDS (<code>169.254.169.254</code>)</td><td>IMDS (<code>169.254.169.254</code>)</td><td>Metadata Server (<code>metadata.google.internal</code>)</td></tr>
+</tbody></table></div>
+<p>A pesar de estas diferencias de nomenclatura, los tres proveedores operan bajo el <strong>Modelo de Responsabilidad Compartida</strong>. Este modelo traza una frontera contractual y técnica entre la <strong>seguridad <em>de</em> la nube</strong> (responsabilidad del proveedor: seguridad física de los centros de datos, hardware de red, hipervisores subyacentes y aislamiento multi-inquilino) y la <strong>seguridad <em>en</em> la nube</strong> (responsabilidad del cliente: configuración de identidades, cifrado de datos, reglas de firewall virtuales, parches del sistema operativo invitado y gestión de secretos).</p>
+<pre><code>+-------------------------------------------------------------------+
+| RESPONSABILIDAD DEL CLIENTE (Seguridad EN la nube)                |
+|  - Datos, clasificación y cifrado en reposo / tránsito            |
+|  - Identidades, MFA, políticas IAM y principio de mínimo privilegio|
+|  - Configuración de aplicaciones, red virtual (VPC/VNet) y OS     |
++===================================================================+
+| RESPONSABILIDAD DEL PROVEEDOR (Seguridad DE la nube)              |
+|  - Cómputo físico, almacenamiento subyacente y red troncal        |
+|  - Hipervisores (Nitro, Hyper-V, KVM) y aislamiento físico        |
+|  - Seguridad perimetral física, energía y certificaciones         |
++-------------------------------------------------------------------+</code></pre>
+<aside class="callout aviso"><p class="callout-titulo">La zona gris de la responsabilidad según el modelo de servicio</p><p>A medida que avanzás desde <strong>IaaS</strong> (EC2, Azure VMs, Compute Engine) hacia <strong>PaaS</strong> (RDS, App Service, Cloud SQL) y <strong>SaaS / Serverless</strong> (Lambda, Cloud Functions, Microsoft 365), el proveedor absorbe la gestión del sistema operativo y del entorno de ejecución. Sin embargo, <strong>nunca</strong> absorbe la configuración lógica de tus permisos, la exposición pública de tus repositorios de objetos ni la higiene de tus credenciales. La gran mayoría de los incidentes en la nube ocurren en la capa lógica administrada por el cliente.</p></aside>
+<h2 id="cap-5-1-virtualizacion-hipervisores-y-aislamiento-multi-inquilino">Virtualización, Hipervisores y Aislamiento Multi-Inquilino</h2>
+<p>Para garantizar que múltiples clientes compartan un mismo servidor físico (<em>bare metal</em>) sin interferencias ni fugas de memoria, los proveedores de nube se apoyan en <strong>hipervisores</strong>. Un hipervisor es una capa de software o firmware que abstrae el hardware físico (CPU, RAM, controladores de E/S) y presenta máquinas virtuales independientes (<em>guests</em>) con sus propios núcleos de sistema operativo.</p>
+<p>Existen dos arquitecturas clásicas de hipervisores:</p>
+<ol><li><strong>Hipervisores de Tipo 1 (Bare-Metal):</strong> Se ejecutan directamente sobre el hardware físico sin un sistema operativo anfitrión intermedio. Ejemplos representativos son <strong>KVM</strong> (Kernel-based Virtual Machine, núcleo de la infraestructura de GCP y base histórica de múltiples nubes), <strong>Xen</strong>, <strong>Microsoft Hyper-V</strong> y <strong>VMware ESXi</strong>. En la nube moderna, AWS evolucionó este modelo hacia <strong>AWS Nitro System</strong>, descargando la virtualización de red, almacenamiento y gestión hacia tarjetas dedicadas basadas en hardware para reducir al mínimo la superficie de ataque en el procesador principal.</li><li><strong>Hipervisores de Tipo 2 (Hosted):</strong> Se ejecutan como una aplicación sobre un sistema operativo convencional (por ejemplo, VirtualBox o VMware Workstation en un laboratorio local). Ofrecen gran portabilidad para pruebas, pero introducen mayor latencia y dependen de la seguridad del sistema anfitrión.</li></ol>
+<p>El aislamiento fuerte requiere soporte por hardware en el procesador (<strong>Intel VT-x / EPT</strong> o <strong>AMD-V / RVI</strong>) para separar tablas de páginas de memoria y anillos de privilegio, junto con <strong>IOMMU</strong> (<em>Input-Output Memory Management Unit</em>, como Intel VT-d) para impedir que dispositivos PCIe virtuales realicen accesos directos a memoria (DMA) fuera de su espacio asignado.</p>
+<p>En auditorías de virtualización, los riesgos principales surgen cuando se debilitan estas fronteras:</p>
+<ul><li><strong>Escape de máquina virtual (VM Escape):</strong> Fallos críticos en dispositivos emulados (como controladores gráficos virtuales, disquetes o interfaces de red heredadas en QEMU) que permiten conceptualmente saltar desde el espacio de usuario o kernel del <em>guest</em> hacia el proceso del hipervisor en el <em>host</em>.</li><li><strong>Ataques de canal lateral (Side-Channel):</strong> Técnicas basadas en contención de caché compartida de CPU (L1/L2/L3) o ejecución especulativa cuando dos inquilinos comparten núcleos físicos (<em>Simultaneous Multithreading</em>). La mitigación estándar incluye microcódigo actualizado, aislamiento de núcleos y, para cargas reguladas, instancias dedicadas (<em>Dedicated Hosts</em>).</li><li><strong>Instantáneas y volúmenes compartidos:</strong> Dejar <em>snapshots</em> de discos virtuales sin cifrado o con permisos de lectura amplios expone el sistema de archivos completo de la máquina fuera del tiempo de ejecución.</li></ul>
+<h2 id="cap-5-1-anatomia-profunda-de-iam-en-aws">Anatomía Profunda de IAM en AWS</h2>
+<p><strong>AWS Identity and Access Management (IAM)</strong> gobierna quién (<em>Principal</em>) puede hacer qué (<em>Action</em>) sobre qué recurso (<em>Resource</em>) y bajo qué contexto (<em>Condition</em>). Antes de escribir o auditar una política, debés distinguir con precisión los cuatro componentes identitarios básicos:</p>
+<ul><li><strong>IAM User:</strong> Identidad permanente asociada a una persona o servicio legado con credenciales de largo plazo (contraseña de consola o pares <code>AccessKeyId</code> / <code>SecretAccessKey</code>). En arquitecturas modernas se desaconseja su uso en favor de federación SSO y roles temporales.</li><li><strong>IAM Group:</strong> Colección lógica de usuarios para asignar políticas de forma uniforme. Un grupo <strong>no</strong> es una entidad de destino (<em>Principal</em>) en políticas de recursos ni puede anidarse dentro de otro grupo.</li><li><strong>IAM Role:</strong> Identidad temporal sin credenciales estáticas propias. Se asume mediante el servicio <strong>AWS STS</strong> (<em>Security Token Service</em>), que emite credenciales efímeras (<code>AccessKeyId</code>, <code>SecretAccessKey</code> y <code>SessionToken</code>) con tiempo de vida acotado. Es el mecanismo recomendado para instancias EC2, funciones Lambda, accesos entre cuentas y usuarios federados.</li><li><strong>IAM Policy:</strong> Documento JSON que declara permisos. Puede ser <strong>basada en identidad</strong> (adjunta a usuarios, grupos o roles) o <strong>basada en recursos</strong> (adjunta directamente a un bucket S3, una cola SQS, una clave KMS o la <em>Trust Policy</em> de un rol).</li></ul>
+<h3 id="cap-5-1-estructura-json-y-politica-de-ejemplo">Estructura JSON y Política de Ejemplo</h3>
+<p>Todo documento de política IAM sigue un esquema declarativo estricto con una lista de sentencias (<code>Statement</code>). Cada sentencia define:</p>
+<ul><li><strong><code>Sid</code>:</strong> Identificador legible opcional para documentación y auditoría.</li><li><strong><code>Effect</code>:</strong> <code>Allow</code> o <code>Deny</code>.</li><li><strong><code>Action</code> / <code>NotAction</code>:</strong> Operaciones específicas de API con prefijo de servicio (<code>servicio:Operación</code>).</li><li><strong><code>Resource</code> / <code>NotResource</code>:</strong> Identificadores únicos (<strong>ARN</strong>, <em>Amazon Resource Name</em>) de los objetos alcanzados.</li><li><strong><code>Condition</code>:</strong> Bloque lógico que restringe cuándo aplica la sentencia (IP de origen, presencia de MFA, etiquetas de recurso o región).</li></ul>
+<pre><code class="lenguaje-json">{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PermitirLecturaS3ConMFAYRedCorporativa",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::lab-datos-auditoria",
+        "arn:aws:s3:::lab-datos-auditoria/*"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:MultiFactorAuthPresent": "true"
+        },
+        "IpAddress": {
+          "aws:SourceIp": "203.0.113.0/24"
+        }
+      }
+    },
+    {
+      "Sid": "DenegarCambiosFueraDeRegionPermitida",
+      "Effect": "Deny",
+      "Action": "ec2:*",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": [
+            "us-east-1",
+            "sa-east-1"
+          ]
+        }
+      }
+    }
+  ]
+}</code></pre>
+<h3 id="cap-5-1-logica-de-evaluacion-de-politicas-explicit-deny-siempre-gana">Lógica de Evaluación de Políticas (Explicit Deny siempre gana)</h3>
+<p>Cada llamada a la API de AWS dispara un motor de decisión determinista. Comprender este orden de evaluación es vital para no asumir falsamente que una política de permiso habilita una acción cuando existe una barrera superior:</p>
+<ol><li><strong>Denegación por defecto (<em>Implicit Deny</em>):</strong> Toda acción comienza denegada si ninguna sentencia la autoriza.</li><li><strong>Evaluación de <code>Deny</code> explícito:</strong> Si <em>cualquier</em> política aplicable (identidad, recurso, <em>Permission Boundary</em>, <em>Session Policy</em> o <strong>Service Control Policy (SCP)</strong> a nivel de AWS Organizations) contiene un <code>Effect: "Deny"</code> coincidente, la petición se rechaza de inmediato. <strong>Un <code>Deny</code> explícito nunca puede ser anulado por un <code>Allow</code>.</strong></li><li><strong>Evaluación de límites organizacionales:</strong> Si la cuenta pertenece a AWS Organizations, las <strong>SCP</strong> deben permitir la acción explícitamente. Lo mismo ocurre si el usuario o rol tiene un <strong>Permissions Boundary</strong> adjunto: la intersección efectiva es la que prevalece.</li><li><strong>Evaluación de <code>Allow</code> explícito:</strong> Solo si no hay <code>Deny</code> explícito y los límites superiores lo permiten, basta con que exista al menos una sentencia <code>Allow</code> coincidente (en política de identidad o en política de recurso dentro de la misma cuenta; en accesos entre cuentas deben permitirlo ambas partes).</li></ol>
+<h2 id="cap-5-1-vectores-conceptuales-de-escalada-de-privilegios-en-iam">Vectores Conceptuales de Escalada de Privilegios en IAM</h2>
+<p>Durante una auditoría de seguridad en la nube, el hallazgo más crítico suele ser la capacidad de un usuario o rol con privilegios aparentemente acotados para obtener permisos administrativos mediante combinaciones de acciones IAM. No se trata de errores en el software del proveedor, sino de delegaciones lógicas excesivas.</p>
+<h3 id="cap-5-1-1-abuso-de-politicas-con-comodines">1. Abuso de políticas con comodines (<code>*</code>)</h3>
+<p>Otorgar <code>"Action": "iam:*"</code> o <code>"Action": "*"</code> sobre <code>"Resource": "*"</code> equivale a control total. Sin embargo, riesgos equivalentes aparecen con comodines parciales aparentemente inofensivos, como <code>iam:Put*</code> o <code>iam:Attach*</code>, que permiten adjuntar políticas administradas como <code>AdministratorAccess</code> a la propia identidad o crear nuevas versiones activas de una política existente (<code>iam:CreatePolicyVersion</code> con <code>SetAsDefault</code>).</p>
+<h3 id="cap-5-1-2-combinacion-de-iam-passrole-con-servicios-de-computo">2. Combinación de <code>iam:PassRole</code> con servicios de cómputo</h3>
+<p>El permiso <code>iam:PassRole</code> autoriza a una identidad a asignar un rol existente a un servicio de AWS (como una instancia EC2, una función Lambda o una tarea ECS). Si un operador de desarrollo posee <code>iam:PassRole</code> sin restricción de <code>Resource</code> (o sin filtro de condición <code>iam:PassedToService</code>), sumado al permiso de crear un recurso de cómputo (<code>ec2:RunInstances</code> o <code>lambda:CreateFunction</code>), puede conceptualmente lanzar una carga de trabajo vinculada a un rol con privilegios superiores y operar dentro de ese contexto de ejecución.</p>
+<h3 id="cap-5-1-3-cadena-de-confianza-mediante-sts-assumerole">3. Cadena de confianza mediante <code>sts:AssumeRole</code></h3>
+<p>Un rol define una <strong>Trust Policy</strong> (política de confianza) que especifica qué identidades pueden invocar <code>sts:AssumeRole</code>. Si una política de confianza declara un principal demasiado amplio (por ejemplo, toda la raíz de la cuenta <code>arn:aws:iam::123456789012:root</code> sin condiciones adicionales, o un comodín hacia cuentas externas sin <code>sts:ExternalId</code>), cualquier identidad con permiso genérico de <code>sts:AssumeRole</code> podrá pivotar hacia ese rol. El riesgo se agrava cuando existen cadenas transitivas: el Rol A asume al Rol B, y este al Rol C administrativo.</p>
+<h3 id="cap-5-1-4-creacion-de-credenciales-de-acceso-para-terceros">4. Creación de credenciales de acceso para terceros</h3>
+<p>Permisos como <code>iam:CreateAccessKey</code>, <code>iam:CreateLoginProfile</code> o <code>iam:UpdateLoginProfile</code> sin restricción estricta a la propia identidad (<code>${aws:username}</code>) habilitan que un operador genere credenciales nuevas sobre cuentas de servicio o usuarios administrativos preexistentes.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Permiso IAM Auditado</th>
+<th>Riesgo Arquitectónico Principal</th>
+<th>Control de Mitigación Recomendado</th>
+</tr></thead><tbody>
+<tr><td><code>iam:PassRole</code></td><td>Delegación de un rol de mayor privilegio a un recurso controlable</td><td>Acotar <code>Resource</code> a ARNs específicos y exigir condición <code>iam:PassedToService</code></td></tr>
+<tr><td><code>sts:AssumeRole</code></td><td>Movimiento lateral entre roles o cuentas por políticas de confianza laxas</td><td>Restringir el ARN exacto del rol destino y exigir <code>aws:MultiFactorAuthPresent</code> o <code>sts:ExternalId</code></td></tr>
+<tr><td><code>iam:CreatePolicyVersion</code></td><td>Sobreescritura de la versión activa de una política existente</td><td>Prohibir en desarrolladores; aplicar <em>Permissions Boundaries</em></td></tr>
+<tr><td><code>iam:AttachUserPolicy</code> / <code>AttachRolePolicy</code></td><td>Autoasignación de políticas administrativas predefinidas</td><td>Limitar mediante SCP o restringir a prefijos de roles no privilegiados</td></tr>
+<tr><td><code>iam:CreateAccessKey</code></td><td>Generación de credenciales estáticas sobre otras identidades</td><td>Restringir <code>Resource</code> a <code>arn:aws:iam::*:user/${aws:username}</code> o bloquear vía SCP</td></tr>
+</tbody></table></div>
+<h2 id="cap-5-1-identidad-hibrida-y-moderna-microsoft-entra-id">Identidad Híbrida y Moderna: Microsoft Entra ID</h2>
+<p>En ecosistemas empresariales, la identidad suele originarse en un directorio corporativo centralizado sincronizado con la nube. <strong>Microsoft Entra ID</strong> (anteriormente Azure Active Directory) funciona como el proveedor de identidad (IdP) central para Azure, Microsoft 365 y aplicaciones federadas por <strong>SAML 2.0</strong> u <strong>OpenID Connect (OIDC)</strong> hacia AWS o GCP.</p>
+<h3 id="cap-5-1-conceptos-clave-en-entra-id">Conceptos Clave en Entra ID</h3>
+<ul><li><strong>Tenant:</strong> Instancia dedicada y aislada de Entra ID que representa a una organización.</li><li><strong>Enterprise Applications vs App Registrations:</strong> Una <em>App Registration</em> define el plano global de la aplicación (su modelo de permisos OAuth2/OIDC), mientras que el <strong>Service Principal</strong> es la representación local concreta de esa aplicación dentro de un <em>tenant</em> específico donde recibe asignaciones de roles Azure RBAC.</li><li><strong>Service Principals y Secretos de Aplicación:</strong> Equivalen a las identidades de máquina no humanas. El riesgo habitual radica en otorgarles roles amplios como <code>Contributor</code> o <code>Owner</code> a nivel de suscripción completa y almacenar sus secretos de cliente con expiraciones prolongadas dentro de repositorios de código.</li><li><strong>Managed Identities:</strong> Son la contrapartida moderna en Azure frente a los roles de instancia en AWS. Eliminan por completo la gestión manual de secretos: Azure inyecta un identificador manejado directamente en la VM, App Service o función, permitiendo solicitar tokens OAuth2 al endpoint local de metadatos sin almacenar contraseñas en disco. Existen dos variantes:</li><li><em>System-assigned:</em> Ligada al ciclo de vida del recurso; si se elimina la máquina virtual, la identidad desaparece automáticamente.</li><li><em>User-assigned:</em> Recurso independiente reutilizable por múltiples cargas de trabajo que comparten el mismo perfil de acceso.</li></ul>
+<h3 id="cap-5-1-conditional-access-acceso-condicional">Conditional Access (Acceso Condicional)</h3>
+<p>A diferencia de las políticas estáticas basadas solo en permisos, <strong>Conditional Access</strong> evalúa señales en tiempo real antes de emitir un token de sesión. Actúa como un motor de decisiones <em>If-Then</em>:</p>
+<ul><li><strong>Señales de entrada:</strong> Identidad del usuario o grupo, ubicación IP de origen, estado de cumplimiento del dispositivo (administrado por Intune/MDM), aplicación destino y nivel de riesgo de inicio de sesión.</li><li><strong>Controles de acceso:</strong> Requerir <strong>MFA resistente a phishing</strong> (FIDO2 / Windows Hello for Business), exigir dispositivo híbrido unido o compatible, bloquear protocolos heredados sin soporte MFA (IMAP/POP3/SMTP básico) o denegar directamente el acceso desde ubicaciones geográficas no autorizadas.</li></ul>
+<h3 id="cap-5-1-separacion-de-planos-entra-id-vs-azure-rbac">Separación de Planos: Entra ID vs Azure RBAC</h3>
+<p>Un error frecuente en auditorías híbridas es confundir los roles de directorio de <strong>Entra ID</strong> (como <em>Global Administrator</em> o <em>User Administrator</em>, que gobiernan identidades, grupos y aplicaciones del <em>tenant</em>) con los roles de <strong>Azure RBAC</strong> (como <em>Owner</em>, <em>Contributor</em> o <em>Reader</em>, que gobiernan recursos de infraestructura como máquinas virtuales, redes y almacenamiento dentro de suscripciones). El endurecimiento exige evitar que cuentas operativas de infraestructura posean roles administrativos globales en Entra ID y restringir la propiedad de <em>App Registrations</em> para impedir que un usuario estándar cree aplicaciones con permisos de directorio delegados.</p>
+<h2 id="cap-5-1-auditoria-cli-y-endurecimiento-de-iam">Auditoría CLI y Endurecimiento de IAM</h2>
+<p>En tus laboratorios locales o cuentas de práctica propias, auditá sistemáticamente el inventario de identidades y políticas mediante <strong>AWS CLI</strong> antes de desplegar cargas de trabajo productivas.</p>
+<pre><code class="lenguaje-bash"># 1. Verificar la identidad activa del contexto actual
+aws sts get-caller-identity
+
+# 2. Listar usuarios IAM y revisar antigüedad de claves de acceso
+aws iam list-users --query "Users[*].[UserName,CreateDate,PasswordLastUsed]" --output table
+aws iam list-access-keys --user-name operador-lab
+
+# 3. Obtener el resumen de autorización completo de la cuenta para auditar políticas inline y adjuntas
+aws iam get-account-authorization-details --filter User Role LocalManagedPolicy &gt; iam_snapshot.json
+
+# 4. Simular si una identidad tiene permiso efectivo sobre una acción crítica sin ejecutarla realmente
+aws iam simulate-principal-policy \
+  --policy-source-arn arn:aws:iam::123456789012:role/RolAplicacion \
+  --action-names iam:PassRole sts:AssumeRole s3:PutBucketPolicy
+
+# 5. Identificar credenciales no utilizadas o sin MFA habilitado (reporte de credenciales)
+aws iam generate-credential-report
+aws iam get-credential-report --query "Content" --output text | base64 --decode &gt; credential_report.csv</code></pre>
+<h2 id="cap-5-1-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>En tu entorno local (podés usar <strong>LocalStack</strong> o una cuenta propia de pruebas en AWS Free Tier), creá un rol de aplicación llamado <code>RolLecturaLogs</code> y un usuario de pruebas <code>auditor-junior</code>. Adjuntale al usuario una política JSON acotada que permita consultar metadatos de IAM (<code>iam:Get*</code>, <code>iam:List*</code>) y simular políticas, más un <code>Deny</code> explícito sobre cualquier operación fuera de tu región elegida. Ejecutá <code>aws iam simulate-principal-policy</code> para comprobar cómo el motor prioriza el <code>Deny</code> explícito frente a un <code>Allow</code> amplio.</p>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Documentá en un archivo <code>auditoria-iam.md</code>:</p>
+<ol><li>La política JSON completa redactada con al menos una condición (<code>Condition</code>) por región o etiqueta.</li><li>La salida capturada del comando <code>aws iam simulate-principal-policy</code> demostrando un caso permitido (<code>allowed</code>) y un caso bloqueado por <code>explicitDeny</code>.</li><li>Una tabla de remediación proponiendo el reemplazo de al menos un permiso con comodín <code>*</code> por acciones específicas de mínimo privilegio.</li></ol></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y endurecimiento</p><p>Para blindar el plano de identidad en entornos multi-cloud, aplicá estos controles de referencia basados en el <strong>CIS AWS Foundations Benchmark</strong>:</p>
+<ul><li><strong>Eliminá el uso operativo de la cuenta Root:</strong> Activá MFA por hardware sobre el usuario raíz, eliminá sus claves de acceso programáticas y usalo únicamente para tareas de facturación o cierre de cuenta.</li><li><strong>Priorizá credenciales temporales:</strong> Reemplazá <code>IAM Users</code> humanos por federación SSO (IAM Identity Center conectado a Entra ID) y reemplazá claves estáticas en cargas de trabajo por <code>IAM Roles</code> o <code>Managed Identities</code>.</li><li><strong>Aplicá <em>Permissions Boundaries</em> y <em>SCPs</em>:</strong> Definí un techo máximo de permisos que ninguna política adjunta por desarrolladores pueda superar, bloqueando acciones de auto-escalada o desactivación de CloudTrail.</li><li><strong>Habilitá AWS IAM Access Analyzer:</strong> Detectá automáticamente recursos compartidos externamente y generá políticas basadas en actividad real observada en CloudTrail en lugar de permisos teóricos amplios.</li><li><strong>Auditoria continua y rotación:</strong> Configurá alertas automáticas ante eventos <code>AssumeRole</code>, <code>CreateAccessKey</code> o cambios en <code>Trust Policies</code> mediante CloudTrail y EventBridge.</li></ul></aside>
+<h2 id="cap-5-1-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Qué diferencia fundamental existe entre la seguridad <em>de</em> la nube y la seguridad <em>en</em> la nube dentro del Modelo de Responsabilidad Compartida?</strong> El proveedor garantiza la seguridad <em>de</em> la nube (centros de datos físicos, hardware de red, almacenamiento subyacente e hipervisores), mientras que el cliente es responsable de la seguridad <em>en</em> la nube (gestión de identidades IAM, configuración de redes virtuales, cifrado de datos, parches de sistemas invitados y control de acceso a sus servicios).</p>
+<p><strong>2. ¿Cómo resuelve el motor de IAM un conflicto entre una política administrada que incluye un <code>Allow</code> sobre <code>s3:*</code> y una SCP o política de identidad que declara un <code>Deny</code> explícito sobre <code>s3:DeleteObject</code>?</strong> El <code>Deny</code> explícito siempre prevalece sobre cualquier <code>Allow</code>. En el flujo de evaluación de AWS IAM, si alguna política aplicable (identidad, recurso, límite de permisos o SCP) contiene un <code>Deny</code> explícito coincidente, la petición se rechaza de inmediato sin posibilidad de anulación.</p>
+<p><strong>3. ¿Por qué el permiso <code>iam:PassRole</code> sin restricciones representa un vector crítico de escalada de privilegios?</strong> Porque permite a un operador asignar un rol existente con privilegios elevados a un servicio de cómputo (como una instancia EC2 o una función Lambda) bajo su control. Si no se acota el <code>Resource</code> a ARNs permitidos ni se exige la condición <code>iam:PassedToService</code>, la identidad puede operar indirectamente bajo los permisos de ese rol superior.</p>
+<p><strong>4. ¿Qué ventaja de seguridad aporta una Managed Identity en Microsoft Azure frente a un Service Principal autenticado mediante secreto de cliente?</strong> Una Managed Identity elimina la necesidad de generar, almacenar y rotar manualmente secretos o certificados en código o variables de entorno, ya que la plataforma gestiona automáticamente el ciclo de vida de la identidad y provee tokens temporales a través del endpoint local de metadatos únicamente al recurso autorizado.</p>
+<p><strong>5. ¿Qué comando de AWS CLI permite verificar de forma segura y sin efectos secundarios cómo evaluará IAM una acción específica para un rol o usuario?</strong> El comando <code>aws iam simulate-principal-policy</code>, pasando el ARN del principal mediante <code>--policy-source-arn</code> y la lista de acciones a comprobar con <code>--action-names</code>, devolviendo el veredicto (<code>allowed</code>, <code>implicitDeny</code> o <code>explicitDeny</code>) y las sentencias responsables.</p>
+<h2 id="cap-5-1-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de pasar al análisis de la superficie de exposición en almacenamiento, redes virtuales y metadatos de instancia, verificá que cumplís estos tres criterios:</p>
+<ul><li>Sabés leer y escribir una política JSON de IAM identificando <code>Effect</code>, <code>Action</code>, <code>Resource</code> y <code>Condition</code>.</li><li>Comprendés por qué un <code>Deny</code> explícito anula cualquier <code>Allow</code> y cómo interactúan las <em>Trust Policies</em> con <code>sts:AssumeRole</code>.</li><li>Podés diferenciar las identidades humanas federadas de las identidades de máquina (<code>IAM Roles</code>, <code>Service Principals</code> y <code>Managed Identities</code>).</li></ul></aside>
+<h2 id="cap-5-1-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>CIS AWS Foundations Benchmark (Center for Internet Security):</strong> Controles de referencia para cuentas root, MFA, políticas de contraseñas, rotación de credenciales y auditoría IAM.</li><li><strong>AWS Well-Architected Framework – Security Pillar:</strong> Guía oficial de diseño para gestión de identidades, trazabilidad y privilegio mínimo.</li><li><strong>Microsoft Cloud Security Benchmark (MCSB):</strong> Controles de identidad, Conditional Access y gobierno de accesos en Entra ID y Azure RBAC.</li><li><strong>NIST SP 800-145 / SP 800-53 (AC Family):</strong> Definiciones formales de modelos de servicio en la nube (IaaS/PaaS/SaaS) y controles de acceso lógico.</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 3 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Virtualization and Cloud Security</td><td>Easy</td><td>Defensive</td><td>6</td></tr><tr><td>AWS Identity and Access Management</td><td>Easy</td><td>Defensive</td><td>7</td></tr><tr><td>Identity and Access Management</td><td>Medium</td><td>Defensive</td><td>10</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="33-telemetria-bajo-nivel-y-analisis-malware.html">← 4.8 Triage estático de malware, desofuscación y telemetría de bajo nivel (ETW/API)</a></div><div><a href="35-superficie-cloud-storage-redes-imds.html">5.2 Superficie Cloud: S3/Storage, redes VPC, Serverless, Secretos e IMDSv2 →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

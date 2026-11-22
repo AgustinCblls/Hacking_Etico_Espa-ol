@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 3.7 · Kerberos, NTLM Relay, abuso de DACLs y delegación en Active Directory · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Explicar Kerberoasting, RBCD y NTLM Relay junto a sus contramedidas exactas">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo3.html">Tomo III</a><span aria-hidden="true">›</span><span>Cap. 3.7</span></nav>
+<h1 id="cap-3-7">Capítulo 3.7 · Kerberos, NTLM Relay, abuso de DACLs y delegación en Active Directory</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Avanzado</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo III · Ruta 3 · Avanzado</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="25-adcs-trusts-y-hardening-ad.html">3.8 ADCS (ESC1–ESC8), trusts entre dominios y plan maestro de hardening AD</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a dominar el funcionamiento criptográfico paso a paso del protocolo <strong>Kerberos v5 (RFC 4120)</strong> en Active Directory, comprender por qué configuraciones débiles habilitan debilidades como AS-REP Roasting, Kerberoasting, NTLM Relay, abuso de permisos en DACLs, delegaciones mal restringidas y replicación no autorizada (DCSync), y sabrás exactamente con qué <strong>Event IDs</strong> detectarlas en el SOC y con qué políticas de endurecimiento erradicarlas de raíz.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 3.2 (Auditoría de contraseñas y hashes) y Capítulo 3.6 (Arquitectura de Active Directory). <strong>Duración sugerida:</strong> 9 a 11 horas.</p>
+<h2 id="cap-3-7-1-el-protocolo-kerberos-v5-por-dentro-rfc-4120">1. El protocolo Kerberos v5 por dentro (RFC 4120)</h2>
+<p>Desde Windows 2000, <strong>Kerberos v5</strong> es el protocolo de autenticación predeterminado de Active Directory. Su diseño busca un objetivo brillante: <strong>que la contraseña del usuario (ni su hash) jamás viaje por la red</strong> y que el usuario no tenga que volver a escribir su clave cada vez que accede a una carpeta compartida, una base de datos SQL o una intranet del dominio.</p>
+<p>Para lograrlo, el Controlador de Dominio actúa como <strong>Centro de Distribución de Claves (<em>Key Distribution Center</em>, KDC)</strong>, el cual cumple dos funciones:</p>
+<ol><li><strong>Servicio de Autenticación (<em>Authentication Service</em>, AS):</strong> verifica la identidad inicial del usuario y le entrega su pasaporte temporal para el dominio, llamado <strong>TGT (<em>Ticket Granting Ticket</em>)</strong>.</li><li><strong>Servicio Emisor de Tickets (<em>Ticket Granting Service</em>, TGS):</strong> recibe el TGT del usuario y le emite entradas específicas para cada servidor al que quiera conectarse, llamadas <strong>TGS (<em>Service Tickets</em>)</strong>.</li></ol>
+<pre><code class="lenguaje-text">[1. AS-REQ] Cliente envía marca de tiempo cifrada con el hash del usuario ──► [KDC (Controlador de Dominio)]
+[2. AS-REP] KDC valida y devuelve el TGT (cifrado con el hash de krbtgt)  ◄──
+
+[3. TGS-REQ] Cliente presenta su TGT y pide ticket para SPN (MSSQLSvc/db01) ──► [KDC (Controlador de Dominio)]
+[4. TGS-REP] KDC devuelve el TGS (cifrado con el hash de la cuenta del SPN) ◄──
+
+[5. AP-REQ]  Cliente presenta el TGS directamente al servidor destino     ──► [Servidor de Aplicación (db01)]</code></pre>
+<h3 id="cap-3-7-los-tres-pares-de-mensajes-que-todo-analista-debe-dominar">Los tres pares de mensajes que todo analista debe dominar</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Paso del flujo</th>
+<th>Mensaje</th>
+<th>Qué se envía y con qué clave se cifra</th>
+<th>Event ID en el Controlador de Dominio</th>
+</tr></thead><tbody>
+<tr><td><strong>1. Preautenticación y solicitud de TGT</strong></td><td><code>AS-REQ</code> → <code>AS-REP</code></td><td>El cliente cifra el <em>timestamp</em> actual con su propia clave derivada de su contraseña. El KDC lo descifra y devuelve el <strong>TGT</strong> (cuya parte interna solo puede abrir el propio KDC porque está cifrada con la clave de la cuenta <strong><code>krbtgt</code></strong>).</td><td><strong>Event ID <code>4768</code></strong> (<em>A Kerberos authentication ticket (TGT) was requested</em>).</td></tr>
+<tr><td><strong>2. Solicitud de Ticket de Servicio</strong></td><td><code>TGS-REQ</code> → <code>TGS-REP</code></td><td>El cliente presenta su TGT al KDC e indica el <strong>SPN (<em>Service Principal Name</em>)</strong> del servicio que desea usar (ej. <code>HTTP/intranet.corp.local</code>). El KDC no necesita consultar al servidor destino: cifra el ticket <strong>TGS</strong> usando el hash de la cuenta de AD dueña de ese SPN.</td><td><strong>Event ID <code>4769</code></strong> (<em>A Kerberos service ticket was requested</em>).</td></tr>
+<tr><td><strong>3. Presentación al servidor destino</strong></td><td><code>AP-REQ</code> → <code>AP-REP</code></td><td>El cliente entrega el TGS al servidor de aplicación. El servidor lo descifra en memoria con su propia clave local y lee el <strong>PAC (<em>Privilege Attribute Certificate</em>)</strong> firmado por el KDC, que lista los SIDs y grupos del usuario.</td><td><strong>Event ID <code>4624</code></strong> (Logon Type <code>3</code>, Authentication Package: <code>Kerberos</code>) en el servidor destino.</td></tr>
+</tbody></table></div>
+<h2 id="cap-3-7-2-configuraciones-debiles-en-kerberos-y-como-erradicarlas">2. Configuraciones débiles en Kerberos y cómo erradicarlas</h2>
+<p>Cuando entendés con qué clave se cifra cada mensaje de la tabla anterior, comprendés inmediatamente por qué surgen dos riesgos clásicos de configuración en las cuentas de Active Directory:</p>
+<h3 id="cap-3-7-1-cuentas-sin-preautenticacion-kerberos-as-rep-roasting">1. Cuentas sin preautenticación Kerberos (<em>AS-REP Roasting</em>)</h3>
+<ul><li><strong>Causa técnica:</strong> si un administrador marca por error la casilla <strong><code>Do not require Kerberos preauthentication</code></strong> (flag <code>DONT_REQ_PREAUTH = 0x400000</code> en <code>userAccountControl</code>) en una cuenta de usuario, el KDC omite la verificación del paso 1 y responde a cualquier solicitud <code>AS-REQ</code> para ese usuario entregando un mensaje <code>AS-REP</code> cuya parte de sesión viene cifrada con el hash de la contraseña de ese usuario. Si esa cuenta tiene una contraseña débil, ese bloque puede someterse a auditoría de diccionario offline.</li><li><strong>Detección en el SOC:</strong> monitorear el <strong>Event ID <code>4768</code></strong> en los Controladores de Dominio filtrando por <strong><code>Pre-Authentication Type: 0</code></strong> y <strong><code>Ticket Encryption Type: 0x17</code> (RC4-HMAC)</strong>.</li><li><strong>Remediación definitiva:</strong> mantener obligatoria la preautenticación Kerberos en el 100 % de las cuentas del dominio (auditable en un segundo con <code>Get-ADUser -Filter {DoesNotRequirePreAuth -eq $true}</code>).</li></ul>
+<h3 id="cap-3-7-2-cuentas-de-servicio-humanas-con-spn-y-contrasenas-estaticas-kerberoasting">2. Cuentas de servicio humanas con SPN y contraseñas estáticas (<em>Kerberoasting</em>)</h3>
+<ul><li><strong>Causa técnica:</strong> en el paso 2 (<code>TGS-REQ</code> → <code>TGS-REP</code>), cualquier usuario autenticado del dominio puede solicitar legítimamente al KDC un ticket de servicio (TGS) para cualquier <strong>SPN</strong> registrado en el directorio, y el KDC devuelve ese ticket cifrado con el hash de la cuenta de Active Directory asociada al SPN.</li><li>Si el servicio corre bajo la cuenta de máquina del servidor (<code>db01$</code>) o bajo una cuenta <strong>gMSA (<em>Group Managed Service Account</em>)</strong>, su contraseña tiene <strong>120 bytes aleatorios</strong> generados por el sistema y es matemáticamente imposible de adivinar por fuerza bruta.</li><li>El problema ocurre cuando un administrador crea una <strong>cuenta de usuario común</strong> (por ejemplo <code>svc_sql</code>), le asigna una contraseña escrita a mano que nunca rota, le registra un SPN (<code>setspn -A ...</code>) y además permite el algoritmo heredado <strong>RC4 (<code>0x17</code>)</strong> en lugar de <strong>AES-256 (<code>0x12</code>)</strong>.</li><li><strong>Detección en el SOC:</strong> alertar sobre el <strong>Event ID <code>4769</code></strong> cuando <code>Ticket Encryption Type</code> sea <strong><code>0x17</code> (RC4)</strong> o cuando un mismo usuario solicite decenas de tickets TGS para distintos SPNs en pocos segundos.</li><li><strong>Remediación definitiva:</strong></li></ul>
+<ol><li>Migrar todas las cuentas de servicio con SPN a <strong>gMSA (<code>New-ADServiceAccount</code>)</strong> para que Active Directory gestione y rote automáticamente contraseñas de 120 bytes.</li><li>Donde aún no se pueda usar gMSA, exigir contraseñas generadas aleatoriamente de <strong>al menos 25 a 32 caracteres</strong> y forzar el uso exclusivo de <strong>AES-128 / AES-256</strong> deshabilitando RC4 en las propiedades de la cuenta.</li></ol>
+<h2 id="cap-3-7-3-ntlm-ntlm-relay-y-controles-de-firma-de-canal">3. NTLM, NTLM Relay y controles de firma de canal</h2>
+<p>Aunque Kerberos sea el protocolo principal, Windows conserva soporte para el protocolo de desafío-respuesta heredado <strong>NetNTLMv2</strong> cuando un cliente se conecta a un servidor usando su <strong>dirección IP</strong> (<code>\\10.10.20.50\carpeta</code>) en vez de su nombre DNS (<code>\\srv01.corp.local\carpeta</code>), o cuando el SPN no está disponible.</p>
+<p>El protocolo NTLM carece de autenticación mutua del servidor por sí solo. Si una conexión NetNTLMv2 entrante es interceptada en la red local, el riesgo de <strong>NTLM Relay</strong> consiste en reenviar ese desafío-respuesta en tiempo real hacia otro servicio del dominio (como SMB, LDAP o un endpoint HTTP de certificados) que <strong>no verifique la firma criptográfica de los paquetes ni el vínculo con el canal TLS</strong>.</p>
+<h3 id="cap-3-7-las-cuatro-defensas-que-neutralizan-por-completo-ntlm-relay">Las cuatro defensas que neutralizan por completo NTLM Relay</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Control de endurecimiento</th>
+<th>Qué protege</th>
+<th>Cómo configurarlo en el dominio</th>
+</tr></thead><tbody>
+<tr><td><strong>1. SMB Signing obligatorio en todos los equipos</strong></td><td>Impide reenviar autenticaciones NTLM hacia sesiones SMB (<code>TCP/445</code>). Viene activo por defecto en Controladores de Dominio, pero debe forzarse también en servidores miembro y estaciones.</td><td>GPO: <code>Microsoft network server: Digitally sign communications (always)</code> = <strong>Enabled</strong> y <code>Microsoft network client: Digitally sign communications (always)</code> = <strong>Enabled</strong>.</td></tr>
+<tr><td><strong>2. LDAP Signing y LDAP Channel Binding (CBT)</strong></td><td>Impide que una autenticación NTLM reenviada modifique objetos o ACLs en el servidor LDAP/LDAPS del Controlador de Dominio.</td><td>GPO en DCs: <code>Domain controller: LDAP server signing requirements</code> = <strong>Require signing</strong> y <code>Domain controller: LDAP server channel binding token requirements</code> = <strong>Always</strong>.</td></tr>
+<tr><td><strong>3. Extended Protection for Authentication (EPA)</strong></td><td>Vincula criptográficamente el handshake NTLM con el certificado TLS de la sesión HTTPS en servicios web (IIS / ADCS Web Enrollment).</td><td>Activar <strong>Extended Protection = Required</strong> y exigir HTTPS en IIS / servicios web integrados.</td></tr>
+<tr><td><strong>4. Bloqueo de Coerción de Autenticación (RPC)</strong></td><td>Ciertas llamadas RPC remotas (<em>MS-EFSRPC</em>, <em>MS-RPRN Spooler</em>) fuerzan a servidores o Controladores de Dominio a autenticarse contra una IP elegida para combinarlo con NTLM Relay.</td><td>Deshabilitar el servicio <strong>Print Spooler</strong> en Controladores de Dominio, bloquear puertos RPC salientes innecesarios y aplicar filtros RPC.</td></tr>
+<tr><td><strong>5. Reducción y bloqueo progresivo de NTLM</strong></td><td>Elimina NTLMv1 de inmediato y restringe NTLMv2 en cuentas privilegiadas.</td><td>GPO <code>Network security: LAN Manager authentication level</code> = <strong>Send NTLMv2 response only. Refuse LM &amp; NTLM</strong> + incluir a todos los administradores en el grupo <strong><code>Protected Users</code></strong> (que prohíbe usar NTLM).</td></tr>
+</tbody></table></div>
+<h2 id="cap-3-7-4-permisos-en-objetos-del-directorio-dacls-delegacion-y-dcsync">4. Permisos en objetos del directorio (DACLs), Delegación y DCSync</h2>
+<p>Cada objeto de Active Directory (usuario, grupo, equipo, OU y el propio nodo raíz del dominio) tiene una <strong>Lista de Control de Acceso Discrecional (<code>DACL</code>)</strong> que define quién puede modificarlo. Cuando se delegan permisos excesivos a grupos de soporte o cuentas de servicio, aparecen vectores críticos de escalada dentro del directorio:</p>
+<h3 id="cap-3-7-permisos-dacl-de-alto-riesgo-a-auditar">Permisos DACL de alto riesgo a auditar</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Permiso / Derecho Extendido en la DACL</th>
+<th>Impacto sobre el objeto destino</th>
+<th>Event ID de auditoría en AD</th>
+</tr></thead><tbody>
+<tr><td><code>GenericAll</code> (Control total)</td><td>Permite modificar cualquier atributo del objeto, cambiar contraseñas o agregar miembros si es un grupo.</td><td><strong><code>5136</code></strong> (<em>A directory service object was modified</em>).</td></tr>
+<tr><td><code>WriteDacl</code> / <code>WriteOwner</code></td><td>Permite modificar la propia lista de permisos del objeto o tomar posesión de él para otorgarse control total.</td><td><strong><code>5136</code></strong> sobre el atributo <code>nTSecurityDescriptor</code>.</td></tr>
+<tr><td><code>ForceChangePassword</code> (<code>User-Force-Change-Password</code>)</td><td>Permite restablecer la contraseña de un usuario objetivo sin conocer la anterior.</td><td><strong><code>4724</code></strong> (<em>An attempt was made to reset an account's password</em>).</td></tr>
+<tr><td><code>WriteProperty</code> sobre <code>member</code></td><td>Permite añadirse a sí mismo o a otra cuenta dentro de un grupo de seguridad.</td><td><strong><code>4728</code></strong> (grupo global) / <strong><code>4732</code></strong> (grupo local) / <strong><code>4756</code></strong> (grupo universal).</td></tr>
+<tr><td><code>WriteProperty</code> sobre <code>msDS-KeyCredentialLink</code> (<em>Shadow Credentials</em>)</td><td>Permite registrar un certificado efímero propio en el objeto usuario/equipo para autenticarse vía Kerberos PKINIT sin modificar su contraseña.</td><td><strong><code>5136</code></strong> sobre el atributo <code>msDS-KeyCredentialLink</code>.</td></tr>
+<tr><td><code>WriteProperty</code> sobre <code>servicePrincipalName</code> (<em>Targeted Kerberoasting</em>)</td><td>Permite asignar un SPN a otra cuenta de usuario controlada por DACL para solicitar su TGS, o bien alterar <code>sAMAccountName</code> en equipos sin parchear (<code>CVE-2021-42278/42287</code>).</td><td><strong><code>5136</code></strong> sobre <code>servicePrincipalName</code> / <strong><code>4781</code></strong> (renombrado de cuenta).</td></tr>
+<tr><td><code>WriteDacl</code> / <code>WriteOwner</code> en <strong>GPOs</strong> (<code>Group Policy</code>)</td><td>Permite editar una GPO aplicada sobre una OU administrativa o de servidores para desplegar tareas programadas o permisos locales.</td><td><strong><code>5136</code></strong> sobre objetos <code>groupPolicyContainer</code> + cambios en <code>\\dominio\SYSVOL\...\Policies</code>.</td></tr>
+<tr><td><code>DS-Replication-Get-Changes</code> + <code>DS-Replication-Get-Changes-All</code> (en la raíz del dominio)</td><td>Permisos exclusivos de los Controladores de Dominio para sincronizar <code>NTDS.dit</code>. Si se otorgan a una cuenta no-DC, permiten solicitar la replicación de hashes de credenciales (<strong>DCSync</strong>).</td><td><strong><code>4662</code></strong> con propiedades GUID <code>1131f6aa-9c07-11d1-f79f-00c04fc2dcd2</code> y <code>1131f6ad-9c07-11d1-f79f-00c04fc2dcd2</code> desde una IP que no es un DC.</td></tr>
+</tbody></table></div>
+<h3 id="cap-3-7-delegacion-kerberos-por-que-prohibir-la-delegacion-sin-restricciones">Delegación Kerberos: por qué prohibir la delegación sin restricciones</h3>
+<p>La delegación Kerberos se creó para escenarios de múltiples capas (por ejemplo, el usuario se autentica en un servidor web frontal <code>WEB01</code> y ese servidor web necesita consultar la base de datos <code>SQL01</code> actuando en nombre del usuario):</p>
+<ol><li><strong>Delegación sin restricciones (<em>Unconstrained Delegation</em> — obsoleta y peligrosa):</strong> cuando un servidor tiene activado <code>TRUSTED_FOR_DELEGATION</code>, cualquier usuario que se conecte a él le envía una copia completa de su propio <strong>TGT</strong> para que el servidor lo guarde en memoria (<code>lsass.exe</code>). Si ese servidor se ve comprometido, expone los TGTs de cualquier usuario que se haya conectado. <strong>Remediación:</strong> quitar la delegación sin restricciones de todos los servidores miembro y activar <code>Account is sensitive and cannot be delegated</code> (o grupo <code>Protected Users</code>) en todas las cuentas administrativas.</li><li><strong>Delegación restringida (<em>Constrained Delegation</em> — KCD) y Basada en Recursos (<em>RBCD</em>):</strong> limitan a qué servicios exactos (<code>msDS-AllowedToDelegateTo</code>) puede delegar un frontal, o qué cuenta específica tiene permiso para delegar hacia un recurso destino (<code>msDS-AllowedToActOnBehalfOfOtherIdentity</code>). Deben auditarse continuamente para asegurar que ningún equipo no autorizado modifique el atributo <code>msDS-AllowedToActOnBehalfOfOtherIdentity</code>.</li></ol>
+<h3 id="cap-3-7-extraccion-de-secretos-secretsdump-py-memoria-lsass-exe-mimikatz-rubeus-y-mitigacion-runasppl">Extracción de secretos (<code>secretsdump.py</code>), memoria <code>lsass.exe</code> (<code>Mimikatz</code>/<code>Rubeus</code>) y mitigación <code>RunAsPPL</code></h3>
+<p>En evaluaciones de Active Directory (incluido el set práctico de PEN-200), escalar a administrador local en una máquina no es el final, sino el medio para inspeccionar qué secretos de dominio residen en el Registro o en la memoria de ese equipo:</p>
+<ul><li><strong>Volcado remoto y offline con <code>secretsdump.py</code> (Impacket):</strong> una vez obtenidos privilegios administrativos sobre un host Windows, <code>secretsdump.py</code> lee el Registro (<code>SAM</code>, <code>SYSTEM</code> y <code>SECURITY</code>) para recuperar hashes NT de cuentas locales, <strong>LSA Secrets</strong> (como contraseñas de servicios configurados con <code>Log On As</code> o cuentas de máquina <code>$</code>) y <strong>DCC2</strong> (<em>Domain Cached Credentials</em>). Cuando se ejecuta contra un Controlador de Dominio con derechos de replicación, la bandera <code>-just-dc-ntlm</code> invoca <strong>DCSync</strong> sin tocar el archivo físico <code>NTDS.dit</code>.</li><li><strong>Auditoría de <code>lsass.exe</code> y tickets Kerberos (<code>Mimikatz</code>, <code>pypykatz</code> y <code>Rubeus</code>):</strong> el proceso <strong><code>lsass.exe</code></strong> mantiene en RAM material criptográfico de sesiones activas (hashes NT, claves AES Kerberos y tickets TGT/TGS). En laboratorio aislado, herramientas como <code>Mimikatz</code> (<code>sekurlsa::logonpasswords</code>, <code>sekurlsa::tickets /export</code>) o el análisis offline de volcados con <code>pypykatz</code> ilustran el riesgo de reutilizar sesiones administrativas en múltiples servidores. Para manipular y validar tickets Kerberos en Windows (solicitud <code>asktgt</code>, listado <code>triage</code> e inyección en sesión <code>ptt</code>), <strong><code>Rubeus</code></strong> cumple el equivalente en .NET al uso de <code>KRB5CCNAME</code> en Linux.</li></ul>
+<pre><code class="lenguaje-bash"># Extraer hashes locales SAM y LSA Secrets desde Linux usando credenciales de administrador local del lab
+impacket-secretsdump DOMINIO/admin_local:PasswordLab@10.10.20.30
+
+# Análisis offline seguro de un volcado de memoria autorizado en laboratorio (sin ejecutar binarios en el host)
+pypykatz lsa minidump /ruta/lab/lsass_dump.dmp</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Endurecimiento obligatorio contra extracción en memoria (<code>RunAsPPL</code> y Credential Guard)</p><ol><li><strong>LSA Protection (<code>RunAsPPL</code>):</strong> configurar <code>HKLM\SYSTEM\CurrentControlSet\Control\Lsa\RunAsPPL = 1</code> obliga a <code>lsass.exe</code> a ejecutarse como proceso protegido (<em>Protected Process Light</em>), bloqueando la apertura de handles de lectura de memoria (<code>PROCESS_VM_READ</code>) incluso desde cuentas con privilegios locales de administrador sin controlador kernel firmado.</li><li><strong>Windows Defender Credential Guard (VBS):</strong> en hardware moderno con virtualización, aísla los hashes NTLM y TGTs dentro de un contenedor seguro basado en hipervisor (<code>LsaIso.exe</code>), impidiendo que herramientas en espacio de usuario accedan al material criptográfico de <code>lsass.exe</code>.</li><li><strong>Deshabilitar WDigest en claro (<code>UseLogonCredential = 0</code>)</strong> y aplicar estrictamente <strong>Tiering</strong> para impedir que administradores de Dominio inicien sesión en servidores de nivel inferior.</li></ol></aside>
+<h2 id="cap-3-7-5-ejemplo-paso-a-paso-auditoria-de-dacls-delegacion-y-firma-con-powershell">5. Ejemplo paso a paso: auditoría de DACLs, delegación y firma con PowerShell</h2>
+<p>Este script de diagnóstico defensivo verifica en segundos el estado de delegación Kerberos, permisos de replicación en la raíz del dominio y configuración de firma SMB/LDAP:</p>
+<pre><code class="lenguaje-powershell"># 1. Auditar equipos (excluyendo Domain Controllers) con Unconstrained Delegation activa
+Get-ADComputer -Filter {TrustedForDelegation -eq $true -and PrimaryGroupID -ne 516} |
+    Select-Object Name, DNSHostName, OperatingSystem
+
+# 2. Auditar cuentas o equipos con Resource-Based Constrained Delegation (RBCD) configurada
+Get-ADObject -Filter {msDS-AllowedToActOnBehalfOfOtherIdentity -like "*"} `
+    -Properties msDS-AllowedToActOnBehalfOfOtherIdentity |
+    Select-Object Name, DistinguishedName
+
+# 3. Auditar la DACL de la raíz del dominio buscando quién tiene permisos de replicación (DCSync)
+$raiz = (Get-ADDomain).DistinguishedName
+(Get-Acl "AD:\$raiz").Access |
+    Where-Object { $_.ObjectType -in @(
+        "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2",
+        "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"
+    ) -and $_.AccessControlType -eq "Allow" } |
+    Select-Object IdentityReference, ActiveDirectoryRights, ObjectType
+
+# 4. Comprobar en el host local si SMB Signing está exigido (RequireSecuritySignature = True)
+Get-SmbServerConfiguration | Select-Object EnableSecuritySignature, RequireSecuritySignature
+Get-SmbClientConfiguration | Select-Object EnableSecuritySignature, RequireSecuritySignature</code></pre>
+<p>Salida esperada en un servidor correctamente endurecido para el punto 4:</p>
+<pre><code class="lenguaje-text">EnableSecuritySignature RequireSecuritySignature
+----------------------- ------------------------
+                   True                     True</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><ol><li><strong>Grupo <code>Protected Users</code> para el 100 % de las cuentas privilegiadas:</strong> al agregar todas las cuentas de Tier 0 y Tier 1 al grupo nativo <code>Protected Users</code> (introducido en Windows Server 2012 R2), el dominio aplica automáticamente cuatro protecciones a nivel de protocolo: prohíbe autenticarse con NTLM, prohíbe usar cifrado DES o RC4 en Kerberos (exige AES), prohíbe delegar la cuenta (<code>Constrained</code> o <code>Unconstrained</code>) y reduce la vida útil del TGT a 4 horas sin renovación automática más allá de ese límite.</li><li><strong>Reglas SIEM prioritarias para Active Directory:</strong></li></ol>
+<ul><li><strong>Event ID <code>4768</code> / <code>4769</code></strong> con <code>Ticket Encryption Type = 0x17</code> (uso de RC4 que debe investigarse o migrarse a AES/gMSA).</li><li><strong>Event ID <code>4662</code></strong> en DCs con GUID <code>1131f6ad-9c07-11d1-f79f-00c04fc2dcd2</code> originado desde cualquier cuenta o IP que no pertenezca al grupo <code>Domain Controllers</code> (alerta crítica inmediata de replicación no autorizada).</li><li><strong>Event ID <code>5136</code></strong> cuando se modifica el atributo <code>msDS-AllowedToActOnBehalfOfOtherIdentity</code> o <code>servicePrincipalName</code>.</li></ul></aside>
+<h2 id="cap-3-7-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>En tu máquina Windows de laboratorio, ejecutá <code>Get-SmbServerConfiguration</code> y <code>Get-SmbClientConfiguration</code> para comprobar el estado actual de <code>RequireSecuritySignature</code>. Si está en <code>$false</code>, activalo en tu VM de laboratorio con <code>Set-SmbServerConfiguration -RequireSecuritySignature $true -Force</code> y <code>Set-SmbClientConfiguration -RequireSecuritySignature $true -Force</code> y volvé a verificarlo.</li><li>Creá un script PowerShell <code>auditar_kerberos_dacl.ps1</code> que integre las cuatro consultas de la sección 5 y agregue una quinta verificación que compruebe si todas las cuentas miembros de <code>Domain Admins</code> están también incluidas dentro del grupo <code>Protected Users</code>.</li><li>Redactá una tabla de correlación para el SOC que asocie cada uno de los cinco vectores estudiados (AS-REP sin pre-auth, Kerberoasting RC4, modificación de grupo privilegiado, cambio de atributo RBCD y DCSync) con su <strong>Event ID exacto</strong> y el campo clave del evento XML que confirma la anomalía.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Tu script <code>auditar_kerberos_dacl.ps1</code>, la captura de consola mostrando <code>RequireSecuritySignature = True</code> en tu VM Windows y la tabla de correlación de los 5 Event IDs de Active Directory para el SIEM.</p></aside>
+<h2 id="cap-3-7-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. En el flujo Kerberos v5, ¿con qué clave se cifra el TGT devuelto en el <code>AS-REP</code> y con qué clave se cifra el ticket de servicio (TGS) devuelto en el <code>TGS-REP</code>?</strong> El <strong>TGT</strong> se cifra con la clave secreta de la cuenta <strong><code>krbtgt</code></strong> del Controlador de Dominio (para que solo el KDC pueda abrirlo y verificarlo). El <strong>TGS</strong> se cifra con el hash de la contraseña de la <strong>cuenta de Active Directory propietaria del SPN</strong> del servicio destino (para que el servidor de aplicación pueda descifrarlo localmente al recibir el <code>AP-REQ</code>).</p>
+<p><strong>2. ¿Por qué migrar una cuenta de servicio tradicional a una cuenta gMSA (<em>Group Managed Service Account</em>) elimina el riesgo de Kerberoasting?</strong> Porque el riesgo de Kerberoasting reside en que un humano asigne una contraseña débil o adivinable por diccionario a la cuenta dueña del SPN. Una cuenta <strong>gMSA</strong> utiliza una contraseña aleatoria criptográfica de <strong>120 bytes</strong> generada y rotada automáticamente por los Controladores de Dominio y fuerza el uso de cifrado AES, haciendo inviable cualquier intento de fuerza bruta offline sobre el TGS.</p>
+<p><strong>3. ¿Qué tres configuraciones de dominio son necesarias para cerrar de forma integral los vectores de NTLM Relay hacia SMB, LDAP y servicios web HTTP/HTTPS?</strong> Exigir <strong>SMB Signing</strong> (<code>RequireSecuritySignature = True</code>) en todos los servidores y estaciones; exigir <strong>LDAP Signing y LDAP Channel Binding</strong> en todos los Controladores de Dominio; y habilitar <strong>HTTPS con Extended Protection for Authentication (EPA)</strong> en los servicios web integrados como IIS y ADCS Web Enrollment.</p>
+<p><strong>4. ¿Qué indica en los registros de seguridad de un Controlador de Dominio un evento <code>4662</code> que solicita el permiso GUID <code>1131f6ad-9c07-11d1-f79f-00c04fc2dcd2</code> desde una estación de trabajo que no es un Controlador de Dominio?</strong> Ese GUID corresponde al derecho extendido <code>DS-Replication-Get-Changes-All</code>, utilizado para sincronizar hashes de contraseñas desde <code>NTDS.dit</code>. En una operación legítima solo otros Controladores de Dominio solicitan esa replicación; verla originada desde una estación de trabajo o servidor común es el indicador definitivo de una extracción de credenciales mediante <strong>DCSync</strong>.</p>
+<p><strong>5. ¿Qué cuatro protecciones automáticas aplica Active Directory a cualquier cuenta administrativa que se incorpore al grupo <code>Protected Users</code>?</strong> Impide que la cuenta se autentique mediante <strong>NTLM</strong> (forzando Kerberos); prohíbe el uso de suites de cifrado débiles como <strong>DES o RC4</strong> en Kerberos (exigiendo AES); bloquea cualquier forma de <strong>delegación Kerberos</strong> sobre esa cuenta; y limita la validez máxima del <strong>TGT a 4 horas</strong> sin almacenar credenciales en caché a largo plazo.</p>
+<h2 id="cap-3-7-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Dibujar de memoria el intercambio <code>AS-REQ/AS-REP</code> (4768), <code>TGS-REQ/TGS-REP</code> (4769) y <code>AP-REQ/AP-REP</code> (4624).</li><li>Auditar cuentas con SPN, cuentas sin preautenticación, delegaciones Kerberos y permisos DACL críticos.</li><li>Configurar SMB Signing, LDAP Signing/Channel Binding, gMSA y el grupo <code>Protected Users</code>.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Ya dominás los protocolos centrales de autenticación y autorización del directorio. Para completar el <strong>Tomo III</strong>, en el próximo capítulo analizaremos la infraestructura de certificados PKI de Active Directory (ADCS), las relaciones de confianza entre dominios/bosques y el plan maestro integral de endurecimiento: avanzá al <strong>Capítulo 3.8 · ADCS (ESC1–ESC8), trusts entre dominios y plan maestro de hardening AD</strong>.</p></aside>
+<h2 id="cap-3-7-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>RFC 4120 (The Kerberos Network Authentication Service V5):</strong> especificación oficial del protocolo Kerberos v5.</li><li><strong>Microsoft Learn — Group Managed Service Accounts (gMSA) Overview &amp; Protected Users Security Group:</strong> guías oficiales para asegurar cuentas de servicio y cuentas privilegiadas.</li><li><strong>Microsoft Learn — ADV190023 (Microsoft Guidance for Enabling LDAP Channel Binding and LDAP Signing):</strong> configuración oficial contra NTLM Relay sobre LDAP/LDAPS.</li><li><strong>Microsoft Learn — Audit Directory Service Access (Event IDs 4662, 4768, 4769, 5136):</strong> referencia de telemetría de seguridad de Active Directory.</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 4 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Kerberos Attacks</td><td>Hard</td><td>Offensive</td><td>23</td></tr><tr><td>DACL Attacks I</td><td>Hard</td><td>Offensive</td><td>7</td></tr><tr><td>NTLM Relay Attacks</td><td>Hard</td><td>Offensive</td><td>10</td></tr><tr><td>DACL Attacks II</td><td>Hard</td><td>Offensive</td><td>9</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="23-active-directory-arquitectura-y-enumeracion.html">← 3.6 Active Directory: arquitectura, LDAP, PowerView y BloodHound</a></div><div><a href="25-adcs-trusts-y-hardening-ad.html">3.8 ADCS (ESC1–ESC8), trusts entre dominios y plan maestro de hardening AD →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

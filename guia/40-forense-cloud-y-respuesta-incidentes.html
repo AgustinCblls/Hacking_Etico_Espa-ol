@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 5.7 · Forense Cloud y respuesta a incidentes en AWS, Azure y GCP · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Ejecutar contención de identidades comprometidas, aislar instancias y preservar snapshots/logs en la nube">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo5.html">Tomo V</a><span aria-hidden="true">›</span><span>Cap. 5.7</span></nav>
+<h1 id="cap-5-7">Capítulo 5.7 · Forense Cloud y respuesta a incidentes en AWS, Azure y GCP</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Cloud y DevSecOps</span> <span class="nivel-badge defensivo">Defensivo</span> <span><strong>Tomo V · Ruta 5 · Cloud y DevSecOps</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="41-web-avanzado-race-cache-websockets.html">6.1 Web avanzado: Race Conditions HTTP/2, Cache Poisoning, WebSockets y DOM Clobbering</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>En este capítulo vas a aprender a ejecutar una respuesta a incidentes ordenada y una adquisición forense preservando cadena de custodia en AWS, Azure y GCP. Vas a incorporar el orden de volatilidad propio de entornos cloud, aplicar contención de identidades IAM y aislamiento de red sin destruir evidencia volátil, adquirir memoria RAM y snapshots cifrados hacia una cuenta forense aislada (<em>Clean Room</em>), y automatizar playbooks de recolección y respuesta mediante AWS Systems Manager (SSM) y AWS Incident Manager.</p></aside>
+<h2 id="cap-5-7-orden-de-volatilidad-y-principios-forenses-en-la-nube">Orden de volatilidad y principios forenses en la nube</h2>
+<p>En infraestructura tradicional, el equipo de respuesta suele desconectar un cable de red o apagar un servidor físico. En la nube, <strong>apagar o terminar una instancia destruye evidencia irreemplazable</strong>: se pierde el contenido completo de la memoria RAM (procesos residentes, llaves de cifrado en memoria, comandos no volcados a disco), desaparecen los volúmenes efímeros locales (<em>Instance Store</em> / NVMe temporal) y los grupos de autoescalado pueden reemplazar automáticamente la máquina eliminando su rastro operativo.</p>
+<p>El <strong>orden de volatilidad adaptado a la nube</strong> prioriza la preservación de mayor a menor fragilidad:</p>
+<ol><li><strong>Credenciales efímeras, sesiones STS y metadatos de ejecución:</strong> Tokens emitidos por STS, credenciales obtenidas del servicio de metadatos (IMDSv1/v2) y sesiones activas en consolas o Service Principals. Caducan o pueden ser rotados en minutos, pero permiten reconstruir el alcance del acceso.</li><li><strong>Conexiones de red activas y tablas de flujo:</strong> Sockets abiertos en la instancia, tablas ARP/conntrack y flujos recientes en VPC Flow Logs o NSG Flow Logs.</li><li><strong>Memoria RAM de instancias y contenedores:</strong> Procesos ocultos, artefactos inyectados en memoria, variables de entorno de contenedores y buffers de red.</li><li><strong>Almacenamiento efímero de instancia:</strong> Discos locales no persistentes vinculados al ciclo de vida del hipervisor físico.</li><li><strong>Discos persistentes y snapshots:</strong> Volúmenes EBS (AWS), Managed Disks (Azure) y Persistent Disks (GCP).</li><li><strong>Registros del plano de control y auditoría:</strong> CloudTrail, Cloud Audit Logs, Azure Activity Log y logs de balanceadores o WAF (menos volátiles si tienen retención e integridad habilitadas, aunque vulnerables si el atacante obtuvo permisos sobre el proyecto origen).</li></ol>
+<aside class="callout peligro"><p class="callout-titulo">Nunca modifiques el sistema de archivos original</p><p>Toda inspección profunda debe realizarse sobre una <strong>copia montada en solo lectura dentro de una cuenta o proyecto forense aislado</strong> (<em>Forensic Clean Room</em>), nunca ejecutando herramientas de análisis directamente sobre el volumen productivo comprometido. Cada artefacto adquirido debe quedar acompañado de su hash criptográfico <strong>SHA-256</strong> y marca temporal UTC para sostener la cadena de custodia.</p></aside>
+<hr>
+<h2 id="cap-5-7-contencion-de-identidades-iam-comprometidas">Contención de identidades IAM comprometidas</h2>
+<p>Cuando la telemetría (CloudTrail, GuardDuty o Cloud Logging) confirma el uso anómalo de una identidad, la contención de identidad debe ejecutarse antes o en paralelo al aislamiento de red, ya que un token válido permite operar sobre APIs cloud desde cualquier punto de Internet.</p>
+<h3 id="cap-5-7-contencion-en-aws-iam-y-sts">Contención en AWS IAM y STS</h3>
+<p>Un error clásico consiste en borrar las Access Keys de un usuario o quitarle una política, olvidando que los tokens temporales de <strong>AWS STS</strong> emitidos previamente siguen siendo válidos hasta su expiración natural (entre 15 minutos y 12 horas). Para invalidar sesiones activas de un rol o usuario federado de manera inmediata:</p>
+<ul><li><strong>Revocar sesiones STS activas:</strong> Adjuntá una política inline que deniegue explícitamente toda acción cuyo token haya sido emitido antes de la hora actual (<code>aws:TokenIssueTime</code>).</li><li><strong>Desactivar llaves estáticas en lugar de eliminarlas:</strong> Usá <code>Status=Inactive</code> para conservar metadatos de auditoría (<code>GetAccessKeyLastUsed</code>) sin destruir evidencia.</li><li><strong>Aplicar denegación total (<code>AWSDenyAll</code>):</strong> Adjuntá la política administrada <code>AWSDenyAll</code> o un permiso explícito <code>Deny</code> sobre <code>*</code> si la identidad debe quedar congelada mientras se investiga.</li></ul>
+<pre><code class="lenguaje-bash"># 1. Desactivar Access Key sospechosa sin borrar el usuario ni su historial
+aws iam update-access-key \
+  --user-name svc-backup \
+  --access-key-id AKIAIOSFODNN7EXAMPLE \
+  --status Inactive
+
+# 2. Adjuntar política de denegación total al usuario o rol comprometido
+aws iam attach-role-policy \
+  --role-name AppWorkerRole \
+  --policy-arn arn:aws:iam::aws:policy/AWSDenyAll
+
+# 3. Revocar sesiones STS anteriores a un timestamp UTC específico (política inline)
+cat &lt;&lt; 'EOF' &gt; revoke-older-sessions.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "DateLessThan": {
+          "aws:TokenIssueTime": "2026-05-01T15:30:00Z"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+aws iam put-role-policy \
+  --role-name AppWorkerRole \
+  --policy-name RevokeActiveSessions \
+  --policy-document file://revoke-older-sessions.json</code></pre>
+<h3 id="cap-5-7-contencion-en-azure-entra-id-y-gcp-iam">Contención en Azure Entra ID y GCP IAM</h3>
+<p>En <strong>Microsoft Azure</strong>, si se compromete una cuenta de usuario o un <strong>Service Principal</strong> (Application Identity):</p>
+<ol><li>Revocá inmediatamente todos los tokens de actualización y sesiones activas del usuario con Microsoft Graph (<code>Revoke-MgUserSignInSession</code>), o deshabilitá el inicio de sesión (<code>AccountEnabled = false</code>).</li><li>Para un Service Principal, deshabilitá la capacidad de emitir tokens (<code>az ad sp update --id &lt;APP_ID&gt; --set accountEnabled=false</code>), rotá o eliminá secretos/certificados vencidos o filtrados y revisá asignaciones RBAC recientes en la suscripción.</li></ol>
+<p>En <strong>Google Cloud Platform (GCP)</strong>, las credenciales de servicio comprometidas se contienen deshabilitando la <strong>Service Account</strong> y eliminando la llave comprometida:</p>
+<pre><code class="lenguaje-bash"># Deshabilitar Service Account comprometida en GCP (bloquea nuevos tokens y uso)
+gcloud iam service-accounts disable sa-deploy@prod-project-123.iam.gserviceaccount.com
+
+# Listar y revocar la llave privada filtrada si usaba claves administradas por el usuario
+gcloud iam service-accounts keys list \
+  --iam-account=sa-deploy@prod-project-123.iam.gserviceaccount.com
+
+gcloud iam service-accounts keys delete &lt;KEY_ID&gt; \
+  --iam-account=sa-deploy@prod-project-123.iam.gserviceaccount.com</code></pre>
+<hr>
+<h2 id="cap-5-7-aislamiento-de-computo-en-cuarentena-sin-perdida-de-evidencia">Aislamiento de cómputo en cuarentena sin pérdida de evidencia</h2>
+<p>Una vez contenidas las credenciales, necesitás aislar la instancia comprometida para cortar cualquier comunicación hacia el exterior o desplazamiento lateral dentro de la VPC/VNet, <strong>manteniéndola encendida</strong> mientras completás la adquisición de RAM y snapshots.</p>
+<p>Antes de cambiar el firewall virtual en AWS EC2, hay tres pasos previos obligatorios para evitar que la automatización cloud destruya la máquina:</p>
+<ol><li><strong>Proteger contra terminación:</strong> Habilitá <code>DisableApiTermination</code> en la instancia.</li><li><strong>Desacoplar de Auto Scaling Group (ASG):</strong> Si la instancia pertenece a un ASG, al quedar incomunicada fallará el <em>health check</em> y el ASG la terminará automáticamente para lanzar otra. Ejecutá <code>detach-instances</code> (sin decrementar o ajustando la capacidad deseada).</li><li><strong>Desregistrar de Load Balancers:</strong> Quitala del Target Group para cortar tráfico de usuarios legítimos sin esperar timeouts.</li></ol>
+<p>Recién entonces reemplazá todos los Security Groups de la instancia por un <strong>Security Group de cuarentena</strong> sin reglas de entrada ni salida (o únicamente permitiendo tráfico hacia la interfaz de SSM/estación forense si necesitás extraer memoria antes del corte total):</p>
+<pre><code class="lenguaje-bash"># Crear Security Group de cuarentena (sin reglas ingress; remover regla egress por defecto)
+QUARANTINE_SG=$(aws ec2 create-security-group \
+  --group-name sg-forensic-quarantine \
+  --description "Aislamiento forense sin trafico entrante ni saliente" \
+  --vpc-id vpc-0a1b2c3d4e5f \
+  --query 'GroupId' --output text)
+
+aws ec2 revoke-security-group-egress \
+  --group-id "$QUARANTINE_SG" \
+  --ip-permissions '[{"IpProtocol":"-1","IpRanges":[{"CidrIp":"0.0.0.0/0"}]}]'
+
+# Desacoplar del Auto Scaling Group y proteger contra terminación
+aws autoscaling detach-instances \
+  --instance-ids i-0987654321fedcba0 \
+  --auto-scaling-group-name prod-web-asg \
+  --no-should-decrement-desired-capacity
+
+aws ec2 modify-instance-attribute \
+  --instance-id i-0987654321fedcba0 \
+  --disable-api-termination
+
+# Aplicar el Security Group de cuarentena a la instancia comprometida
+aws ec2 modify-instance-attribute \
+  --instance-id i-0987654321fedcba0 \
+  --groups "$QUARANTINE_SG"</code></pre>
+<p>Los equivalentes en las otras dos nubes siguen exactamente la misma lógica de red:</p>
+<ul><li><strong>Azure:</strong> Creá un <strong>Network Security Group (NSG)</strong> con reglas de máxima prioridad (100) <code>DenyAllInbound</code> y <code>DenyAllOutbound</code> y asocialo a la interfaz de red (<code>az network nic update --network-security-group nsg-quarantine</code>). Si la VM forma parte de un <em>Virtual Machine Scale Set (VMSS)</em>, desasociala o aplicá protección contra eliminación (<code>az vmss deallocate</code> solo después de adquirir RAM y discos).</li><li><strong>GCP:</strong> Asigná una etiqueta de red exclusiva (por ejemplo <code>forensic-quarantine</code>) a la instancia Compute Engine y creá reglas de <strong>VPC Firewall</strong> con prioridad <code>0</code> (máxima precedencia) para bloquear todo tráfico <code>INGRESS</code> y <code>EGRESS</code> hacia ese tag, además de abandonar el <em>Managed Instance Group (MIG)</em> (<code>gcloud compute instance-groups managed abandon-instances</code>).</li></ul>
+<hr>
+<h2 id="cap-5-7-adquisicion-forense-de-memoria-y-volumenes-en-aws-azure-y-gcp">Adquisición forense de memoria y volúmenes en AWS, Azure y GCP</h2>
+<h3 id="cap-5-7-adquisicion-de-memoria-ram-con-lime-en-aws-ec2">Adquisición de memoria RAM con LiME en AWS EC2</h3>
+<p>Mientras la instancia Linux sigue viva y aislada en cuarentena, podés capturar una imagen completa de la memoria RAM utilizando <strong>LiME (Linux Memory Extractor)</strong>, un módulo de kernel cargable (<em>LKM</em>) diseñado específicamente para adquirir memoria volátil minimizando la huella en páginas activas. Para evitar descargar binarios desde Internet desde una máquina en cuarentena o alterar el disco local, lo recomendable es compilar previamente el módulo <code>lime.ko</code> para las versiones de kernel estándar de tu organización y distribuirlo desde un bucket interno vía <strong>AWS Systems Manager</strong> o un volumen auxiliar montado, volcando el archivo <code>.lime</code> directamente a un bucket S3 forense o a un volumen forense adjunto temporalmente (nunca al disco raíz comprometido):</p>
+<pre><code class="lenguaje-bash"># Ejemplo ejecutado en la instancia objetivo sobre un volumen auxiliar /mnt/forensic-dump
+sudo insmod /mnt/forensic-tools/lime-$(uname -r).ko "path=/mnt/forensic-dump/i-0987654321-mem.lime format=lime"
+sha256sum /mnt/forensic-dump/i-0987654321-mem.lime &gt; /mnt/forensic-dump/i-0987654321-mem.lime.sha256</code></pre>
+<p>Posteriormente, la imagen <code>.lime</code> se analiza offline en la estación forense aislada con <strong>Volatility 3</strong> (generando previamente los símbolos ISF del kernel correspondiente) para inspeccionar procesos ocultos, sockets cerrados recientemente, módulos cargados y variables de entorno.</p>
+<h3 id="cap-5-7-snapshots-ebs-cifrados-y-transferencia-a-cuenta-forense-aislada-aws">Snapshots EBS cifrados y transferencia a cuenta forense aislada (AWS)</h3>
+<p>Una vez asegurada la memoria RAM, capturá todos los volúmenes EBS asociados a la instancia comprometida y transferilos a una <strong>cuenta forense dedicada</strong> (<em>Clean Room</em>). Si el volumen original estaba cifrado con una llave KMS administrada por AWS (<code>aws/ebs</code>), no es posible compartir el snapshot directamente con otra cuenta: primero debés copiarlo recifrándolo con una <strong>Customer Managed Key (CMK)</strong> cuya política permita acceso a la cuenta forense.</p>
+<pre><code class="lenguaje-bash"># 1. Crear snapshot del volumen comprometido preservando etiquetas de cadena de custodia
+SNAP_ID=$(aws ec2 create-snapshot \
+  --volume-id vol-0123456789abcdef0 \
+  --description "Evidencia incidente INC-2026-042" \
+  --tag-specifications 'ResourceType=snapshot,Tags=[{Key=IncidentId,Value=INC-2026-042},{Key=SourceInstance,Value=i-0987654321fedcba0}]' \
+  --query 'SnapshotId' --output text)
+
+aws ec2 wait snapshot-completed --snapshot-ids "$SNAP_ID"
+
+# 2. Copiar snapshot recifrándolo con la CMK KMS compartida con la cuenta forense
+FORENSIC_SNAP=$(aws ec2 copy-snapshot \
+  --source-region us-east-1 \
+  --source-snapshot-id "$SNAP_ID" \
+  --encrypted \
+  --kms-key-id arn:aws:kms:us-east-1:111122223333:key/forensic-cmk-id \
+  --description "Copia KMS compartible INC-2026-042" \
+  --query 'SnapshotId' --output text)
+
+aws ec2 wait snapshot-completed --snapshot-ids "$FORENSIC_SNAP"
+
+# 3. Compartir el snapshot cifrado con la cuenta forense aislada (999988887777)
+aws ec2 modify-snapshot-attribute \
+  --snapshot-id "$FORENSIC_SNAP" \
+  --attribute createVolumePermission \
+  --operation-type add \
+  --user-ids 999988887777</code></pre>
+<p>Ya dentro de la <strong>cuenta forense aislada</strong>, creá un volumen EBS desde el snapshot compartido, adjuntalo a tu estación de análisis forense y montalo estrictamente en <strong>solo lectura sin reproducir el journal</strong> (<code>ro,noexec,noload</code> en ext4 o <code>ro,norecovery</code> en XFS) para no alterar marcas de tiempo MACB ni bloques del sistema de archivos:</p>
+<pre><code class="lenguaje-bash"># En la estación de trabajo de la cuenta forense aislada
+lsblk
+sudo mkdir -p /mnt/evidence
+sudo mount -o ro,noexec,noload /dev/nvme1n1p1 /mnt/evidence
+# Generar hash de la partición cruda para registro de cadena de custodia
+sudo sha256sum /dev/nvme1n1 &gt; /cases/INC-2026-042/vol-0123456789abcdef0.sha256</code></pre>
+<h3 id="cap-5-7-adquisicion-en-azure-y-gcp-con-flow-logs">Adquisición en Azure y GCP con Flow Logs</h3>
+<p>El flujo forense equivalente en <strong>Azure</strong> y <strong>GCP</strong> mantiene la separación estricta entre el entorno productivo y el entorno de análisis:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Plataforma</th>
+<th>Adquisición de disco</th>
+<th>Telemetría de red clave</th>
+<th>Aislamiento destino</th>
+</tr></thead><tbody>
+<tr><td><strong>AWS</strong></td><td><code>aws ec2 create-snapshot</code> + CMK KMS + <code>modify-snapshot-attribute</code></td><td>VPC Flow Logs (en S3 / CloudWatch)</td><td>Cuenta AWS dedicada (<em>Security / Forensics OU</em>)</td></tr>
+<tr><td><strong>Azure</strong></td><td><code>az snapshot create</code> sobre el Managed Disk + copia a Storage Account forense o SAS de corta duración</td><td><strong>NSG Flow Logs</strong> v2 vía Azure Network Watcher</td><td>Suscripción forense separada con RBAC restringido</td></tr>
+<tr><td><strong>GCP</strong></td><td><code>gcloud compute disks snapshot</code> + <code>gcloud compute disks create --source-snapshot</code> en proyecto destino</td><td><strong>VPC Flow Logs</strong> habilitados en la subred</td><td>Proyecto GCP forense separado con VPC aislada</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Azure: crear snapshot de disco administrado sin detener la VM
+az snapshot create \
+  --resource-group rg-prod-web \
+  --name snap-inc-2026-042-osdisk \
+  --source /subscriptions/&lt;SUB_ID&gt;/resourceGroups/rg-prod-web/providers/Microsoft.Compute/disks/vm-web-01_OsDisk
+
+# GCP: crear snapshot y restaurar disco en el proyecto forense aislado
+gcloud compute disks snapshot vm-api-01 \
+  --zone=us-central1-a \
+  --snapshot-names=snap-inc-2026-042 \
+  --project=prod-project-123
+
+gcloud compute disks create forensic-disk-inc-2026-042 \
+  --source-snapshot=projects/prod-project-123/global/snapshots/snap-inc-2026-042 \
+  --zone=us-central1-a \
+  --project=forensic-cleanroom-999</code></pre>
+<hr>
+<h2 id="cap-5-7-automatizacion-de-respuesta-con-aws-systems-manager-e-incident-manager">Automatización de respuesta con AWS Systems Manager e Incident Manager</h2>
+<p>Ejecutar docenas de comandos manuales bajo presión humana introduce demoras y errores. <strong>AWS Systems Manager (SSM)</strong> y <strong>AWS Incident Manager</strong> permiten estandarizar tanto la recolección inicial de evidencia volátil como los playbooks completos de contención y coordinación.</p>
+<h3 id="cap-5-7-recoleccion-segura-sin-ssh-mediante-ssm-run-command-y-automation">Recolección segura sin SSH mediante SSM Run Command y Automation</h3>
+<p>Si una instancia tiene instalado el <strong>SSM Agent</strong> con el rol IAM mínimo (<code>AmazonSSMManagedInstanceCore</code>), el equipo de respuesta puede ejecutar comandos remotos auditados en CloudTrail <strong>sin abrir el puerto 22 (SSH)</strong>, sin llaves privadas compartidas y aunque el Security Group de cuarentena haya bloqueado todo el tráfico entrante (solo requiere conectividad saliente hacia los endpoints de SSM, idealmente mediante <strong>VPC Interface Endpoints</strong> privados dentro de la VPC).</p>
+<p>Un documento de <strong>SSM Automation (Runbook)</strong> en formato YAML encapsula una secuencia reproducible: aislar la instancia, activar protección contra terminación, recolectar artefactos volátiles en vivo (<code>ps auxef</code>, <code>ss -tupna</code>, <code>lsof</code>, últimas líneas de <code>/var/log/auth.log</code> o journalctl) hacia un bucket S3 forense con Object Lock, y disparar el snapshot EBS:</p>
+<pre><code class="lenguaje-yaml">schemaVersion: '0.3'
+description: 'Playbook forense: aislar instancia EC2, recolectar volátiles vía SSM y crear snapshot EBS'
+assumeRole: '{{ AutomationAssumeRole }}'
+parameters:
+  InstanceId:
+    type: String
+    description: 'ID de la instancia EC2 afectada'
+  QuarantineSecurityGroupId:
+    type: String
+    description: 'Security Group de cuarentena sin ingress/egress'
+  ForensicBucket:
+    type: String
+    description: 'Bucket S3 de evidencia con Object Lock'
+  AutomationAssumeRole:
+    type: String
+    description: 'ARN del rol de automatización SSM'
+
+mainSteps:
+  - name: EnableTerminationProtection
+    action: aws:executeAwsApi
+    inputs:
+      Service: ec2
+      Api: ModifyInstanceAttribute
+      InstanceId: '{{ InstanceId }}'
+      DisableApiTermination:
+        Value: true
+
+  - name: CollectVolatileArtifacts
+    action: aws:runCommand
+    inputs:
+      DocumentName: AWS-RunShellScript
+      InstanceIds:
+        - '{{ InstanceId }}'
+      Parameters:
+        commands:
+          - 'mkdir -p /tmp/ir-volatile'
+          - 'date -u &gt; /tmp/ir-volatile/timestamp_utc.txt'
+          - 'ps auxef &gt; /tmp/ir-volatile/processes.txt'
+          - 'ss -tupna &gt; /tmp/ir-volatile/sockets.txt'
+          - 'lsof -nP &gt; /tmp/ir-volatile/open_files.txt'
+          - 'tar -czf /tmp/ir-{{ InstanceId }}.tar.gz -C /tmp/ir-volatile .'
+          - 'sha256sum /tmp/ir-{{ InstanceId }}.tar.gz &gt; /tmp/ir-{{ InstanceId }}.tar.gz.sha256'
+          - 'aws s3 cp /tmp/ir-{{ InstanceId }}.tar.gz s3://{{ ForensicBucket }}/cases/{{ InstanceId }}/'
+          - 'aws s3 cp /tmp/ir-{{ InstanceId }}.tar.gz.sha256 s3://{{ ForensicBucket }}/cases/{{ InstanceId }}/'
+          - 'rm -rf /tmp/ir-volatile /tmp/ir-{{ InstanceId }}.tar.gz*'
+
+  - name: ApplyQuarantineSecurityGroup
+    action: aws:executeAwsApi
+    inputs:
+      Service: ec2
+      Api: ModifyInstanceAttribute
+      InstanceId: '{{ InstanceId }}'
+      Groups:
+        - '{{ QuarantineSecurityGroupId }}'</code></pre>
+<aside class="callout nota"><p class="callout-titulo">Orden en el playbook de SSM</p><p>Fijate en el orden de los pasos del Runbook: <strong>primero</strong> recolecta los artefactos volátiles mediante <code>AWS-RunShellScript</code> y sube el paquete cifrado a S3, y <strong>después</strong> aplica el Security Group de cuarentena sin salida (salvo que cuentes con VPC Endpoints privados para SSM y S3 en la red de cuarentena). Si cortaras todo el tráfico saliente antes de tener VPC Endpoints, el agente SSM perdería contacto antes de entregar la telemetría viva.</p></aside>
+<h3 id="cap-5-7-coordinacion-de-incidentes-con-aws-incident-manager">Coordinación de incidentes con AWS Incident Manager</h3>
+<p><strong>AWS Incident Manager</strong> (capacidad integrada dentro de Systems Manager) estructura la respuesta operativa cuando salta una alarma crítica de CloudWatch o una regla de EventBridge alimentada por GuardDuty:</p>
+<ol><li><strong>Contacts &amp; Escalation Plans:</strong> Define responsables de guardia (On-Call), canales (SMS, correo, integraciones con Slack/Teams mediante AWS Chatbot) y tiempos de escalamiento si nadie reconoce el incidente.</li><li><strong>Response Plans:</strong> Asocian la severidad del evento con la plantilla del incidente, los contactos a convocar y el <strong>SSM Automation Runbook</strong> que debe iniciarse automáticamente (o con aprobación de un clic) apenas se abre el incidente.</li><li><strong>Timeline y Post-Incident Analysis:</strong> Registra cronológicamente qué métricas cambiaron, qué pasos ejecutó el runbook, qué analista intervino y genera plantillas de análisis post-incidente orientadas a causas raíz y acciones preventivas medibles.</li></ol>
+<hr>
+<h2 id="cap-5-7-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
+<p>Vas a construir y validar en un entorno controlado de laboratorio los artefactos de contención y adquisición forense sin destruir evidencia volátil.</p>
+<ol><li>Definí la secuencia exacta de comandos para <strong>contener una identidad comprometida</strong> en AWS (desactivar llave, adjuntar <code>AWSDenyAll</code> y política <code>RevokeActiveSessions</code> con <code>aws:TokenIssueTime</code>) y su equivalente en GCP (<code>gcloud iam service-accounts disable</code>).</li><li>Escribí el script de <strong>aislamiento de instancia EC2</strong> que cree un Security Group sin ingress ni egress, desacople la instancia de su Auto Scaling Group, active <code>disable-api-termination</code> y aplique la cuarentena.</li><li>Redactá el procedimiento de <strong>adquisición forense cross-account</strong> en AWS: creación de snapshot EBS, copia recifrada con CMK KMS, compartición hacia la cuenta forense y montaje en solo lectura (<code>ro,noexec,noload</code>) con cálculo de SHA-256.</li><li>Adaptá y validá sintácticamente el documento YAML de <strong>SSM Automation</strong> para recolectar procesos, sockets y archivos abiertos hacia un bucket S3 de evidencia antes de aplicar la cuarentena estricta.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un runbook documentado de respuesta a incidentes que incluya: la matriz de orden de volatilidad aplicada a tu arquitectura cloud, los bloques CLI verificados de contención IAM y cuarentena de red (AWS + GCP/Azure), el flujo de transferencia de snapshot cifrado a cuenta forense y el archivo YAML del playbook SSM Automation listo para ejecutarse.</p></aside>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>La capacidad de responder a un incidente en la nube se construye <strong>antes</strong> de que ocurra la intrusión: requiere tener preparada la cuenta forense aislada (<em>Clean Room</em>), las llaves CMK KMS habilitadas para recifrado de snapshots, VPC Endpoints para SSM/S3 operativos incluso bajo aislamiento de Internet, buckets con Object Lock para evidencia inmutable y runbooks probados en simulacros periódicos (<em>GameDays</em>) para evitar improvisar bajo presión.</p></aside>
+<h2 id="cap-5-7-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué apagar o terminar una instancia EC2 comprometida al detectar un incidente suele ser un error grave desde el punto de vista forense?</strong> Porque al apagar o terminar la instancia se pierde de inmediato toda la memoria RAM (procesos residentes, llaves en memoria, payloads en ejecución), se destruyen los volúmenes efímeros locales y un Auto Scaling Group puede reemplazar la máquina eliminando evidencia clave antes de ser adquirida.</p>
+<p><strong>2. ¿Por qué deshabilitar una Access Key o quitar una política IAM no basta para cortar de inmediato el acceso de un atacante que ya obtuvo credenciales temporales STS?</strong> Porque los tokens temporales STS emitidos previamente siguen siendo válidos criptográficamente hasta su expiración; para revocarlos al instante es necesario adjuntar una política con <code>Deny</code> explícito condicionada a <code>aws:TokenIssueTime</code> (o <code>AWSDenyAll</code>) sobre el rol o identidad afectada.</p>
+<p><strong>3. ¿Qué dos acciones previas son indispensables antes de aplicar un Security Group de cuarentena a una instancia EC2 que forma parte de un entorno autoescalado?</strong> Desacoplar la instancia del Auto Scaling Group (<code>detach-instances</code>) y activar <code>disable-api-termination</code> (además de retirarla del Target Group del balanceador), evitando así que el fallo del <em>health check</em> provoque que el grupo termine automáticamente la máquina aislada.</p>
+<p><strong>4. ¿Por qué es necesario copiar y recifrar un snapshot EBS con una Customer Managed Key (CMK) antes de compartirlo con una cuenta forense aislada?</strong> Porque los snapshots cifrados con la llave administrada predeterminada de AWS (<code>aws/ebs</code>) no pueden compartirse entre cuentas distintas; copiarlo usando una CMK propia permite otorgar permisos de descifrado en la política de la llave hacia la cuenta forense (<em>Clean Room</em>).</p>
+<p><strong>5. ¿Qué ventaja operativa aporta recolectar artefactos volátiles mediante AWS Systems Manager (SSM) en lugar de conectarse por SSH a una instancia comprometida?</strong> Permite ejecutar comandos auditados en CloudTrail sin abrir el puerto 22 en el Security Group, sin exponer llaves privadas SSH en la máquina afectada y funcionando incluso sin salida a Internet si la VPC dispone de Interface Endpoints privados para SSM y S3.</p>
+<h2 id="cap-5-7-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de dar por cerrado el módulo de seguridad en la nube, verificá que podés ordenar correctamente qué evidencia adquirir primero (RAM y sesiones antes que discos y logs), cómo contener identidades con tokens activos en AWS/Azure/GCP, cómo aislar una máquina virtual sin que el autoescalado la destruya y cómo trasladar snapshots cifrados a una cuenta forense limpia.</p></aside>
+<h2 id="cap-5-7-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>NIST SP 800-61 Rev. 2 / Rev. 3 — Computer Security Incident Handling Guide: <a href="https://csrc.nist.gov/publications/detail/sp/800-61/rev-2/final">https://csrc.nist.gov/publications/detail/sp/800-61/rev-2/final</a></li><li>AWS Security Incident Response Guide: <a href="https://docs.aws.amazon.com/whitepapers/latest/aws-security-incident-response-guide/aws-security-incident-response-guide.html">https://docs.aws.amazon.com/whitepapers/latest/aws-security-incident-response-guide/aws-security-incident-response-guide.html</a></li><li>AWS Systems Manager Incident Manager Documentation: <a href="https://docs.aws.amazon.com/incident-manager/latest/userguide/what-is-incident-manager.html">https://docs.aws.amazon.com/incident-manager/latest/userguide/what-is-incident-manager.html</a></li><li>LiME (Linux Memory Extractor) &amp; Volatility 3: <a href="https://github.com/504ensicsLabs/LiME">https://github.com/504ensicsLabs/LiME</a> / <a href="https://github.com/volatilityfoundation/volatility3">https://github.com/volatilityfoundation/volatility3</a></li><li>Google Cloud Security Best Practices — Incident Response &amp; Forensics: <a href="https://cloud.google.com/architecture/framework/security/incident-response">https://cloud.google.com/architecture/framework/security/incident-response</a></li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 4 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>AWS Forensics</td><td>Easy</td><td>Defensive</td><td>9</td></tr><tr><td>Azure Forensics</td><td>Medium</td><td>Defensive</td><td>9</td></tr><tr><td>Google Cloud Forensics</td><td>Medium</td><td>Defensive</td><td>9</td></tr><tr><td>AWS Incident Manager - System Manager</td><td>Easy</td><td>Defensive</td><td>4</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="39-defensa-cloud-telemetria-y-perimetro.html">← 5.6 Defensa Cloud: CloudTrail, CloudWatch, GCP Logging, GuardDuty y WAF/Shield</a></div><div><a href="41-web-avanzado-race-cache-websockets.html">6.1 Web avanzado: Race Conditions HTTP/2, Cache Poisoning, WebSockets y DOM Clobbering →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 3.3 · Escalada de privilegios en Linux y hardening de servidores · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Detectar y cerrar vectores de sudo, SUID, capabilities y cron en VM Linux">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo3.html">Tomo III</a><span aria-hidden="true">›</span><span>Cap. 3.3</span></nav>
+<h1 id="cap-3-3">Capítulo 3.3 · Escalada de privilegios en Linux y hardening de servidores</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Avanzado</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo III · Ruta 3 · Avanzado</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="21-escalada-privilegios-windows.html">3.4 Escalada de privilegios en Windows y endurecimiento de endpoints</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a ejecutar una auditoría estructurada de configuraciones locales en servidores Linux, comprender técnicamente por qué determinados permisos, bits SUID/SGID, capacidades POSIX, tareas programadas y membresías de grupo permiten elevar privilegios, y diseñar un plan práctico de detección y endurecimiento basado en CIS Benchmarks, <code>auditd</code> y controles obligatorios de acceso (AppArmor/SELinux).</p></aside>
+<p><strong>Prerrequisitos:</strong> Administración básica de sistemas Linux, permisos POSIX (<code>rwx</code>, propietario/grupo) y máquina virtual Linux propia en laboratorio aislado. <strong>Duración sugerida:</strong> 90 a 120 minutos.</p>
+<h2 id="cap-3-3-1-modelo-de-privilegios-en-linux-y-principio-de-enumeracion-metodica">1. Modelo de privilegios en Linux y principio de enumeración metódica</h2>
+<p>En Linux, la autorización del núcleo se basa principalmente en identificadores de usuario (<code>UID</code>), grupo (<code>GID</code>), grupos suplementarios y capacidades POSIX (<em>Linux Capabilities</em>). El usuario <code>root</code> (<code>UID 0</code>) posee control irrestricto sobre el sistema, aunque el modelo moderno permite delegar fracciones específicas de privilegio sin otorgar control total.</p>
+<p>Una auditoría rigurosa de escalada local no consiste en ejecutar scripts a ciegas, sino en relevar sistemáticamente la superficie de privilegios del host mediante comandos nativos de solo lectura.</p>
+<pre><code class="lenguaje-bash"># 1. Contexto de identidad y pertenencia a grupos
+id
+groups
+
+# 2. Privilegios delegados mediante sudo (si el usuario tiene permisos de consulta)
+sudo -l
+
+# 3. Información del núcleo, distribución y estado de servicios locales
+uname -a
+cat /etc/os-release
+ss -tulpn</code></pre>
+<h2 id="cap-3-3-2-vectores-frecuentes-de-mala-configuracion-y-su-mecanismo-tecnico">2. Vectores frecuentes de mala configuración y su mecanismo técnico</h2>
+<p>Cada vector de elevación local responde a una ruptura del principio de mínimo privilegio o a una falta de aislamiento entre cuentas de servicio y administrativas.</p>
+<h3 id="cap-3-3-resumen-de-superficies-de-auditoria">Resumen de superficies de auditoría</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Vector</th>
+<th>Mecanismo técnico de riesgo</th>
+<th>Comando de auditoría (solo lectura)</th>
+<th>Corrección recomendada</th>
+</tr></thead><tbody>
+<tr><td><strong>Reglas <code>sudoers</code> laxas</strong></td><td>Permitir ejecutar intérpretes, editores o binarios con escape a shell como <code>root</code></td><td><code>sudo -l</code> / <code>visudo -c</code></td><td>Rutas absolutas, argumentos exactos, etiqueta <code>NOEXEC</code></td></tr>
+<tr><td><strong>Bits SUID/SGID indebidos</strong></td><td>El binario corre con el EUID/EGID del propietario (<code>root</code>), heredando privilegios</td><td><code>find / -perm /6000 -type f 2&gt;/dev/null</code></td><td>Retirar bits innecesarios con <code>chmod u-s</code> o <code>g-s</code></td></tr>
+<tr><td><strong>Capabilities excesivas</strong></td><td>Permiten operaciones privilegiadas (p. ej. cambio de UID o acceso arbitrario a archivos)</td><td><code>getcap -r / 2&gt;/dev/null</code></td><td>Eliminar capacidades no justificadas con <code>setcap -r</code></td></tr>
+<tr><td><strong>Tareas programadas y <code>PATH</code></strong></td><td>Scripts ejecutados por <code>cron</code> o <code>systemd</code> modificables por usuarios sin privilegios</td><td><code>ls -la /etc/cron*</code> / <code>systemctl list-timers</code></td><td>Propiedad <code>root:root</code>, permisos <code>0750</code> o <code>0700</code>, <code>PATH</code> fijo</td></tr>
+<tr><td><strong>Grupos privilegiados</strong></td><td>Pertenencia a <code>docker</code>, <code>lxd</code> o <code>adm</code> otorga acceso equivalente a <code>root</code> o logs sensibles</td><td><code>getent group docker lxd adm</code></td><td>Retirar usuarios no administrativos; usar Docker rootless</td></tr>
+</tbody></table></div>
+<h3 id="cap-3-3-profundizacion-tecnica-en-tres-riesgos-criticos">Profundización técnica en tres riesgos críticos</h3>
+<ol><li><strong>SUID/SGID, <em>GTFOBins</em> y capacidades POSIX:</strong> Un binario con bit SUID activado y propietario <code>root</code> cambia el <code>EUID</code> efectivo del proceso a <code>0</code> durante su ejecución. El proyecto comunitario <strong>GTFOBins</strong> cataloga exactamente qué utilidades legítimas de Unix/Linux (<code>vim</code>, <code>find</code>, <code>tar</code>, <code>less</code>, <code>awk</code>, <code>python3</code>, <code>env</code>) incluyen funciones nativas para lanzar subshells o leer/escribir archivos arbitrarios si un administrador comete el error de marcarles el bit SUID, delegarlas por <code>sudo</code> sin <code>NOEXEC</code>, o asignarles capacidades como <code>cap_setuid</code> o <code>cap_dac_read_search</code>.</li><li><strong>Abuso de <code>PATH</code>, comodines (<code>*</code>) y escape de shells restringidas (<code>rbash</code>):</strong> Un script ejecutado por <code>cron</code> o <code>root</code> que invoca comandos sin ruta absoluta (<code>tar cf ...</code> en lugar de <code>/usr/bin/tar</code>) o utiliza comodines expansivos (<code>tar cf /backup/b.tar *</code>) en directorios escribibles por usuarios permite alterar el flujo de argumentos mediante nombres de archivo que imitan opciones de CLI (<code>--checkpoint-action=...</code>), o escapar de shells restringidas (<code>rbash</code>) cuando no se bloquea el cambio de variables de entorno o binarios con escape a subproceso.</li><li><strong>Servicios internos en <code>127.0.0.1</code> y grupos administrativos implícitos (<code>docker</code>, <code>lxd</code>, <code>adm</code>):</strong> Muchos administradores relajan la autenticación en servicios ligados a <code>localhost</code> asumiendo aislamiento. De forma similar, pertenecer al grupo <code>docker</code> permite montar <code>/</code> del anfitrión dentro de un contenedor privilegiado, y el grupo <code>adm</code> otorga lectura directa sobre registros donde aplicaciones mal configuradas pueden haber volcado secretos.</li></ol>
+<h2 id="cap-3-3-3-hardening-sistematico-alineado-con-cis-benchmarks">3. Hardening sistemático alineado con CIS Benchmarks</h2>
+<p>Cerrar la superficie de escalada local requiere combinar limpieza de permisos, configuración mínima de <code>sudo</code> y confinamiento obligatorio a nivel de núcleo.</p>
+<h3 id="cap-3-3-endurecimiento-de-sudoers-y-permisos-de-archivos">Endurecimiento de <code>sudoers</code> y permisos de archivos</h3>
+<ul><li>Editá siempre <code>/etc/sudoers</code> o archivos en <code>/etc/sudoers.d/</code> mediante <code>visudo</code> para validar sintaxis antes de guardar.</li><li>Evitá comodines amplios (<code>*</code>) y especificá siempre la ruta absoluta y los argumentos permitidos.</li><li>Usá <code>NOEXEC</code> cuando un comando autorizado no necesite generar procesos hijos, y activá <code>use_pty</code> y registro de entrada/salida (<code>log_output</code>) para máxima trazabilidad.</li></ul>
+<pre><code class="lenguaje-text"># Ejemplo de política restrictiva en /etc/sudoers.d/auditoria-servicios
+Defaults use_pty
+Defaults logfile="/var/log/sudo.log"
+
+# Delegación granular: solo reiniciar un servicio específico sin escape a subprocesos
+operador_web ALL=(root) NOEXEC: /usr/bin/systemctl restart nginx</code></pre>
+<h3 id="cap-3-3-confinamiento-con-apparmor-y-selinux">Confinamiento con AppArmor y SELinux</h3>
+<p>Mientras que los permisos POSIX constituyen un Control de Acceso Discrecional (DAC), <strong>AppArmor</strong> (Debian/Ubuntu) y <strong>SELinux</strong> (RHEL/Rocky/Fedora) aplican Control de Acceso Obligatorio (MAC). Incluso si un servicio es comprometido o mal configurado, el perfil MAC restringe exactamente qué archivos, sockets y capacidades puede invocar ese proceso.</p>
+<pre><code class="lenguaje-bash"># Verificar estado de AppArmor en sistemas basados en Debian/Ubuntu
+sudo aa-status
+
+# Verificar estado de SELinux en sistemas basados en RHEL/Fedora
+getenforce
+sestatus</code></pre>
+<h2 id="cap-3-3-4-deteccion-de-actividad-privilegiada-con-auditd">4. Detección de actividad privilegiada con <code>auditd</code></h2>
+<p>El subsistema de auditoría del núcleo Linux (<code>auditd</code>) permite registrar eventos críticos de seguridad de manera inmutable para análisis posterior o envío hacia un SIEM.</p>
+<pre><code class="lenguaje-bash"># Consultar reglas activas de auditd en el servidor de laboratorio
+sudo auditctl -l
+
+# Ejemplo de archivo de reglas persistentes (/etc/audit/rules.d/hardening.rules)
+# Supervisar modificaciones en identidad, sudoers y tareas programadas
+-w /etc/passwd -p wa -k cambios_identidad
+-w /etc/shadow -p wa -k cambios_identidad
+-w /etc/sudoers -p wa -k cambios_sudoers
+-w /etc/sudoers.d/ -p wa -k cambios_sudoers
+-w /etc/crontab -p wa -k tareas_programadas</code></pre>
+<h2 id="cap-3-3-ejemplo-paso-a-paso-auditoria-y-remediacion-de-permisos-en-un-servidor-linux-de-laboratorio">Ejemplo paso a paso: auditoría y remediación de permisos en un servidor Linux de laboratorio</h2>
+<p>En este recorrido auditamos una VM Linux propia para detectar binarios SUID no estándar, scripts de cron con permisos excesivos y capacidades POSIX inesperadas, y luego aplicamos la corrección.</p>
+<pre><code class="lenguaje-bash"># 1. Inventariar binarios SUID y comparar contra una línea base limpia
+find /usr/bin /usr/local/bin -perm -4000 -type f -ls 2&gt;/dev/null
+# Salida esperada: lista acotada (passwd, sudo, su, mount, etc.)
+# Cualquier script propio o intérprete en esta lista constituye un hallazgo crítico.
+
+# 2. Auditar capacidades POSIX asignadas en el sistema
+getcap -r /usr /bin /sbin 2&gt;/dev/null
+# Salida esperada: solo utilidades esperadas como ping (cap_net_raw) o similares.
+
+# 3. Revisar permisos de tareas programadas y timers de systemd
+ls -la /etc/crontab /etc/cron.d/
+systemctl list-timers --all
+
+# 4. Remediación ejemplo: asegurar un script administrativo mal configurado
+sudo chown root:root /usr/local/sbin/respaldo_lab.sh
+sudo chmod 0750 /usr/local/sbin/respaldo_lab.sh
+
+# 5. Validar que los permisos quedaron endurecidos y registrar el cambio
+stat -c '%U:%G %a %n' /usr/local/sbin/respaldo_lab.sh
+# Salida comentada:
+# root:root 750 /usr/local/sbin/respaldo_lab.sh (solo root puede modificarlo)</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>Desde la perspectiva de monitoreo Blue Team (tácticas de alto nivel de MITRE ATT&amp;CK como <strong>Privilege Escalation</strong> y <strong>Persistence</strong>), la defensa efectiva en Linux combina prevención y telemetría centralizada:</p>
+<ul><li><strong>Detección prioritaria:</strong> Alertar ante cambios en archivos de cuentas o <code>sudoers</code>, creación de nuevos binarios SUID/capabilities, incorporación de usuarios a grupos privilegiados y registros de nuevas tareas en <code>cron</code> o <code>systemd</code>.</li><li><strong>Hardening estructural:</strong> Aplicar líneas base del CIS Benchmark para la distribución en uso, mantener AppArmor/SELinux en modo <em>enforcing</em>, montar particiones temporales (<code>/tmp</code>, <code>/var/tmp</code>) con <code>noexec,nosuid,nodev</code> y reenviar logs de <code>auditd</code> y <code>auth.log</code> a un servidor central de solo anexado.</li></ul></aside>
+<h2 id="cap-3-3-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>En tu VM Linux de laboratorio (red Host-Only):</p>
+<ol><li>Ejecutá una línea base de solo lectura relevando <code>id</code>, <code>sudo -l</code>, binarios SUID, capacidades POSIX (<code>getcap</code>), servicios en escucha (<code>ss -tulpn</code>) y timers de <code>systemd</code>.</li><li>Creá un archivo de prueba <code>/usr/local/sbin/tarea_prueba.sh</code> propiedad de <code>root</code>, verificá qué ocurre al auditarlo si tiene permisos excesivos (<code>0777</code>) y luego aplicá la remediación correcta (<code>root:root</code> y <code>0750</code>).</li><li>Instalá o verificá <code>auditd</code>, agregá una regla de vigilancia sobre <code>/etc/sudoers</code> y comprobá en <code>/var/log/audit/audit.log</code> que los accesos administrativos quedan registrados.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un reporte de auditoría local que incluya: tabla de hallazgos de la línea base (SUID, capabilities, grupos y timers), comandos de remediación ejecutados y evidencia de al menos un evento capturado por <code>auditd</code>.</p></aside>
+<h2 id="cap-3-3-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué asignar el bit SUID a un intérprete o editor de texto representa un riesgo crítico de escalada de privilegios?</strong> Porque el proceso se ejecuta con el identificador efectivo (<code>EUID</code>) del propietario del archivo (<code>root</code>), permitiendo que cualquier usuario utilice las funciones legítimas del programa para leer o modificar archivos restringidos del sistema.</p>
+<p><strong>2. ¿Qué diferencia existe entre una política DAC tradicional y un sistema MAC como AppArmor o SELinux?</strong> El control DAC depende de propietarios y permisos de archivos (<code>rwx</code>), mientras que MAC impone políticas obligatorias definidas por el administrador del núcleo que restringen las acciones permitidas a cada proceso incluso si este cuenta con privilegios elevados.</p>
+<p><strong>3. ¿Por qué pertenecer al grupo <code>docker</code> se considera operativamente equivalente a tener privilegios administrativos en el host?</strong> Porque permite comunicarse con el demonio privilegiado de Docker y montar directorios sensibles del sistema anfitrión dentro de un contenedor, eludiendo los controles de permisos locales del usuario.</p>
+<p><strong>4. ¿Qué medidas deben aplicarse al delegar un comando puntual mediante <code>sudoers</code>?</strong> Utilizar siempre <code>visudo</code>, especificar rutas absolutas y argumentos exactos, evitar comodines amplios, habilitar <code>NOEXEC</code> cuando corresponda y activar el registro de auditoría de sesiones <code>sudo</code>.</p>
+<p><strong>5. ¿Cómo ayudan las opciones de montaje <code>nosuid</code>, <code>nodev</code> y <code>noexec</code> en particiones como <code>/tmp</code>?</strong> Impiden que binarios depositados en directorios escribibles por cualquier usuario puedan ejecutarse directamente, aprovechar bits SUID o interactuar con archivos especiales de dispositivo.</p>
+<h2 id="cap-3-3-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Realizaste una enumeración metódica de permisos, SUID, capabilities y tareas programadas en tu VM Linux.</li><li>☐ Entendés por qué grupos como <code>docker</code> o <code>lxd</code> amplían la superficie de privilegios.</li><li>☐ Configuraste al menos una regla básica de vigilancia en <code>auditd</code>.</li><li>☐ Verificaste el estado de AppArmor o SELinux en tu servidor de laboratorio.</li><li>☐ Sabés redactar reglas restrictivas en <code>sudoers</code> sin comodines riesgosos.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Verificá que el script de prueba creado en <code>/usr/local/sbin/</code> haya quedado con permisos seguros (<code>0750</code>) o eliminado tras documentar tu práctica, antes de pasar al entorno Windows en el Capítulo 3.4.</p></aside>
+<h2 id="cap-3-3-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>CIS Benchmarks: <em>CIS Distribution Independent Linux Benchmark</em> (https://www.cisecurity.org/cis-benchmarks)</li><li>Linux man-pages: <code>capabilities(7)</code>, <code>sudoers(5)</code>, <code>auditctl(8)</code>, <code>systemd.timer(5)</code> (https://man7.org/linux/man-pages/)</li><li>MITRE ATT&amp;CK Enterprise Matrix: tácticas <em>Privilege Escalation</em> y <em>Persistence</em> (https://attack.mitre.org/)</li><li>Documentación oficial de AppArmor y SELinux Project (https://gitlab.com/apparmor/apparmor/-/wikis/home y https://selinuxproject.org/)</li><li>NIST SP 800-123: <em>Guide to General Server Security</em> (https://csrc.nist.gov/publications/detail/sp/800-123/final)</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 4 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Linux Privilege Escalation</td><td>Easy</td><td>Offensive</td><td>28</td></tr><tr><td>GTFOBins</td><td>Hard</td><td>Defensive</td><td>9</td></tr><tr><td>Linux/Unix System Security</td><td>Medium</td><td>Defensive</td><td>8</td></tr><tr><td>Advanced Linux/Unix System Security</td><td>Hard</td><td>Defensive</td><td>8</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="19-ataques-y-auditoria-contrasenas.html">← 3.2 Auditoría de contraseñas, hashes (Hashcat/John) y políticas NIST</a></div><div><a href="21-escalada-privilegios-windows.html">3.4 Escalada de privilegios en Windows y endurecimiento de endpoints →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

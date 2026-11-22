@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 1.5 · Automatización y análisis con Bash y PowerShell · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Parsear logs con awk/sed/grep y filtrar Event Logs con PowerShell">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo1.html">Tomo I</a><span aria-hidden="true">›</span><span>Cap. 1.5</span></nav>
+<h1 id="cap-1-5">Capítulo 1.5 · Automatización y análisis con Bash y PowerShell</h1>
+<div class="meta-nivel"><span class="nivel-badge principiante">Principiante</span> <span class="nivel-badge mixto">Mixto</span> <span><strong>Tomo I · Ruta 1 · Principiante</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="06-python-seguridad.html">1.6 Python 3 aplicado a seguridad ofensiva y defensiva</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Dominar la automatización y el análisis operativo con <strong>Bash</strong> en sistemas Linux y <strong>PowerShell</strong> en entornos Windows. Al finalizar vas a poder construir tuberías de filtrado reproducibles, escribir scripts seguros de auditoría de registros, consultar eventos estructurados con <code>Get-WinEvent</code> y <code>Get-CimInstance</code>, y aplicar controles defensivos sobre la ejecución de scripts.</p></aside>
+<p><strong>Prerrequisitos:</strong> Conocimientos básicos de línea de comandos Linux (Capítulo 1.3) y fundamentos de Windows (Capítulo 1.4). <strong>Duración sugerida:</strong> 3 a 4 horas (incluyendo laboratorio práctico).</p>
+<h2 id="cap-1-5-1-flujo-de-datos-en-bash-descriptores-redirecciones-y-tuberias">1. Flujo de datos en Bash: descriptores, redirecciones y tuberías</h2>
+<p>En entornos Unix y Linux, casi toda la telemetría de seguridad —registros de autenticación, trazas de servicios web, listas de sockets abiertos o volcados de configuración— se representa como <strong>flujos de texto plano</strong>. La potencia de Bash reside en encadenar utilidades pequeñas y especializadas mediante descriptores de archivo y tuberías (<code>|</code>), sin necesidad de escribir programas complejos para tareas de triaje diario.</p>
+<h3 id="cap-1-5-1-1-descriptores-estandar-y-control-de-salida">1.1 Descriptores estándar y control de salida</h3>
+<p>Todo proceso en Linux inicia con tres descriptores de archivo abiertos: entrada estándar (<code>stdin</code>, descriptor <code>0</code>), salida estándar (<code>stdout</code>, descriptor <code>1</code>) y salida de error estándar (<code>stderr</code>, descriptor <code>2</code>). Separar los datos útiles (<code>stdout</code>) de los avisos o permisos denegados (<code>stderr</code>) evita contaminar reportes automatizados o romper tuberías posteriores.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Operador</th>
+<th>Descriptor afectado</th>
+<th>Comportamiento técnico</th>
+<th>Uso típico en auditoría</th>
+</tr></thead><tbody>
+<tr><td><code>&gt;</code> / <code>&gt;&gt;</code></td><td><code>1</code> (<code>stdout</code>)</td><td>Sobrescribe o agrega al archivo destino</td><td>Guardar inventario de puertos o procesos</td></tr>
+<tr><td><code>2&gt;</code></td><td><code>2</code> (<code>stderr</code>)</td><td>Redirige solo errores a un archivo o <code>/dev/null</code></td><td>Silenciar avisos de <code>Permission denied</code> en <code>find</code></td></tr>
+<tr><td><code>2&gt;&amp;1</code></td><td><code>2</code> → <code>1</code></td><td>Fusiona errores en la misma salida estándar</td><td>Capturar salida completa de un comando en un log</td></tr>
+<tr><td>`\</td><td>`</td><td><code>1</code> → <code>0</code></td><td>Conecta la salida de un comando a la entrada del siguiente</td></tr>
+<tr><td><code>tee -a</code></td><td><code>1</code> → pantalla y archivo</td><td>Duplica el flujo hacia un archivo y hacia <code>stdout</code></td><td>Conservar evidencia mientras se sigue procesando</td></tr>
+</tbody></table></div>
+<h3 id="cap-1-5-1-2-modo-estricto-y-escritura-defensiva-de-scripts">1.2 Modo estricto y escritura defensiva de scripts</h3>
+<p>Un script de auditoría mal escrito puede fallar en silencio, operar sobre rutas vacías o interpretar nombres de archivo con espacios como múltiples argumentos. Al comienzo de cualquier script de producción o laboratorio, definí siempre un encabezado defensivo:</p>
+<pre><code class="lenguaje-bash">#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'</code></pre>
+<ul><li><code>set -e</code> detiene la ejecución ante cualquier comando con código de salida distinto de <code>0</code>.</li><li><code>set -u</code> trata las variables no definidas como un error inmediato, previniendo rutas truncadas como <code>rm -rf "/tmp/${VAR_VACIA}"</code>.</li><li><code>set -o pipefail</code> hace que una tubería devuelva error si falla cualquiera de sus etapas, no solo el último comando.</li><li>Comillar siempre las expansiones (<code>"${archivo}"</code>) protege contra división de palabras y expansión inesperada de comodines (<code>*</code>, <code>?</code>).</li></ul>
+<aside class="callout aviso"><p class="callout-titulo">Validación previa de scripts Bash</p><p>Antes de ejecutar un script de automatización en un servidor o en tu VM, pasalo por <code>bash -n script.sh</code> para comprobar sintaxis y, si tenés <code>shellcheck</code> instalado, ejecutá <code>shellcheck script.sh</code> para detectar comillas faltantes, redirecciones defectuosas y posibles inyecciones de argumentos.</p></aside>
+<h2 id="cap-1-5-2-filtrado-y-transformacion-de-texto-para-analisis-de-seguridad">2. Filtrado y transformación de texto para análisis de seguridad</h2>
+<p>Durante una investigación de incidentes o una revisión de superficie expuesta, raramente vas a leer un archivo de registro línea por línea. Necesitás extraer campos precisos, normalizar formatos y agregar frecuencias en segundos.</p>
+<h3 id="cap-1-5-2-1-expresiones-regulares-y-busqueda-con-grep">2.1 Expresiones regulares y búsqueda con <code>grep</code></h3>
+<p><code>grep</code> filtra líneas que coinciden con un patrón. Usar <code>-E</code> activa expresiones regulares extendidas (ERE), evitando escapar metacaracteres como <code>+</code>, <code>?</code>, <code>|</code> o <code>()</code>. Conviene conocer los modificadores esenciales: <code>-i</code> (insensible a mayúsculas), <code>-v</code> (invierte la coincidencia para excluir ruido conocido), <code>-o</code> (imprime solo la subcadena coincidente, útil para extraer direcciones IP) y <code>-n</code> (muestra el número de línea).</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Herramienta</th>
+<th>Especialidad principal</th>
+<th>Cuándo elegirla en análisis de seguridad</th>
+</tr></thead><tbody>
+<tr><td><code>grep -E</code></td><td>Filtrado rápido por patrón</td><td>Aislar fallos de autenticación, códigos HTTP <code>4xx</code>/<code>5xx</code> o IOCs</td></tr>
+<tr><td><code>cut</code></td><td>Corte por delimitador simple o posición</td><td>Extraer columnas fijas en archivos CSV o <code>/etc/passwd</code></td></tr>
+<tr><td><code>awk</code></td><td>Procesamiento por columnas, condiciones y sumatorias</td><td>Correlacionar campos variables, filtrar por umbral y formatear tablas</td></tr>
+<tr><td><code>sed</code></td><td>Sustitución y edición en flujo</td><td>Sanitizar direcciones IP, limpiar encabezados o extraer rangos de líneas</td></tr>
+<tr><td>`sort \</td><td>uniq -c`</td><td>Ordenamiento y conteo de frecuencias</td></tr>
+</tbody></table></div>
+<h3 id="cap-1-5-2-2-extraccion-estructurada-con-awk-sed-sort-y-uniq">2.2 Extracción estructurada con <code>awk</code>, <code>sed</code>, <code>sort</code> y <code>uniq</code></h3>
+<p>Mientras <code>cut</code> falla cuando los campos están separados por múltiples espacios consecutivos, <code>awk</code> divide automáticamente por secuencias de espacios en blanco (<code>$1</code>, <code>$2</code>, ..., <code>$NF</code> para el último campo) y permite lógica condicional en una sola pasada:</p>
+<pre><code class="lenguaje-bash"># Extraer direcciones IP con fallos SSH en auth.log y listar el Top 5
+grep -E "Failed password for" /var/log/auth.log \
+  | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+  | sort | uniq -c | sort -rn | head -n 5
+
+# Contar respuestas HTTP 401/403/404 por IP en un access.log en formato Combined
+awk '$9 ~ /^(401|403|404)$/ { conteo[$1]++ }
+     END { for (ip in conteo) if (conteo[ip] &gt;= 10) printf "%6d  %s\n", conteo[ip], ip }' \
+  /var/log/nginx/access.log | sort -rn
+
+# Anonimizar los últimos dos octetos de direcciones IPv4 antes de compartir evidencia
+sed -E 's/([0-9]{1,3}\.[0-9]{1,3})\.[0-9]{1,3}\.[0-9]{1,3}/\1.x.x/g' muestra_log.txt</code></pre>
+<p>Observá que en el segundo ejemplo <code>awk</code> realiza el filtrado, la agrupación y el corte por umbral (<code>&gt;= 10</code>) en memoria sin necesidad de abrir subprocesos intermedios de <code>grep</code>, <code>sort</code> y <code>uniq</code>, lo que marca una diferencia notable en archivos de cientos de megabytes.</p>
+<h2 id="cap-1-5-3-estructuras-de-control-y-scripts-defensivos-en-bash">3. Estructuras de control y scripts defensivos en Bash</h2>
+<p>Cuando un análisis deja de ser puntual y necesita repetirse de forma periódica (por ejemplo, una comprobación diaria de línea base en servidores del laboratorio), conviene empaquetarlo en un script modular con funciones, verificación de argumentos y salida determinista.</p>
+<h3 id="cap-1-5-3-1-bucles-seguros-y-lectura-linea-por-linea">3.1 Bucles seguros y lectura línea por línea</h3>
+<p>Para iterar sobre líneas de un archivo o resultados de búsqueda sin corromper espacios ni caracteres especiales, evitá el antipatrón <code>for linea in $(cat archivo)</code>. Usá siempre <code>while IFS= read -r linea</code>:</p>
+<pre><code class="lenguaje-bash">#!/usr/bin/env bash
+set -euo pipefail
+
+# Script defensivo de línea base local: sockets en escucha y fallos SSH recientes
+REPORTE="/tmp/auditoria_local_$(date +%Y%m%d_%H%M%S).txt"
+LOG_AUTH="${1:-/var/log/auth.log}"
+UMBRAL="${2:-5}"
+
+verificar_archivo() {
+  local ruta="$1"
+  if [[ ! -r "${ruta}" ]]; then
+    echo "[ERROR] No se puede leer el archivo: ${ruta}" &gt;&amp;2
+    exit 1
+  fi
+}
+
+verificar_archivo "${LOG_AUTH}"
+
+{
+  echo "=== Auditoría rápida de host ($(hostname)) - $(date -u +%FT%TZ) ==="
+  echo
+  echo "[1] Puertos TCP/UDP en escucha (ss -tuln):"
+  ss -tuln | awk 'NR==1 || /LISTEN|UNCONN/ { printf "%-6s %-24s %s\n", $1, $5, $2 }'
+  echo
+  echo "[2] IPs con &gt;= ${UMBRAL} fallos de contraseña en ${LOG_AUTH}:"
+  awk -v lim="${UMBRAL}" '
+    /Failed password for/ {
+      for (i = 1; i &lt;= NF; i++) {
+        if ($i == "from" &amp;&amp; (i + 1) &lt;= NF) { cuentas[$(i+1)]++ }
+      }
+    }
+    END {
+      encontrados = 0
+      for (ip in cuentas) {
+        if (cuentas[ip] &gt;= lim) {
+          printf "  ALERTA  %-18s intentos=%d\n", ip, cuentas[ip]
+          encontrados++
+        }
+      }
+      if (encontrados == 0) print "  Sin orígenes por encima del umbral."
+    }
+  ' "${LOG_AUTH}"
+} | tee "${REPORTE}"
+
+echo "Reporte guardado en: ${REPORTE}"</code></pre>
+<p>Este patrón encapsula el bloque completo entre llaves <code>{ ... } | tee "${REPORTE}"</code> para escribir la evidencia una sola vez, usa variables locales (<code>local</code>) dentro de funciones y pasa el umbral a <code>awk</code> de forma segura con <code>-v lim="${UMBRAL}"</code> en lugar de interpolar variables sin sanitizar dentro del código de <code>awk</code>.</p>
+<h2 id="cap-1-5-4-powershell-moderno-arquitectura-orientada-a-objetos">4. PowerShell moderno: arquitectura orientada a objetos</h2>
+<p>A diferencia de Bash, donde cada herramienta debe volver a interpretar texto plano según separadores o posiciones de columna, <strong>PowerShell</strong> (tanto Windows PowerShell 5.1 como PowerShell 7+ multiplataforma) transporta <strong>objetos .NET tipados</strong> a través de la tubería. Cada objeto conserva sus propiedades y métodos originales hasta el instante en que se renderiza en consola o se serializa a JSON o CSV.</p>
+<h3 id="cap-1-5-4-1-comparativa-operativa-bash-frente-a-powershell">4.1 Comparativa operativa: Bash frente a PowerShell</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Capacidad</th>
+<th>Enfoque en Bash (Linux)</th>
+<th>Enfoque en PowerShell (Windows / Multiplataforma)</th>
+</tr></thead><tbody>
+<tr><td>Unidad de pipeline</td><td>Líneas de texto plano</td><td>Objetos .NET con propiedades tipadas</td></tr>
+<tr><td>Nomenclatura</td><td>Comandos breves (<code>ps</code>, <code>ss</code>, <code>grep</code>)</td><td>Convención <code>Verbo-Sustantivo</code> (<code>Get-Process</code>, <code>Get-NetTCPConnection</code>)</td></tr>
+<tr><td>Filtrado</td><td><code>grep</code>, <code>awk</code></td><td><code>Where-Object</code> (alias <code>?</code>)</td></tr>
+<tr><td>Selección de campos</td><td><code>cut</code>, <code>awk '{print $1,$5}'</code></td><td><code>Select-Object</code> (alias <code>select</code>)</td></tr>
+<tr><td>Agrupación y conteo</td><td>`sort \</td><td>uniq -c`</td></tr>
+<tr><td>Descubrimiento de esquema</td><td><code>man comando</code></td><td><code>Get-Help</code>, <code>Get-Command</code>, <code>Get-Member</code></td></tr>
+</tbody></table></div>
+<p>Cuando trabajes con un cmdlet nuevo en PowerShell, enviá un único elemento a <code>Get-Member</code> (por ejemplo, <code>Get-Process | Select-Object -First 1 | Get-Member</code>) para inspeccionar los nombres exactos y tipos de datos de todas sus propiedades antes de construir filtros.</p>
+<h3 id="cap-1-5-4-2-filtrado-proyeccion-y-agrupacion-en-el-pipeline">4.2 Filtrado, proyección y agrupación en el pipeline</h3>
+<p>En análisis de seguridad sobre Windows, la combinación de <code>Where-Object</code>, <code>Select-Object</code>, <code>Group-Object</code> y <code>Sort-Object</code> permite auditar procesos activos, conexiones de red y servicios sin depender de expresiones regulares frágiles:</p>
+<pre><code class="lenguaje-powershell"># Listar conexiones TCP establecidas agrupadas por proceso propietario
+Get-NetTCPConnection -State Established |
+  Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, OwningProcess,
+    @{ Name = 'Proceso'; Expression = { (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName } } |
+  Sort-Object Proceso, RemotePort |
+  Format-Table -AutoSize
+
+# Detectar procesos en ejecución desde rutas de usuario (AppData o Temp) para revisión de triaje
+Get-CimInstance Win32_Process |
+  Where-Object { $_.ExecutablePath -match '\\(AppData|Temp)\\' } |
+  Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine |
+  Export-Csv -Path ".\procesos_rutas_usuario.csv" -NoTypeInformation -Encoding UTF8</code></pre>
+<p>El uso de propiedades calculadas (<code>@{ Name = '...'; Expression = { ... } }</code>) enriquece el objeto original al vuelo y facilita la exportación directa a CSV o JSON (<code>ConvertTo-Json -Depth 4</code>) para su ingestión en herramientas de análisis posteriores.</p>
+<h2 id="cap-1-5-5-analisis-de-eventos-cim-wmi-y-gobierno-de-ejecucion-en-windows">5. Análisis de eventos, CIM/WMI y gobierno de ejecución en Windows</h2>
+<h3 id="cap-1-5-5-1-consulta-eficiente-de-registros-con-get-winevent">5.1 Consulta eficiente de registros con <code>Get-WinEvent</code></h3>
+<p>El cmdlet heredado <code>Get-EventLog</code> solo lee los canales clásicos y está deprecado en PowerShell moderno. <code>Get-WinEvent</code> accede tanto a los registros clásicos (<code>Security</code>, <code>System</code>, <code>Application</code>) como a los canales modernos de aplicaciones y servicios (por ejemplo, <code>Microsoft-Windows-PowerShell/Operational</code>).</p>
+<p>La regla de rendimiento fundamental es <strong>filtrar a la izquierda</strong>: pasá <code>-FilterHashtable</code> al motor de eventos de Windows para que descarte registros antes de instanciar objetos en memoria, en lugar de traer decenas de miles de eventos y filtrarlos tarde con <code>Where-Object</code>:</p>
+<pre><code class="lenguaje-powershell"># Consultar eventos recientes de inicio de sesión fallido en el registro Security (requiere elevación)
+$inicio = (Get-Date).AddHours(-24)
+
+$eventos = Get-WinEvent -FilterHashtable @{
+    LogName   = 'Security'
+    Id        = 4625
+    StartTime = $inicio
+} -ErrorAction SilentlyContinue
+
+$eventos | ForEach-Object {
+    $xml = [xml]$_.ToXml()
+    $datos = @{}
+    foreach ($nodo in $xml.Event.EventData.Data) {
+        $datos[$nodo.Name] = $nodo.'#text'
+    }
+    [PSCustomObject]@{
+        Fecha       = $_.TimeCreated.ToString('s')
+        Usuario     = $datos['TargetUserName']
+        Dominio     = $datos['TargetDomainName']
+        IpOrigen    = $datos['IpAddress']
+        TipoLogon   = $datos['LogonType']
+        EstadoHex   = $datos['Status']
+    }
+} | Group-Object IpOrigen, Usuario | Sort-Object Count -Descending | Format-Table Count, Name -AutoSize</code></pre>
+<p>Parsear la estructura XML interna (<code>$_.ToXml()</code>) con <code>[xml]</code> evita depender del idioma del sistema operativo en la cadena <code>Message</code> (español vs. inglés), garantizando que el script funcione de manera idéntica en cualquier Windows.</p>
+<h3 id="cap-1-5-5-2-inventario-con-cim-wmi-y-politicas-de-ejecucion">5.2 Inventario con CIM/WMI y políticas de ejecución</h3>
+<p><strong>CIM (Common Information Model)</strong> mediante <code>Get-CimInstance</code> reemplaza al antiguo <code>Get-WmiObject</code>: usa protocolos estándar sobre WS-Man/WinRM en lugar de DCOM/RPC heredado y devuelve objetos más livianos. Permite inventariar hardware, servicios (<code>Win32_Service</code>), tareas programadas, cuentas locales (<code>Win32_UserAccount</code>) y parches instalados (<code>Win32_QuickFixEngineering</code>).</p>
+<p>Respecto a las <strong>políticas de ejecución</strong> (<code>Get-ExecutionPolicy -List</code>), conviene aclarar un error muy extendido: la <code>ExecutionPolicy</code> (<code>Restricted</code>, <code>AllSigned</code>, <code>RemoteSigned</code>, <code>Bypass</code>) es una <strong>red de seguridad operativa</strong> para evitar la ejecución accidental de scripts no revisados, <strong>no un límite de seguridad hermético</strong>, ya que un usuario con acceso a la consola puede ejecutar código desde entrada estándar o especificar parámetros por sesión. El control real se logra combinando firma digital de scripts, <strong>Constrained Language Mode (CLM)</strong> junto con <strong>AppLocker / Windows Defender Application Control (WDAC)</strong>, y telemetría reforzada (<strong>Script Block Logging</strong> y <strong>Module Logging</strong>).</p>
+<h2 id="cap-1-5-ejemplo-paso-a-paso-triaje-cruzado-de-registros-en-laboratorio-local">Ejemplo paso a paso: Triaje cruzado de registros en laboratorio local</h2>
+<p>En este recorrido vas a generar un pequeño archivo de registro sintético en Linux y ejecutar sobre él una tubería de agregación, para luego replicar el mismo enfoque sobre un inventario local en PowerShell.</p>
+<p><strong>Paso 1 (Linux / WSL / VM):</strong> creá un archivo de muestra en <code>/tmp/auth_lab.log</code> y extraé las IPs sospechosas ordenadas por volumen:</p>
+<pre><code class="lenguaje-bash">cat &lt;&lt;'EOF' &gt; /tmp/auth_lab.log
+Nov 22 10:01:12 lab-srv sshd[2104]: Failed password for invalid user admin from 192.168.56.20 port 51422 ssh2
+Nov 22 10:01:14 lab-srv sshd[2104]: Failed password for invalid user admin from 192.168.56.20 port 51423 ssh2
+Nov 22 10:01:16 lab-srv sshd[2104]: Failed password for root from 192.168.56.20 port 51424 ssh2
+Nov 22 10:02:01 lab-srv sshd[2118]: Accepted publickey for analyst from 192.168.56.1 port 53001 ssh2
+Nov 22 10:03:09 lab-srv sshd[2130]: Failed password for operator from 10.10.0.15 port 49811 ssh2
+EOF
+
+awk '/Failed password/ {
+  for (i=1; i&lt;=NF; i++) if ($i=="from") ip=$(i+1)
+  fallos[ip]++
+}
+END {
+  for (ip in fallos) printf "%-16s %d fallos\n", ip, fallos[ip]
+}' /tmp/auth_lab.log | sort -k2 -rn</code></pre>
+<p>Salida esperada comentada:</p>
+<pre><code class="lenguaje-text">192.168.56.20    3 fallos   # Agrupa intentos sobre usuarios válidos e inexistentes
+10.10.0.15       1 fallos   # Evento aislado; útil para comparar contra umbral definido</code></pre>
+<p><strong>Paso 2 (Windows PowerShell):</strong> verificá el estado de seguridad de los servicios en ejecución automática que corren fuera de <code>C:\Windows\System32</code> y las políticas activas de ejecución:</p>
+<pre><code class="lenguaje-powershell">Get-ExecutionPolicy -List
+
+Get-CimInstance Win32_Service |
+  Where-Object { $_.StartMode -eq 'Auto' -and $_.PathName -notmatch 'C:\\Windows\\system32' } |
+  Select-Object Name, State, StartName, PathName |
+  Format-Table -AutoSize</code></pre>
+<p>Salida esperada comentada:</p>
+<pre><code class="lenguaje-text">        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process       Undefined
+  CurrentUser    RemoteSigned   # Requiere firma solo para scripts descargados de Internet
+ LocalMachine       Undefined
+
+Name        State   StartName     PathName
+----        -----   ---------     --------
+OpenSSHd    Running LocalSystem   "C:\Program Files\OpenSSH\sshd.exe"  # Ruta entrecomillada correctamente</code></pre>
+<p>Comprobá siempre si <code>PathName</code> contiene espacios sin comillas en servicios que ejecutan con privilegios elevados (<code>LocalSystem</code>), ya que constituye un patrón clásico de mala configuración en inventarios Windows.</p>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>Tanto Bash como PowerShell son herramientas administrativas legítimas que también resultan atractivas para actores maliciosos porque ya vienen instaladas en el sistema (<em>living off the land</em>). Para reducir su abuso sin frenar la operación:</p>
+<ul><li><strong>Auditoría de comandos en Linux:</strong> habilitá reglas de <code>auditd</code> para ejecuciones privilegiadas y protegé el historial con archivos inmutables o envío inmediato a un colector centralizado (<code>rsyslog</code> / <code>journald</code>).</li><li><strong>Telemetría de PowerShell en Windows:</strong> activá <strong>Script Block Logging</strong> (canal <code>Microsoft-Windows-PowerShell/Operational</code>), <strong>Module Logging</strong> y <strong>Transcription</strong> mediante GPO, y deshabilitá el motor heredado PowerShell v2 (<code>Disable-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root</code>) para evitar degradaciones sin registro.</li><li><strong>Restricción de ejecución:</strong> combiná <strong>WDAC / AppLocker</strong> con <strong>Constrained Language Mode</strong> en estaciones de trabajo de usuarios finales y exigí firma de código (<code>AllSigned</code>) para scripts de automatización compartidos.</li><li><strong>Higiene de scripts propios:</strong> nunca incrustes contraseñas en texto plano en archivos <code>.sh</code> o <code>.ps1</code>; usá variables de entorno protegidas, permisos <code>chmod 600</code> o el almacén seguro de credenciales del sistema.</li></ul></aside>
+<h2 id="cap-1-5-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>Realizá esta práctica en tu máquina virtual Linux y tu estación o VM Windows aislada:</p>
+<ol><li>En Linux, escribí un script llamado <code>resumen_sistema.sh</code> con <code>set -euo pipefail</code> que reciba como parámetro la ruta de un archivo de log de autenticación, valide su existencia y genere un reporte con: fecha UTC, lista de usuarios con shell interactiva en <code>/etc/passwd</code> (excluyendo <code>nologin</code> y <code>false</code>), puertos TCP en escucha y ranking de IPs con más de 3 intentos fallidos.</li><li>En Windows PowerShell, escribí un script llamado <code>Auditoria-HostLocal.ps1</code> que consulte con <code>Get-CimInstance</code> los últimos 5 parches instalados (<code>Win32_QuickFixEngineering</code>), liste las conexiones TCP activas en estado <code>Listen</code> junto al nombre del proceso propietario y exporte los resultados a un archivo JSON estructurado con <code>ConvertTo-Json</code>.</li><li>Probá ambos scripts validando el manejo de errores (por ejemplo, pasarle una ruta inexistente a <code>resumen_sistema.sh</code> y verificar que retorne un código de salida distinto de <code>0</code>).</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Dos scripts funcionales y comentados (<code>resumen_sistema.sh</code> y <code>Auditoria-HostLocal.ps1</code>), la salida de <code>bash -n resumen_sistema.sh</code> sin errores y el archivo JSON generado por PowerShell en tu entorno local.</p></aside>
+<h2 id="cap-1-5-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué conviene incluir <code>set -euo pipefail</code> al inicio de un script de auditoría en Bash?</strong> Porque fuerza al script a fallar rápido y de manera visible: <code>-e</code> detiene la ejecución si un comando retorna error, <code>-u</code> impide expandir variables no declaradas (evitando rutas vacías peligrosas) y <code>-o pipefail</code> asegura que un fallo en etapas intermedias de una tubería no quede oculto por el código de salida <code>0</code> del último comando.</p>
+<p><strong>2. ¿Cuál es la diferencia técnica más relevante entre <code>awk</code> y <code>cut</code> al analizar logs del sistema?</strong> <code>cut</code> solo divide líneas usando un delimitador de un único carácter o posiciones fijas de bytes, por lo que falla cuando los campos están alineados con cantidades variables de espacios. <code>awk</code> trata secuencias de espacios y tabulaciones como un único separador por defecto, soporta condicionales, arreglos asociativos para contar frecuencias y formateo estructurado en una sola lectura del archivo.</p>
+<p><strong>3. ¿En qué se diferencia fundamentalmente el pipeline de PowerShell del pipeline de Bash?</strong> En Bash los comandos intercambian flujos de texto plano que cada herramienta debe volver a analizar. En PowerShell el pipeline transfiere objetos .NET con propiedades y métodos tipados, lo que permite filtrar (<code>Where-Object</code>), proyectar (<code>Select-Object</code>) y agrupar (<code>Group-Object</code>) directamente por atributo sin depender del formato visual de columnas ni del idioma de salida.</p>
+<p><strong>4. ¿Por qué <code>Get-WinEvent -FilterHashtable</code> es preferible a <code>Get-WinEvent | Where-Object</code> en investigaciones defensivas?</strong> Porque <code>-FilterHashtable</code> delega el filtrado al motor de eventos de Windows antes de construir objetos .NET en PowerShell. Esto reduce drásticamente el consumo de CPU, memoria y tiempo de respuesta cuando se consultan registros voluminosos como <code>Security</code> o <code>Microsoft-Windows-PowerShell/Operational</code>.</p>
+<p><strong>5. ¿Alcanza configurar <code>ExecutionPolicy</code> en <code>Restricted</code> para impedir la ejecución maliciosa de código PowerShell?</strong> No. La <code>ExecutionPolicy</code> es una medida preventiva contra ejecuciones accidentales, no una frontera de seguridad estricta, ya que puede eludirse pasando comandos codificados o ejecutando bloques por entrada estándar. La mitigación real requiere control de aplicaciones (WDAC/AppLocker), Constrained Language Mode, deshabilitar PowerShell v2 y habilitar Script Block Logging.</p>
+<h2 id="cap-1-5-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Podés redirigir <code>stdout</code> y <code>stderr</code> de forma independiente y explicar el efecto de <code>2&gt;&amp;1</code> y <code>pipefail</code>.</li><li>☐ Sabés construir una tubería con <code>grep</code>, <code>awk</code>, <code>sort</code> y <code>uniq</code> para resumir intentos de autenticación en un archivo de log.</li><li>☐ Entendés cómo inspeccionar propiedades de objetos PowerShell con <code>Get-Member</code> y filtrar eventos con <code>Get-WinEvent -FilterHashtable</code>.</li><li>☐ Comprendés la diferencia entre <code>Get-CimInstance</code> y el antiguo WMI, así como las limitaciones reales de <code>ExecutionPolicy</code>.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Antes de pasar al Capítulo 1.6, asegurate de haber ejecutado y verificado tus dos scripts de triaje (<code>resumen_sistema.sh</code> y <code>Auditoria-HostLocal.ps1</code>) en tu laboratorio local. Esa base te va a permitir decidir cuándo alcanza una tubería de shell y cuándo conviene dar el salto a Python 3 para lógica de red o correlación más compleja.</p></aside>
+<h2 id="cap-1-5-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>GNU Project — <em>Bash Reference Manual</em> (redirecciones, shell parameters y modo estricto): https://www.gnu.org/software/bash/manual/</li><li>IEEE / The Open Group — <em>POSIX.1-2017 Shell Command Language y utilidades <code>awk</code>, <code>sed</code>, <code>grep</code></em>: https://pubs.opengroup.org/onlinepubs/9699919799/</li><li>Microsoft Learn — <em>PowerShell Documentation: About Pipelines, Get-WinEvent y About Execution Policies</em>: https://learn.microsoft.com/en-us/powershell/</li><li>Microsoft Learn — <em>PowerShell Security Features (Script Block Logging y Constrained Language Mode)</em>: https://learn.microsoft.com/en-us/powershell/scripting/security/</li><li>NIST SP 800-92 — <em>Guide to Computer Security Log Management</em>: https://csrc.nist.gov/publications/detail/sp/800-92/final</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 7 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Introduction to Bash Scripting</td><td>Easy</td><td>General</td><td>10</td></tr><tr><td>Advanced Bash Scripting</td><td>Hard</td><td>General</td><td>6</td></tr><tr><td>Bash Scripting for Blue Team</td><td>Hard</td><td>Defensive</td><td>7</td></tr><tr><td>Introduction to PowerShell</td><td>Easy</td><td>General</td><td>7</td></tr><tr><td>PowerShell for Analysis</td><td>Hard</td><td>Defensive</td><td>6</td></tr><tr><td>Advanced PowerShell for Blue Team</td><td>Hard</td><td>Defensive</td><td>7</td></tr><tr><td>Introduction to Bash Scripting (LetsDefend)</td><td>Medium</td><td>General</td><td>7</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="04-windows-fundamentos.html">← 1.4 Windows para seguridad: NTFS, Registro, servicios y arquitectura</a></div><div><a href="06-python-seguridad.html">1.6 Python 3 aplicado a seguridad ofensiva y defensiva →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

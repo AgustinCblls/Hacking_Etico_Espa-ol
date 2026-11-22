@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 2.3 · Inyecciones en servidor: SQLi, NoSQLi y Command Injection · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Reproducir y corregir SQLi/CMDi con consultas parametrizadas en lab Docker">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo2.html">Tomo II</a><span aria-hidden="true">›</span><span>Cap. 2.3</span></nav>
+<h1 id="cap-2-3">Capítulo 2.3 · Inyecciones en servidor: SQLi, NoSQLi y Command Injection</h1>
+<div class="meta-nivel"><span class="nivel-badge intermedio">Intermedio</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo II · Ruta 2 · Intermedio</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="13-xss-csrf-cors-cliente.html">2.4 Seguridad del lado del cliente: XSS, CSRF, CORS y CSP</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a comprender la causa raíz arquitectónica de las vulnerabilidades de inyección del lado del servidor —la mezcla de instrucciones y datos no confiables en un mismo canal de texto—, analizar cómo se producen en motores SQL, bases de datos NoSQL e intérpretes del sistema operativo, y aplicar las soluciones de ingeniería definitivas (consultas parametrizadas, validación de tipos estrictos y ejecución de subprocesos sin shell) verificándolas en <code>laboratorios/app_lab_educativa.py</code>.</p></aside>
+<p><strong>Prerrequisitos:</strong> Capítulo 1.6 (Python 3), Capítulo 1.8 (HTTP) y Capítulo 2.2 (Enumeración web). <strong>Duración sugerida:</strong> 8 a 10 horas.</p>
+<h2 id="cap-2-3-1-el-principio-fundamental-separacion-entre-codigo-y-datos">1. El principio fundamental: separación entre código y datos</h2>
+<p>Todas las vulnerabilidades de inyección —ya sea en un motor SQL, en una consulta documental NoSQL, en un directorio LDAP o en una llamada al sistema operativo— comparten exactamente el mismo defecto de diseño: <strong>la aplicación construye un comando concatenando texto enviado por el usuario y se lo entrega a un intérprete para que lo analice (<em>parse</em>) y lo ejecute</strong>.</p>
+<p>Cuando un intérprete recibe una cadena plana ya concatenada, no tiene forma de distinguir qué caracteres escribió el programador original y qué caracteres provinieron de la petición HTTP. Si el dato de entrada contiene delimitadores sintácticos del propio lenguaje (comillas, paréntesis, operadores lógicos o separadores de comandos), esos caracteres modifican el <strong>Árbol de Sintaxis Abstracta (AST)</strong> de la instrucción.</p>
+<pre><code class="lenguaje-text">[Patrón Inseguro: Concatenación de cadenas]
+Entrada usuario + Plantilla de texto ──► Cadena única ──► Parser del intérprete (AST alterado)
+
+[Patrón Seguro: Parametrización / Separación de canal]
+Plantilla fija con marcadores (?)    ──► Compilación del AST fijo en el motor
+Entrada usuario                      ──► Vinculación como literal puro (nunca altera el AST)</code></pre>
+<p>La regla de oro de la ingeniería de software seguro (OWASP ASVS V5) es directa: <strong>nunca se sanea una inyección intentando adivinar o borrar palabras prohibidas; se elimina por diseño separando el canal del código del canal de los datos</strong>.</p>
+<h2 id="cap-2-3-2-inyeccion-sql-sqli-arquitectura-del-fallo-y-clasificacion">2. Inyección SQL (SQLi): arquitectura del fallo y clasificación</h2>
+<p>Una inyección SQL ocurre cuando una aplicación incorpora datos externos directamente en la cadena de una sentencia SQL mediante concatenación (<code>+</code>), interpolación (<code>f"..."</code> en Python, <code>${...}</code> en JavaScript) o formato (<code>%s</code>).</p>
+<h3 id="cap-2-3-comparacion-directa-en-codigo-python-sqlite-postgresql">Comparación directa en código Python (SQLite / PostgreSQL)</h3>
+<p>Observá la diferencia entre un bloque vulnerable por concatenación y el patrón seguro implementado en nuestro laboratorio <code>laboratorios/app_lab_educativa.py</code>:</p>
+<pre><code class="lenguaje-python"># PATRÓN VULNERABLE (PROHIBIDO): interpolación directa con f-string
+# El motor SQL compila la cadena DESPUÉS de haber insertado el texto del usuario.
+def buscar_inseguro(db, categoria_usuario):
+    cur = db.cursor()
+    consulta = f"SELECT id, nombre, precio FROM productos WHERE categoria = '{categoria_usuario}'"
+    cur.execute(consulta)
+    return cur.fetchall()
+
+# PATRÓN SEGURO (implementado en laboratorios/app_lab_educativa.py): consulta parametrizada
+# El motor SQL compila primero la estructura fija con marcadores (?) y luego recibe la tupla de valores.
+def buscar_seguro(db, q):
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, nombre, categoria, precio FROM productos WHERE categoria = ? OR nombre LIKE ?",
+        (q, f"%{q}%"),
+    )
+    return cur.fetchall()</code></pre>
+<h3 id="cap-2-3-por-que-las-consultas-parametrizadas-son-inmunes">Por qué las consultas parametrizadas son inmunes</h3>
+<p>En una consulta parametrizada (<em>Prepared Statement</em>), la comunicación entre el backend y el motor de base de datos ocurre en dos pasos separados a nivel de protocolo:</p>
+<ol><li><strong>Preparación (<code>PREPARE</code>):</strong> el motor de base de datos recibe <code>SELECT id, nombre FROM productos WHERE categoria = ?</code>, analiza la gramática SQL, valida las tablas y construye el árbol de ejecución. En este punto la estructura lógica de la consulta queda <strong>congelada</strong>.</li><li><strong>Ejecución (<code>EXECUTE</code>):</strong> el backend envía el valor del parámetro en un paquete de datos separado. Aunque el valor contenga comillas simples, palabras como <code>OR</code> o <code>UNION</code>, el motor lo almacena literalmente dentro del nodo de datos del parámetro <code>?</code> sin volver a invocar al parser SQL.</li></ol>
+<h3 id="cap-2-3-clasificacion-tecnica-de-escenarios-sqli-durante-una-auditoria">Clasificación técnica de escenarios SQLi durante una auditoría</h3>
+<p>Cuando auditás código o probás una aplicación en un entorno autorizado, los fallos de inyección SQL se clasifican según cómo responde la aplicación:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Clasificación</th>
+<th>Comportamiento de la aplicación</th>
+<th>Qué observar durante la auditoría</th>
+</tr></thead><tbody>
+<tr><td><strong>In-band (Basada en resultados o errores)</strong></td><td>La respuesta HTTP muestra directamente filas devueltas por la consulta o mensajes de excepción del motor de base de datos (<code>sqlite3.OperationalError</code>, <code>PSQLException</code>).</td><td>Cambios en la estructura de la tabla devuelta o trazas de error detalladas ante una comilla desbalanceada.</td></tr>
+<tr><td><strong>Inferencial Booleana (<em>Boolean-Blind</em>)</strong></td><td>La aplicación no muestra errores ni datos de la base de datos, pero devuelve una página diferente (p. ej. "Producto disponible" frente a "No encontrado") según si la condición SQL evalúa a verdadero o falso.</td><td>Diferencia reproducible en el código de estado, tamaño o contenido ante una condición lógica verdadera (<code>1=1</code>) frente a una falsa (<code>1=2</code>).</td></tr>
+<tr><td><strong>Inferencial Temporal (<em>Time-Blind</em>)</strong></td><td>La respuesta visual es idéntica en todos los casos, pero el tiempo de procesamiento de la base de datos varía si se evalúa una condición sincrónica.</td><td>Latencia medible en el tiempo de respuesta del servidor asociada a la evaluación condicional de la sentencia.</td></tr>
+<tr><td><strong>De Segundo Orden (<em>Second-Order</em>)</strong></td><td>El dato se almacena primero de forma segura en la base de datos, pero más tarde otra rutina interna lee ese valor de la tabla y lo concatena sin parametrizar en una segunda consulta.</td><td>Rutinas de reportes, exportación o paneles administrativos que confían ciegamente en datos ya guardados en la base.</td></tr>
+</tbody></table></div>
+<aside class="callout aviso"><p class="callout-titulo">Cuidado con los lugares donde <code>?</code> no puede usarse</p><p>Los marcadores de parámetros (<code>?</code> o <code>$1</code>) solo reemplazan <strong>valores literales</strong> (en cláusulas <code>WHERE</code>, <code>VALUES</code> o <code>SET</code>). No pueden parametrizar nombres de columnas ni el sentido de ordenamiento en un <code>ORDER BY campo ASC|DESC</code>. Para esos casos dinámicos, la única solución segura es validar la entrada contra una <strong>lista blanca estricta en código</strong>:</p>
+<pre><code class="lenguaje-python">COLUMNAS_PERMITIDAS = {"nombre": "nombre", "precio": "precio", "id": "id"}
+col_segura = COLUMNAS_PERMITIDAS.get(param_orden, "id")</code></pre></aside>
+<h2 id="cap-2-3-3-inyeccion-en-bases-de-datos-nosql-nosqli">3. Inyección en bases de datos NoSQL (NoSQLi)</h2>
+<p>Un mito frecuente es creer que al usar bases de datos documentales como MongoDB, CouchDB o Redis "no existen inyecciones porque no hay SQL". Si bien no se usa el lenguaje SQL, los motores NoSQL utilizan estructuras de consulta basadas en objetos JSON o diccionarios que admiten <strong>operadores lógicos de evaluación</strong> (por ejemplo, en MongoDB los operadores que comienzan con <code>$</code>, como <code>$ne</code>, <code>$gt</code>, <code>$in</code>, <code>$regex</code> o <code>$where</code>).</p>
+<h3 id="cap-2-3-como-ocurre-el-fallo-en-apis-que-aceptan-json">Cómo ocurre el fallo en APIs que aceptan JSON</h3>
+<p>Si un backend en Node.js/Express o Python recibe un cuerpo JSON y pasa el campo <code>req.body.filtro</code> directamente al método <code>coleccion.find({ categoria: req.body.filtro })</code> sin verificar que sea una cadena de texto (<code>str</code>), un cliente podría enviar un objeto anidado <code>{"$ne": ""}</code> en lugar de un string. Al recibir un diccionario en vez de un string, el driver de la base de datos lo interpreta como un operador de consulta (distinto de vacío) en lugar de una comparación literal.</p>
+<h3 id="cap-2-3-mitigacion-estricta-en-nosql">Mitigación estricta en NoSQL</h3>
+<ol><li><strong>Validación rigurosa de tipos y esquemas (Pydantic, Zod, JSON Schema):</strong> antes de tocar la base de datos, forzá que el parámetro sea estrictamente de tipo <code>str</code> o <code>int</code>. Si se espera una cadena y llega un diccionario o lista, rechazá la petición con <code>400 Bad Request</code>.</li><li><strong>Deshabilitar evaluación de JavaScript en el motor:</strong> en MongoDB, mantener desactivada la ejecución de scripts del lado servidor (<code>--noscripting</code>) y prohibir el uso del operador <code>$where</code>.</li></ol>
+<h2 id="cap-2-3-4-inyeccion-de-comandos-del-sistema-operativo-command-injection">4. Inyección de comandos del sistema operativo (Command Injection)</h2>
+<p>La inyección de comandos ocurre cuando una aplicación web invoca una utilidad del sistema operativo (como <code>ping</code>, <code>convert</code>, <code>tar</code>, <code>git</code> o <code>openssl</code>) pasando una cadena construida con datos del usuario a través de un intérprete de comandos (<code>sh -c</code> en Linux o <code>cmd.exe /c</code> en Windows).</p>
+<p>Cuando se invoca una shell, caracteres como <code>;</code>, <code>|</code>, <code>&amp;</code>, <code>&amp;&amp;</code>, <code>||</code>, `<code> </code> `<code> o </code>$(...)` son interpretados por la shell como separadores para encadenar nuevos procesos.</p>
+<h3 id="cap-2-3-como-eliminar-el-riesgo-por-completo-en-python">Cómo eliminar el riesgo por completo en Python</h3>
+<pre><code class="lenguaje-python">import subprocess
+import ipaddress
+
+# PATRÓN VULNERABLE (PROHIBIDO): shell=True con cadena concatenada
+# Invoca /bin/sh -c, permitiendo que metacaracteres de shell alteren el comando.
+def verificar_host_inseguro(ip_usuario):
+    return subprocess.check_output(f"ping -c 1 {ip_usuario}", shell=True, text=True)
+
+# PATRÓN SEGURO (DEFENSA EN PROFUNDIDAD):
+# 1. Usar bibliotecas nativas del lenguaje siempre que existan (p. ej. socket o ipaddress).
+# 2. Si es imprescindible llamar a un binario externo: validar formato + pasar lista de argumentos con shell=False.
+def verificar_host_seguro(ip_usuario: str) -&gt; str:
+    # Paso 1: Validación estricta de tipo/formato (solo acepta una IP válida)
+    ip_validada = str(ipaddress.ip_address(ip_usuario))
+    # Paso 2: Ejecución directa del binario (execve) SIN pasar por /bin/sh (shell=False)
+    res = subprocess.run(
+        ["ping", "-c", "1", "-W", "1", ip_validada],
+        shell=False,
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=False,
+    )
+    return res.stdout</code></pre>
+<p>Cuando usás <code>subprocess.run(["comando", "arg1", "arg2"], shell=False)</code>, el sistema operativo invoca directamente la llamada al sistema <code>execve()</code> (o <code>CreateProcess</code> en Windows) sin lanzar <code>/bin/sh</code> ni <code>cmd.exe</code>. Por lo tanto, los elementos de la lista pasan directamente al vector <code>argv[]</code> del programa destino como texto plano, haciendo imposible encadenar otros comandos.</p>
+<h2 id="cap-2-3-5-otras-familias-de-inyeccion-xpath-ldap-ssi-eli-y-uso-metodico-de-sqlmap">5. Otras familias de inyección: XPath, LDAP, SSI/ELI y uso metódico de SQLMap</h2>
+<p>Además de SQL y comandos OS, el principio de <strong>separación código/datos</strong> aplica directamente a tres contextos frecuentes en entornos empresariales:</p>
+<ol><li><strong>Inyección LDAP (<em>LDAP Injection</em>):</strong> cuando una aplicación web autentica o busca usuarios en Active Directory/OpenLDAP concatenando entrada sin escapar en filtros como <code>(&amp;(uid={usuario})(userPassword={clave}))</code>. Si un usuario envía <code>*</code> o <code>)(|(objectClass=*</code>, altera la lógica booleana del filtro LDAP. <strong>Mitigación:</strong> escapar caracteres reservados LDAP (<code>\</code>, <code>*</code>, <code>(</code>, <code>)</code>, NUL según <strong>RFC 4515</strong>) usando funciones oficiales de la librería LDAP antes de interpolar.</li><li><strong>Inyección XPath (<em>XPath Injection</em>):</strong> análoga a SQLi pero sobre consultas a documentos XML (<code>//usuario[nombre='...' and clave='...']/rol</code>). <strong>Mitigación:</strong> usar consultas XPath <strong>parametrizadas</strong> (variables vinculadas por la API XML) o listas blancas estrictas alfanuméricas.</li><li><strong>Server-Side Includes (SSI) y Expression Language Injection (ELI):</strong> ocurren cuando un servidor HTML antiguo evalúa directivas <code>&lt;!--#exec ...--&gt;</code> o un backend Java/Spring evalúa expresiones <code>${...}</code> suministradas por el cliente. <strong>Mitigación:</strong> deshabilitar SSI en el servidor web si no es indispensable y nunca evaluar entrada del cliente como expresión del framework.</li></ol>
+<h3 id="cap-2-3-uso-metodico-y-controlado-de-sqlmap-en-auditorias-autorizadas">Uso metódico y controlado de SQLMap en auditorías autorizadas</h3>
+<p>Cuando necesitás validar un hallazgo potencial de SQL Injection durante una auditoría autorizada en laboratorio (tras haber entendido el mecanismo manual), <strong><code>sqlmap</code></strong> automatiza la detección y enumeración controlada siempre que fijes parámetros prudentes:</p>
+<pre><code class="lenguaje-bash"># Ejecutar sqlmap a partir de una petición HTTP guardada desde el proxy local (-r peticion.req)
+# --batch: no hace preguntas interactivas | --level 1 --risk 1: pruebas conservadoras iniciales
+# --technique=BEU: Boolean-blind, Error-based, UNION (evita cargas pesadas por tiempo si no hacen falta)
+sqlmap -r /tmp/peticion_lab.req -p q --dbms=sqlite --level=1 --risk=1 --batch --banner</code></pre>
+<p><em>Advertencia operativa:</em> verificá primero en tu laboratorio que tus propias consultas SQL parametrizadas devuelven un mensaje claro de que el parámetro <strong><code>q</code> no parece ser inyectable</strong> en SQLMap; esa es la prueba automatizada estándar de que la remediación funcionó.</p>
+<h2 id="cap-2-3-6-ejemplo-paso-a-paso-auditoria-de-codigo-y-verificacion-en-nuestro-laboratorio">6. Ejemplo paso a paso: auditoría de código y verificación en nuestro laboratorio</h2>
+<p>Vamos a inspeccionar cómo responde el endpoint parametrizado <code>/buscar-seguro</code> de <code>laboratorios/app_lab_educativa.py</code> cuando recibe caracteres especiales como comillas o paréntesis:</p>
+<pre><code class="lenguaje-bash"># 1. Consulta normal por categoría
+curl -s "http://127.0.0.1:5050/buscar-seguro?q=redes"
+
+# 2. Consulta enviando comillas simples y operadores SQL como texto de búsqueda
+curl -s "http://127.0.0.1:5050/buscar-seguro?q=redes'%20OR%20'1'='1"</code></pre>
+<p>Salida verificada:</p>
+<pre><code class="lenguaje-json">{
+  "consulta": "redes' OR '1'='1",
+  "modo": "seguro_parametrizado",
+  "resultados": []
+}</code></pre>
+<p>¿Por qué devuelve una lista vacía <code>[]</code> y código <code>200 OK</code> sin ningún error de sintaxis SQL? Porque en <code>laboratorios/app_lab_educativa.py</code>:</p>
+<pre><code class="lenguaje-python">cur.execute(
+    "SELECT id, nombre, categoria, precio FROM productos WHERE categoria = ? OR nombre LIKE ?",
+    (q, f"%{q}%"),
+)</code></pre>
+<p>SQLite buscó literalmente un producto cuya categoría o nombre contuviera los caracteres <code>redes' OR '1'='1</code>. Como ningún producto se llama así, devolvió <code>[]</code> limpiamente. El árbol sintáctico de la consulta jamás se alteró.</p>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><ol><li><strong>Parametrización al 100 %:</strong> toda consulta SQL debe usar marcadores de parámetros (<code>?</code>, <code>%s</code>, <code>:nombre</code>) o métodos de ORM que parametricen internamente (evitando métodos crudos como <code>.raw()</code> o <code>text()</code> concatenado).</li><li><strong>Principio de mínimo privilegio en la cuenta de base de datos:</strong> la aplicación web nunca debe conectarse al motor de base de datos como <code>sa</code>, <code>postgres</code> o <code>root</code>. Debe usar una cuenta dedicada que solo tenga permisos <code>SELECT</code>, <code>INSERT</code>, <code>UPDATE</code> y <code>DELETE</code> sobre las tablas del esquema de la aplicación, sin permisos de lectura de archivos (<code>pg_read_file</code>, <code>LOAD_FILE</code>) ni ejecución de comandos (<code>xp_cmdshell</code>).</li><li><strong>Prohibición de <code>shell=True</code> en linters de CI/CD:</strong> herramientas de análisis estático como <strong>Bandit</strong> (Python), <strong>Semgrep</strong> o <strong>ESLint Security</strong> detectan automáticamente llamadas a <code>subprocess</code> con <code>shell=True</code> o cadenas SQL interpoladas con <code>f"SELECT ..."</code> antes de que el código llegue a producción.</li></ol></aside>
+<h2 id="cap-2-3-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Abrí <code>laboratorios/app_lab_educativa.py</code> y revisá la función <code>buscar_seguro()</code>.</li><li>Escribí en tu carpeta de trabajo un script local <code>test_parametrizacion.py</code> que cree una tabla SQLite en memoria con 3 usuarios de prueba y compare dos funciones: una que verifica qué pasa al pasar una comilla simple a una consulta parametrizada (<code>WHERE usuario = ?</code>) y otra que valide columnas de ordenamiento mediante un diccionario de lista blanca (<code>COLUMNAS_PERMITIDAS</code>).</li><li>Agregá en el mismo script una función que valide una dirección IP con <code>ipaddress.ip_address()</code> antes de pasarla a una lista de argumentos con <code>shell=False</code>, comprobando que cualquier cadena que no sea una IP válida lance <code>ValueError</code> inmediatamente.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>El script <code>test_parametrizacion.py</code> documentado junto con la salida de consola demostrando que las entradas con comillas o caracteres especiales son tratadas como literales inofensivos o rechazadas por validación de tipo.</p></aside>
+<h2 id="cap-2-3-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué filtrar o borrar palabras como <code>SELECT</code>, <code>UNION</code> o <code>OR</code> con <code>replace()</code> no es una solución segura contra la inyección SQL?</strong> Porque las listas negras de palabras son frágiles: rompen datos legítimos (por ejemplo, un apellido como "O'Reilly" o palabras que contienen "or") y pueden eludirse mediante variaciones de codificación, comentarios o sintaxis alternativa del motor SQL. La única solución definitiva es separar el código de los datos mediante consultas parametrizadas.</p>
+<p><strong>2. ¿Qué ocurre internamente en el motor de base de datos cuando ejecutás una consulta parametrizada (<code>Prepared Statement</code>)?</strong> El motor primero compila la plantilla SQL con los marcadores (<code>?</code>) y construye el árbol de sintaxis abstracta (AST) y el plan de ejecución de forma inmutable. Luego recibe los valores de los parámetros en un canal de datos separado y los inserta directamente como literales escalares, sin volver a pasar por el analizador sintáctico SQL.</p>
+<p><strong>3. ¿Cómo se debe manejar de forma segura un parámetro que define la columna de un <code>ORDER BY</code> si los motores SQL no permiten usar <code>?</code> para nombres de columnas?</strong> Mediante una validación por <strong>lista blanca estricta</strong> (<em>allowlist</em>) en el servidor: se compara el valor recibido contra un diccionario o conjunto cerrado de nombres de columnas permitidas (por ejemplo <code>{"precio", "nombre", "fecha"}</code>) y, si no coincide exactamente, se aplica un valor por defecto fijo o se devuelve un error <code>400</code>.</p>
+<p><strong>4. ¿Cómo puede ocurrir una inyección en una base de datos NoSQL como MongoDB si no se utiliza lenguaje SQL?</strong> Ocurre cuando la aplicación deserializa un cuerpo JSON o parámetros de consulta anidados y los entrega directamente al método de búsqueda sin validar que el valor sea un tipo escalar (<code>string</code> o <code>number</code>). Si el cliente envía un objeto con operadores como <code>{"$ne": null}</code>, el motor NoSQL evalúa el operador lógico en lugar de comparar un texto literal.</p>
+<p><strong>5. ¿Cuál es la diferencia de seguridad a nivel del sistema operativo entre <code>subprocess.run(f"cmd {arg}", shell=True)</code> y <code>subprocess.run(["cmd", arg], shell=False)</code>?</strong> Con <code>shell=True</code>, Python invoca primero al intérprete <code>/bin/sh -c</code> (o <code>cmd.exe /c</code>), el cual interpreta metacaracteres como <code>;</code>, <code>|</code>, <code>&amp;&amp;</code> o <code>$(...)</code> y puede lanzar nuevos procesos. Con <code>shell=False</code> y una lista de argumentos, el sistema operativo ejecuta directamente el binario mediante <code>execve()</code> pasando <code>arg</code> como un elemento literal dentro de <code>argv[]</code>, sin que intervenga ninguna shell.</p>
+<h2 id="cap-2-3-antes-de-avanzar">Antes de avanzar</h2>
+<p>Verificá que podés:</p>
+<ul><li>Explicar por qué la mezcla de código y datos altera el AST de un intérprete.</li><li>Escribir consultas SQL 100 % parametrizadas y listas blancas para cláusulas <code>ORDER BY</code>.</li><li>Sustituir cualquier llamada a comandos del sistema con <code>shell=True</code> por bibliotecas nativas o listas de argumentos con <code>shell=False</code> y validación de tipos.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Ya dominás la seguridad de los intérpretes del lado del servidor. Ahora vamos a cruzar al otro extremo de la comunicación HTTP para analizar cómo proteger el navegador del usuario: avanzá al <strong>Capítulo 2.4 · Seguridad del lado del cliente: XSS, CSRF, CORS y CSP</strong>.</p></aside>
+<h2 id="cap-2-3-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>OWASP Top 10 (A03:2021 Injection) y OWASP ASVS v4.0 (Capítulo V5 — Validation, Sanitization and Encoding):</strong> requisitos estándar de verificación contra inyecciones.</li><li><strong>OWASP SQL Injection Prevention Cheat Sheet &amp; OS Command Injection Defense Cheat Sheet:</strong> guías de parametrización y ejecución segura de procesos.</li><li><strong>Documentación oficial de Python (<code>sqlite3</code> y <code>subprocess</code>):</strong> uso de parámetros DB-API 2.0 (PEP 249) y advertencias de seguridad sobre <code>shell=True</code>.</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 8 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>SQL Injection Fundamentals</td><td>Medium</td><td>Offensive</td><td>17</td></tr><tr><td>Whitebox Pentesting 101: Command Injection</td><td>Hard</td><td>Offensive</td><td>19</td></tr><tr><td>SQLMap Essentials</td><td>Easy</td><td>Offensive</td><td>11</td></tr><tr><td>Command Injections</td><td>Medium</td><td>Offensive</td><td>12</td></tr><tr><td>Introduction to NoSQL Injection</td><td>Medium</td><td>Offensive</td><td>12</td></tr><tr><td>Blind SQL Injection</td><td>Hard</td><td>Offensive</td><td>16</td></tr><tr><td>Advanced SQL Injections</td><td>Hard</td><td>Offensive</td><td>12</td></tr><tr><td>Injection Attacks</td><td>Medium</td><td>Offensive</td><td>15</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="11-enumeracion-web-y-fuzzing.html">← 2.2 Enumeración web, fuzzing con ffuf y análisis de JavaScript</a></div><div><a href="13-xss-csrf-cors-cliente.html">2.4 Seguridad del lado del cliente: XSS, CSRF, CORS y CSP →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

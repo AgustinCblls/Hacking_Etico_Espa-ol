@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 4.2 · Telemetría Windows, Event Logs críticos, Sysmon y auditd en Linux · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Desplegar Sysmon en VM y correlacionar eventos 4624/4688/4104/Sysmon 1-3-10">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo4.html">Tomo IV</a><span aria-hidden="true">›</span><span>Cap. 4.2</span></nav>
+<h1 id="cap-4-2">Capítulo 4.2 · Telemetría Windows, Event Logs críticos, Sysmon y auditd en Linux</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Especialista Blue/SOC</span> <span class="nivel-badge defensivo">Defensivo</span> <span><strong>Tomo IV · Ruta 4 · Especialista Blue/SOC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="28-siem-splunk-y-elastic.html">4.3 SIEM en práctica: Splunk (SPL), Elastic (KQL) y correlación de alertas</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al terminar este capítulo vas a saber habilitar telemetría de seguridad de alto valor en endpoints Windows (Audit Policy, PowerShell Script Block Logging y Sysmon) y Linux (<code>auditd</code> y <code>journald</code>), entendiendo cómo esta base alimenta soluciones EDR/XDR y endurecimiento defensivo en tu laboratorio local.</p></aside>
+<p><strong>Prerrequisitos:</strong> Conocimientos básicos de administración de Windows (PowerShell, visores de eventos) y Linux (<code>systemd</code>, permisos y consola). <strong>Duración sugerida:</strong> 2 a 3 horas de práctica en VMs aisladas.</p>
+<h2 id="cap-4-2-1-fundamentos-de-telemetria-de-endpoints-y-arquitectura-edr-xdr">1. Fundamentos de telemetría de endpoints y arquitectura EDR/XDR</h2>
+<p>Sin registros estructurados en los sistemas finales, un equipo defensivo opera a ciegas. Los sistemas operativos traen auditoría mínima por defecto para ahorrar disco y CPU, pero esa configuración omite datos esenciales como argumentos de línea de comandos, relaciones padre-hijo entre procesos o consultas DNS por proceso.</p>
+<p>Las plataformas <strong>EDR</strong> (<em>Endpoint Detection and Response</em>) recopilan telemetría del kernel y del espacio de usuario en cada host para detectar comportamientos anómalos y aislar equipos. <strong>XDR</strong> (<em>Extended Detection and Response</em>) amplía esa correlación uniendo señales del endpoint con red, identidad y correo bajo una misma línea de tiempo. En un laboratorio propio, combinar la auditoría nativa de Windows/Linux con <strong>Sysmon</strong> reproduce gran parte de la visibilidad base de un agente EDR moderno.</p>
+<h2 id="cap-4-2-2-auditoria-avanzada-en-windows-y-registros-nativos">2. Auditoría avanzada en Windows y registros nativos</h2>
+<p>Windows organiza sus eventos en canales (como <code>Security</code>, <code>System</code> y <code>Microsoft-Windows-PowerShell/Operational</code>). Para evitar volúmenes inmanejables de ruido, conviene agrupar la visibilidad en <strong>tres dominios padre</strong> prioritarios:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Dominio de telemetría</th>
+<th>Qué permite detectar</th>
+<th>Eventos representativos clave</th>
+</tr></thead><tbody>
+<tr><td><strong>Identidad y Acceso</strong></td><td>Inicios de sesión interactivos/remotos, fallos reiterados, uso de privilegios elevados y tickets de dominio</td><td>Logons exitosos y fallidos (<code>4624</code> con tipo de logon, <code>4625</code>), privilegios especiales (<code>4672</code>), gestión de cuentas y tickets Kerberos/NTLM (<code>4720</code>, <code>4768</code>, <code>4769</code>, <code>4776</code>).</td></tr>
+<tr><td><strong>Ejecución y Scripts</strong></td><td>Lanzamiento de procesos con argumentos completos y ejecución de bloques de código en memoria</td><td>Creación de procesos con línea de comandos (<code>4688</code>) y PowerShell Script Block Logging (<code>4104</code>).</td></tr>
+<tr><td><strong>Persistencia y Servicios</strong></td><td>Instalación de nuevos servicios del sistema que puedan ejecutarse con privilegios altos</td><td>Instalación de un nuevo servicio (<code>7045</code> en el canal <code>System</code>).</td></tr>
+</tbody></table></div>
+<h3 id="cap-4-2-activacion-de-audit-policy-y-script-block-logging">Activación de Audit Policy y Script Block Logging</h3>
+<p>En una VM Windows de laboratorio (PowerShell como Administrador), habilitá la auditoría avanzada de procesos y la captura de línea de comandos:</p>
+<pre><code class="lenguaje-powershell"># Habilitar auditoría de creación de procesos y eventos de inicio de sesión
+auditpol /set /subcategory:"Process Creation" /success:enable /failure:enable
+auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+
+# Incluir argumentos de línea de comandos en el evento 4688
+New-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System\Audit" `
+  -Name "ProcessCreationIncludeCmdLine_Enabled" -Value 1 -PropertyType DWord -Force
+
+# Verificar política activa
+auditpol /get /category:"Detailed Tracking"</code></pre>
+<p>Para auditar scripts ofuscados o ejecutados directamente en memoria, habilitá <strong>PowerShell Script Block Logging</strong> (<code>4104</code>) mediante GPO o clave de política en el laboratorio:</p>
+<pre><code class="lenguaje-powershell"># Activar Script Block Logging para PowerShell en laboratorio
+$path = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging"
+New-Item -Path $path -Force | Out-Null
+Set-ItemProperty -Path $path -Name "EnableScriptBlockLogging" -Value 1 -Type DWord</code></pre>
+<aside class="callout aviso"><p class="callout-titulo">Gestión del volumen de logs</p><p>Habilitar auditoría avanzada incrementa el consumo de disco. Ajustá el tamaño máximo del canal <code>Security</code> (por ejemplo, ≥ 256 MB en laboratorio) con <code>wevtutil sl Security /ms:268435456</code> para evitar que los eventos recientes sobrescriban evidencias críticas.</p></aside>
+<h2 id="cap-4-2-3-sysmon-arquitectura-instalacion-y-filtrado-xml">3. Sysmon: arquitectura, instalación y filtrado XML</h2>
+<p><strong>Sysmon</strong> (System Monitor, de Microsoft Sysinternals) corre como un servicio y controlador de sistema que registra actividad detallada en <code>Microsoft-Windows-Sysmon/Operational</code>. A diferencia de los logs nativos, añade hashes criptográficos, árbol de procesos padre-hijo, GUID único por proceso y asociación directa entre conexiones de red y el ejecutable que las originó.</p>
+<p>Al igual que los logs nativos, sus eventos se agrupan en las mismas categorías de análisis:</p>
+<ul><li><strong>Procesos e integridad:</strong> Creación de procesos con hashes (<code>ID 1</code>), carga de bibliotecas (<code>ID 7</code>), hilos remotos (<code>ID 8</code>) y acceso entre procesos (<code>ID 10</code>).</li><li><strong>Red y resolución de nombres:</strong> Conexiones TCP/UDP salientes o entrantes (<code>ID 3</code>) y consultas DNS asociadas al proceso origen (<code>ID 22</code>).</li><li><strong>Sistema de archivos y configuración:</strong> Creación de archivos (<code>ID 11</code>) y cambios en valores de configuración del sistema (<code>ID 13</code>).</li></ul>
+<h3 id="cap-4-2-diseno-de-una-configuracion-xml-mantenible">Diseño de una configuración XML mantenible</h3>
+<p>El principio clave de Sysmon es filtrar ruido benigno (<em>exclusions</em>) mientras se capturan comportamientos relevantes (<em>inclusions</em>). Usar reglas vacías o capturar todo sin filtro satura el SIEM.</p>
+<pre><code class="lenguaje-xml">&lt;Sysmon schemaversion="4.90"&gt;
+  &lt;HashAlgorithms&gt;SHA256&lt;/HashAlgorithms&gt;
+  &lt;EventFiltering&gt;
+    &lt;!-- Capturar creación de procesos excluyendo telemetría ruidosa del propio sistema --&gt;
+    &lt;RuleGroup name="Procesos" groupRelation="or"&gt;
+      &lt;ProcessCreate onmatch="exclude"&gt;
+        &lt;Image condition="is"&gt;C:\Windows\System32\conhost.exe&lt;/Image&gt;
+      &lt;/ProcessCreate&gt;
+    &lt;/RuleGroup&gt;
+
+    &lt;!-- Registrar conexiones de red y DNS originadas por intérpretes o rutas temporales --&gt;
+    &lt;RuleGroup name="Red_y_DNS" groupRelation="or"&gt;
+      &lt;NetworkConnect onmatch="include"&gt;
+        &lt;Image condition="contains any"&gt;powershell.exe;cmd.exe;python.exe&lt;/Image&gt;
+      &lt;/NetworkConnect&gt;
+      &lt;DnsQuery onmatch="exclude"&gt;
+        &lt;QueryName condition="end with"&gt;.local&lt;/QueryName&gt;
+      &lt;/DnsQuery&gt;
+    &lt;/RuleGroup&gt;
+
+    &lt;!-- Monitorear creación de ejecutables o scripts en directorios temporales --&gt;
+    &lt;RuleGroup name="Archivos" groupRelation="or"&gt;
+      &lt;FileCreate onmatch="include"&gt;
+        &lt;TargetFilename condition="contains"&gt;\Temp\&lt;/TargetFilename&gt;
+      &lt;/FileCreate&gt;
+    &lt;/RuleGroup&gt;
+  &lt;/EventFiltering&gt;
+&lt;/Sysmon&gt;</code></pre>
+<p>Para instalar o actualizar la configuración en tu VM Windows de pruebas:</p>
+<pre><code class="lenguaje-powershell"># Instalación inicial con aceptación de licencia y archivo XML
+.\Sysmon64.exe -accepteula -i .\sysmon-lab.xml
+
+# Recargar configuración tras ajustes sin reiniciar el host
+.\Sysmon64.exe -c .\sysmon-lab.xml</code></pre>
+<h2 id="cap-4-2-4-telemetria-equivalente-en-linux-auditd-y-journald">4. Telemetría equivalente en Linux: auditd y journald</h2>
+<p>En sistemas Linux, la visibilidad equivalente se logra combinando <strong>journald</strong> (registros de servicios y autenticación del sistema) con el subsistema de auditoría del kernel <strong>auditd</strong>.</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Componente</th>
+<th>Rol principal</th>
+<th>Herramienta de consulta</th>
+</tr></thead><tbody>
+<tr><td><strong>auditd</strong></td><td>Registra llamadas al sistema (<code>execve</code>), acceso a archivos críticos y cambios de privilegios en el kernel</td><td><code>ausearch</code> y <code>aureport</code></td></tr>
+<tr><td><strong>journald</strong></td><td>Centraliza logs estructurados de unidades <code>systemd</code>, kernel y demonios como <code>sshd</code> o <code>sudo</code></td><td><code>journalctl</code></td></tr>
+</tbody></table></div>
+<h3 id="cap-4-2-reglas-basicas-de-auditd-para-laboratorio">Reglas básicas de auditd para laboratorio</h3>
+<p>Podés cargar reglas temporales con <code>auditctl</code> o hacerlas persistentes en <code>/etc/audit/rules.d/soc-lab.rules</code>:</p>
+<pre><code class="lenguaje-bash"># Vigilar cambios en identidad y configuración de privilegios
+sudo auditctl -w /etc/passwd -p wa -k identidad_cambios
+sudo auditctl -w /etc/sudoers -p wa -k privilegios_sudo
+
+# Auditar ejecución de comandos en arquitectura de 64 bits
+sudo auditctl -a always,exit -F arch=b64 -S execve -k ejecucion_procesos
+
+# Listar reglas activas
+sudo auditctl -l</code></pre>
+<h2 id="cap-4-2-5-plataforma-unificada-open-source-wazuh-siem-xdr-en-laboratorio">5. Plataforma unificada open-source: Wazuh (SIEM + XDR) en laboratorio</h2>
+<p>Para practicar telemetría de endpoints a escala sin depender de licencias comerciales, <strong><code>Wazuh</code></strong> reúne capacidades de agente HIDS/EDR y análisis centralizado tipo SIEM en una sola arquitectura de código abierto:</p>
+<ul><li><strong>Agente Wazuh (<code>wazuh-agent</code>):</strong> corre en Windows, Linux y macOS; lee Windows Event Log + <strong>Sysmon</strong> (ver nuestro archivo listo para laboratorio <code>laboratorios/sysmon_config_lab.xml</code>), monitorea integridad de archivos (<strong>FIM</strong>, <em>File Integrity Monitoring</em>), detecta cambios de configuración contra <strong>CIS Benchmarks (SCA)</strong> y reenvía eventos cifrados al servidor central.</li><li><strong>Manager e Indexer:</strong> normaliza eventos mediante <strong>decoders</strong> y los evalúa contra <strong>reglas XML jerárquicas</strong> con niveles de severidad (<code>local_rules.xml</code>), pudiendo disparar respuestas activas controladas (<em>Active Response</em>) o alertas en <strong>Wazuh Dashboard</strong>.</li></ul>
+<h2 id="cap-4-2-ejemplo-paso-a-paso-correlacion-de-telemetria-en-windows-y-linux">Ejemplo paso a paso: Correlación de telemetría en Windows y Linux</h2>
+<p>En este ejercicio verificamos cómo queda registrada una ejecución controlada en ambos sistemas operativos dentro de tu laboratorio aislado.</p>
+<p><strong>Paso 1 (Windows):</strong> Ejecutar un comando inofensivo y consultar el evento en Sysmon y PowerShell.</p>
+<pre><code class="lenguaje-powershell"># Generar evento controlado en laboratorio
+powershell.exe -NoProfile -Command "Write-Output 'Prueba de telemetria Lab'"
+
+# Consultar el último evento de creación de proceso en Sysmon (ID 1)
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Sysmon/Operational'; Id=1} -MaxEvents 1 |
+  Format-List TimeCreated, Message</code></pre>
+<pre><code class="lenguaje-text"># Salida comentada (resumida)
+TimeCreated : 22/11/2026 15:20:11
+Message     : Process Create:
+              Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+              CommandLine: powershell.exe -NoProfile -Command "Write-Output 'Prueba de telemetria Lab'"
+              ParentImage: C:\Windows\System32\cmd.exe
+              Hashes: SHA256=D94F...
+# Confirmamos ruta exacta, argumentos completos, proceso padre y hash SHA256.</code></pre>
+<p><strong>Paso 2 (Linux):</strong> Consultar ejecuciones y autenticación reciente con <code>ausearch</code> y <code>journalctl</code>.</p>
+<pre><code class="lenguaje-bash"># Buscar eventos etiquetados con la clave ejecucion_procesos en los últimos 10 minutos
+sudo ausearch -k ejecucion_procesos -ts recent | tail -n 12
+
+# Revisar autenticaciones SSH recientes en journald
+sudo journalctl -u ssh --since "30 minutes ago" --no-pager | tail -n 10</code></pre>
+<pre><code class="lenguaje-text"># Salida comentada (auditd)
+type=SYSCALL msg=audit(1795371615.204:412): arch=c000003e syscall=59 success=yes uid=1000 comm="whoami" exe="/usr/bin/whoami" key="ejecucion_procesos"
+# syscall=59 corresponde a execve; uid=1000 identifica al usuario ejecutor y exe confirma el binario real.</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>La telemetría solo protege si se combina con endurecimiento y resguardo de registros:</p>
+<ul><li><strong>Endurecimiento preventivo:</strong> Aplicá el principio de mínimo privilegio, restringí PowerShell con <em>Constrained Language Mode</em> para usuarios estándar y deshabilitá servicios innecesarios para reducir superficie de ataque.</li><li><strong>Protección de logs:</strong> Reenviá eventos en tiempo real a un servidor central (SIEM) para evitar que un atacante borre evidencia local; monitoreá también la limpieza inesperada del registro de eventos o la detención del servicio Sysmon/<code>auditd</code>.</li><li><strong>Cobertura por táctica:</strong> Con esta configuración cubrís de base las tácticas padre de <strong>Ejecución</strong>, <strong>Persistencia</strong> y <strong>Acceso Inicial</strong> en endpoints.</li></ul></aside>
+<h2 id="cap-4-2-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>En tus VMs aisladas (Windows y Linux), aplicá las políticas de auditoría vistas en este capítulo: instalá Sysmon con el archivo <code>sysmon-lab.xml</code>, activá Script Block Logging y cargá las tres reglas de <code>auditctl</code> en Linux. Luego ejecutá tres acciones benignas (una consulta DNS, creación de un archivo en <code>\Temp\</code> y un comando <code>sudo -l</code>) y verificá que cada una quede registrada.</p>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Guardá un documento <code>evidencia_telemetria.md</code> que incluya:</p>
+<ol><li>Salida de <code>auditpol /get /category:"Detailed Tracking"</code> y versión activa de Sysmon en tu VM Windows.</li><li>Un fragmento real de un evento <code>ID 1</code> (Sysmon) y un evento <code>4104</code> (PowerShell) de tu prueba benigna.</li><li>Salida de <code>sudo auditctl -l</code> y un registro filtrado con <code>ausearch -k</code> de tu VM Linux.</li><li>Dos propuestas concretas de exclusión para reducir ruido que observaste durante la práctica.</li></ol></aside>
+<h2 id="cap-4-2-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué no alcanza con activar el evento 4688 en Windows sin habilitar la captura de línea de comandos?</strong> Porque sin los argumentos de ejecución solo sabrás que se lanzó un binario genérico como <code>powershell.exe</code> o <code>cmd.exe</code>, perdiendo la visibilidad sobre qué script, parámetro o acción se invocó realmente.</p>
+<p><strong>2. ¿Qué ventaja central aporta Sysmon frente a los registros nativos de Windows?</strong> Sysmon enriquece cada evento con hashes criptográficos, identificadores únicos de proceso (ProcessGuid) y correlación directa entre procesos, conexiones de red y consultas DNS mediante una configuración XML flexible.</p>
+<p><strong>3. ¿Cuál es la diferencia operativa entre <code>auditd</code> y <code>journald</code> en Linux?</strong> <code>auditd</code> captura eventos a nivel de kernel (como llamadas al sistema <code>execve</code> y accesos a archivos sensibles) con foco forense y de cumplimiento, mientras que <code>journald</code> centraliza los logs operativos de servicios <code>systemd</code> y demonios del sistema.</p>
+<p><strong>4. ¿Por qué se recomienda reenviar la telemetría de endpoints hacia un repositorio central externo?</strong> Porque un atacante con privilegios locales puede detener el agente o limpiar los registros en el equipo comprometido; el reenvío inmediato preserva la evidencia fuera de su alcance.</p>
+<p><strong>5. ¿Cómo se diferencia una solución XDR de un EDR tradicional?</strong> Un EDR concentra detección y respuesta sobre la telemetría de endpoints, mientras que XDR integra y correlaciona señales de múltiples capas (endpoints, red, identidad y nube) para contextualizar incidentes completos.</p>
+<h2 id="cap-4-2-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Habilitaste auditoría de procesos con línea de comandos y Script Block Logging en tu VM Windows.</li><li>☐ Instalaste Sysmon con una configuración XML filtrada y validaste eventos locales.</li><li>☐ Configuraste reglas en <code>auditd</code> y consultaste registros con <code>ausearch</code> y <code>journalctl</code>.</li><li>☐ Comprendés cómo balancear visibilidad y ruido para no saturar almacenamiento ni analistas.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Ya generás telemetría rica y estructurada en Windows y Linux. En el próximo capítulo vas a centralizar estos registros en un SIEM y escribir búsquedas y correlaciones prácticas en Splunk (SPL) y Elastic (KQL).</p></aside>
+<h2 id="cap-4-2-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>Microsoft Learn — <em>Sysmon (Sysinternals)</em>: https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon</li><li>Microsoft Learn — <em>Advanced Security Audit Policy Settings</em>: https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/advanced-security-audit-policy-settings</li><li>CIS Benchmarks (Microsoft Windows &amp; Linux Distribution Benchmarks): https://www.cisecurity.org/cis-benchmarks</li><li>Linux Audit Project (<code>auditd</code> / <code>auditctl</code> documentation): https://github.com/linux-audit/audit-documentation</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 4 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Windows Attacks &amp; Defense</td><td>Medium</td><td>Purple</td><td>16</td></tr><tr><td>Log Analysis with Sysmon</td><td>Hard</td><td>Defensive</td><td>5</td></tr><tr><td>Implementing Host-Based Security</td><td>Easy</td><td>Defensive</td><td>9</td></tr><tr><td>Wazuh</td><td>Hard</td><td>Defensive</td><td>12</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="26-operaciones-soc-y-respuesta-incidentes.html">← 4.1 Operaciones SOC, ciclo de respuesta a incidentes y MITRE ATT&amp;CK</a></div><div><a href="28-siem-splunk-y-elastic.html">4.3 SIEM en práctica: Splunk (SPL), Elastic (KQL) y correlación de alertas →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

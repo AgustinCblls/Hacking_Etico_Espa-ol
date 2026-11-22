@@ -1,0 +1,10 @@
+Nov 22 09:12:04 srv-lab01 sshd[2101]: Accepted publickey for admin_lab from 192.168.56.10 port 51204 ssh2: ED25519 SHA256:aaaLabKeyDemo001
+Nov 22 09:14:10 srv-lab01 sshd[2140]: Failed password for invalid user admin from 198.51.100.42 port 40111 ssh2
+Nov 22 09:14:12 srv-lab01 sshd[2142]: Failed password for invalid user test from 198.51.100.42 port 40118 ssh2
+Nov 22 09:14:13 srv-lab01 sshd[2144]: Failed password for root from 198.51.100.42 port 40125 ssh2
+Nov 22 09:14:15 srv-lab01 sshd[2146]: Failed password for invalid user oracle from 198.51.100.42 port 40132 ssh2
+Nov 22 09:14:16 srv-lab01 sshd[2148]: Failed password for invalid user deploy from 198.51.100.42 port 40139 ssh2
+Nov 22 09:14:18 srv-lab01 sshd[2150]: Failed password for admin_lab from 198.51.100.42 port 40145 ssh2
+Nov 22 09:14:19 srv-lab01 sshd[2152]: Failed password for invalid user backup from 198.51.100.42 port 40152 ssh2
+Nov 22 09:18:40 srv-lab01 sshd[2201]: Failed password for invalid user user1 from 203.0.113.77 port 55102 ssh2
+Nov 22 09:20:02 srv-lab01 sshd[2210]: Accepted publickey for monitor_soc from 192.168.56.5 port 49820 ssh2

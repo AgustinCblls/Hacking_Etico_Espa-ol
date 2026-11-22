@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 3.4 · Escalada de privilegios en Windows y endurecimiento de endpoints · Hacking Ético y Defensa Integral</title>
+<meta name="description" content="Auditar tokens, servicios y permisos NTFS en VM Windows y aplicar hardening">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético y Defensa Integral</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo3.html">Tomo III</a><span aria-hidden="true">›</span><span>Cap. 3.4</span></nav>
+<h1 id="cap-3-4">Capítulo 3.4 · Escalada de privilegios en Windows y endurecimiento de endpoints</h1>
+<div class="meta-nivel"><span class="nivel-badge avanzado">Avanzado</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo III · Ruta 3 · Avanzado</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="22-pivoting-tunneling-y-movimiento-lateral.html">3.5 Pivoting, tunneling, movimiento lateral y microsegmentación</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo vas a comprender la arquitectura del modelo de seguridad de Windows (tokens de acceso, niveles de integridad, UAC y privilegios sensibles), auditar configuraciones inseguras en servicios, tareas programadas, resolución de DLLs y almacenamiento de credenciales en tu laboratorio local, y aplicar medidas concretas de endurecimiento como LAPS, Credential Guard, protección LSA (<code>RunAsPPL</code>) y monitoreo con Sysmon.</p></aside>
+<p><strong>Prerrequisitos:</strong> Manejo básico de PowerShell, nociones de administración Windows y una VM Windows propia en red aislada. <strong>Duración sugerida:</strong> 90 a 120 minutos.</p>
+<h2 id="cap-3-4-1-modelo-de-seguridad-de-windows-tokens-integridad-y-uac">1. Modelo de seguridad de Windows: tokens, integridad y UAC</h2>
+<p>Windows controla el acceso a objetos del sistema (archivos, claves del Registro, procesos y servicios) comparando el <strong>token de acceso</strong> de un proceso contra el descriptor de seguridad (DACL) del recurso solicitado.</p>
+<h3 id="cap-3-4-componentes-clave-del-contexto-de-seguridad">Componentes clave del contexto de seguridad</h3>
+<ul><li><strong>Identificadores de seguridad (SID):</strong> Representan de forma única al usuario y a los grupos a los que pertenece.</li><li><strong>Niveles de integridad (Mandatory Integrity Control):</strong> Clasifican procesos y objetos en niveles (<em>Untrusted</em>, <em>Low</em>, <em>Medium</em>, <em>High</em> y <em>System</em>). Un proceso con integridad <em>Medium</em> no puede escribir sobre objetos marcados como <em>High</em> aunque comparta el mismo usuario.</li><li><strong>Control de Cuentas de Usuario (UAC):</strong> Divide el token de los administradores locales en un token filtrado (<em>Medium</em>) para tareas cotidianas y un token elevado (<em>High</em>) que requiere consentimiento explícito. Es fundamental recordar que UAC es una barrera de conveniencia operativa y no un límite de seguridad absoluto cuando el usuario ya pertenece al grupo de administradores.</li><li><strong>Privilegios asignados al token:</strong> Permisos globales otorgados al proceso más allá de las ACL individuales. Entre los más sensibles a auditar figuran:</li><li><code>SeImpersonatePrivilege</code>: permite a una cuenta de servicio adoptar el contexto de seguridad de un cliente conectado; si se asigna a cuentas no confiables o servicios expuestos, puede derivar en elevación hacia <code>SYSTEM</code>.</li><li><code>SeBackupPrivilege</code>: otorga lectura de archivos omitiendo restricciones DACL estándar, pensado exclusivamente para cuentas de respaldo estrictamente controladas.</li><li><code>SeDebugPrivilege</code>: habilita la inspección y depuración de procesos de otros usuarios; nunca debe concederse a cuentas estándar.</li></ul>
+<pre><code class="lenguaje-powershell"># Auditar contexto actual, grupos, nivel de integridad y privilegios del token
+whoami /all</code></pre>
+<h2 id="cap-3-4-2-auditoria-de-servicios-tareas-programadas-y-orden-de-busqueda-de-dlls">2. Auditoría de servicios, tareas programadas y orden de búsqueda de DLLs</h2>
+<p>Gran parte de las debilidades locales en endpoints Windows surgen de software de terceros instalado con permisos heredados inseguros o rutas mal definidas.</p>
+<h3 id="cap-3-4-superficies-principales-y-su-causa-raiz">Superficies principales y su causa raíz</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Superficie</th>
+<th>Causa técnica de la vulnerabilidad</th>
+<th>Verificación en laboratorio (solo lectura)</th>
+<th>Remediación</th>
+</tr></thead><tbody>
+<tr><td><strong>Permisos débiles en servicios o binarios</strong></td><td>Usuarios estándar poseen permisos de escritura sobre el ejecutable o la configuración del servicio</td><td><code>icacls</code> sobre el binario y <code>sc.exe sdshow &lt;servicio&gt;</code></td><td>Restringir escritura solo a <code>SYSTEM</code> y <code>Administrators</code></td></tr>
+<tr><td><strong>Rutas de servicio sin comillas</strong></td><td>Rutas con espacios sin comillas hacen que Windows pruebe prefijos sucesivos al iniciar el servicio</td><td>Consulta WMI/CIM de <code>PathName</code> en <code>Win32_Service</code></td><td>Encerrar siempre la ruta completa entre comillas dobles</td></tr>
+<tr><td><strong>Tareas programadas privilegiadas</strong></td><td>Tareas que corren como <code>SYSTEM</code> ejecutando scripts almacenados en carpetas modificables</td><td><code>Get-ScheduledTask</code> + revisión de ACL del script</td><td>Mover scripts a rutas protegidas y validar ACL</td></tr>
+<tr><td><strong>Orden de búsqueda de DLLs</strong></td><td>Una aplicación carga una DLL sin ruta absoluta y busca en directorios escribibles del <code>PATH</code></td><td>Revisión de <code>SafeDllSearchMode</code> y permisos en <code>%PATH%</code></td><td>Usar rutas absolutas, firmas digitales y carpetas protegidas</td></tr>
+<tr><td><strong>Credenciales en texto claro</strong></td><td>Archivos de despliegue desatendido, scripts o claves del Registro conservan contraseñas</td><td>Revisión de políticas de configuración y archivos de instalación</td><td>Eliminar archivos de instalación y usar gestión centralizada</td></tr>
+</tbody></table></div>
+<h3 id="cap-3-4-mecanica-conceptual-de-rutas-sin-comillas-y-dll-hijacking">Mecánica conceptual de rutas sin comillas y DLL hijacking</h3>
+<p>Cuando un servicio se registra con una ruta como <code>C:\Program Files\App Interna\servicio.exe</code> sin comillas dobles, el administrador de servicios interpreta los espacios de forma ambigua y evalúa rutas intermedias antes de alcanzar el binario real. Si algún directorio intermedio otorga permisos de escritura a usuarios no privilegiados, un archivo colocado allí podría ejecutarse con los privilegios del servicio.</p>
+<p>De manera similar, el <strong>secuestro de DLL (DLL hijacking)</strong> aprovecha el orden de búsqueda de bibliotecas dinámicas de Windows cuando una aplicación solicita una DLL por nombre simple sin especificar la ruta completa y la biblioteca no reside en el directorio protegido de la aplicación ni en <code>System32</code>. Si el proceso continúa buscando en directorios incluidos en la variable <code>PATH</code> donde un usuario común puede escribir, la integridad del proceso queda comprometida.</p>
+<h2 id="cap-3-4-3-medidas-de-endurecimiento-para-endpoints-windows">3. Medidas de endurecimiento para endpoints Windows</h2>
+<p>El hardening efectivo en Windows reduce drásticamente el impacto de credenciales expuestas y corta las vías habituales de elevación local.</p>
+<h3 id="cap-3-4-controles-prioritarios-recomendados-por-microsoft-y-cis">Controles prioritarios recomendados por Microsoft y CIS</h3>
+<ol><li><strong>Principio de mínimo privilegio:</strong> Retirar a los usuarios cotidianos del grupo <code>Administrators</code> local y separar las tareas administrativas en cuentas dedicadas.</li><li><strong>Windows LAPS (<em>Local Administrator Password Solution</em>):</strong> Genera, rota automáticamente y almacena de forma cifrada contraseñas únicas para la cuenta administrativa local de cada equipo, eliminando el riesgo de reutilización lateral.</li><li><strong>LSA Protection (<code>RunAsPPL</code>):</strong> Configura el proceso de autoridad de seguridad local (<code>lsass.exe</code>) como proceso protegido (<em>Protected Process Light</em>), bloqueando la lectura o inyección de memoria desde procesos no firmados adecuadamente.</li><li><strong>Windows Defender Credential Guard:</strong> Utiliza seguridad basada en virtualización (VBS) para aislar secretos derivados de autenticación en un contenedor protegido por hipervisor, inaccesible incluso para procesos con privilegios elevados en el sistema operativo principal.</li><li><strong>Control de aplicaciones (WDAC / AppLocker):</strong> Restringe la ejecución a binarios firmados o ubicados en rutas aprobadas, mitigando la ejecución de ejecutables y DLLs no autorizados.</li></ol>
+<div class="tabla"><table>
+<thead><tr>
+<th>Control defensivo</th>
+<th>Riesgo principal mitigado</th>
+<th>Requisito técnico clave</th>
+</tr></thead><tbody>
+<tr><td><strong>Windows LAPS</strong></td><td>Reutilización de contraseñas de administrador local</td><td>Active Directory o Microsoft Entra ID</td></tr>
+<tr><td><strong>LSA Protection (<code>RunAsPPL</code>)</strong></td><td>Acceso no autorizado a la memoria de <code>lsass.exe</code></td><td>Arranque seguro (UEFI/Secure Boot) recomendado</td></tr>
+<tr><td><strong>Credential Guard</strong></td><td>Extracción de credenciales en memoria</td><td>Hardware con virtualización (VBS / TPM 2.0)</td></tr>
+<tr><td><strong>WDAC / AppLocker</strong></td><td>Ejecución de binarios y DLLs no confiables</td><td>Política de inventario y firma de código</td></tr>
+</tbody></table></div>
+<h3 id="cap-3-4-proteccion-de-almacenes-de-credenciales-locales-dpapi-credential-manager-y-navegadores">Protección de almacenes de credenciales locales (DPAPI, Credential Manager y navegadores)</h3>
+<p>Windows protege secretos guardados por el usuario (contraseñas de Wi-Fi, certificados personales, credenciales del <strong>Windows Credential Manager</strong>, perfiles de Outlook y bases locales de navegadores) mediante <strong>DPAPI (<em>Data Protection API</em>)</strong>, que deriva claves maestras vinculadas a las credenciales del usuario y, en sistemas modernos de navegadores, refuerza el aislamiento mediante <strong>App-Bound Encryption</strong> ligada a un servicio de sistema privilegiado.</p>
+<ul><li><strong>Riesgo en auditoría:</strong> si una cuenta de usuario queda comprometida en un endpoint compartido o deja claves maestras accesibles en sesiones persistentes, cualquier proceso en el contexto de ese usuario puede descifrar sus propios secretos DPAPI (o acceder a claves de aplicaciones que no restringen su ámbito).</li><li><strong>Defensa operativa:</strong> utilizar <strong>Windows Hello for Business / TPM</strong> para proteger claves privadas, evitar almacenar credenciales administrativas estáticas en scripts o archivos XML de instalación (<code>Unattend.xml</code>) y auditar con <strong>Credential Guard + WDAC</strong>.</li></ul>
+<h3 id="cap-3-4-tecnicas-de-evasion-de-controles-y-su-deteccion-defensiva-uac-defender-amsi">Técnicas de evasión de controles y su detección defensiva (UAC, Defender, AMSI)</h3>
+<p>En evaluaciones avanzadas de endpoints Windows conviene conocer cómo operan las barreras locales para verificar por qué nunca reemplazan el <strong>principio de mínimo privilegio</strong>:</p>
+<ul><li><strong>Auto-elevación de UAC (<em>UAC Bypasses</em>):</strong> binarios firmados por Microsoft configurados para auto-elevarse consultando rutas de registro bajo <code>HKCU\Software\Classes</code> (por ejemplo <code>ms-settings\Shell\Open\command</code> asociada a <code>fodhelper.exe</code> o interfaces COM privilegiadas) permiten a una cuenta que ya es miembro de <code>Administrators</code> abrir un proceso elevado sin cuadro de diálogo. <strong>Detección SOC:</strong> monitorear creaciones de subclaves bajo <code>HKCU\Software\Classes\ms-settings</code> (Sysmon Event ID <code>12/13</code>) y procesos <code>cmd.exe</code>/<code>powershell.exe</code> nacidos con nivel <em>High</em> directamente desde <code>fodhelper.exe</code> o <code>computerdefaults.exe</code> (Sysmon <code>1</code>). <strong>Mitigación real:</strong> usar cuentas estándar sin derechos administrativos en el uso diario.</li><li><strong>Verificación de AMSI y Microsoft Defender:</strong> toda política de endurecimiento debe exigir protección contra alteraciones (<strong>Tamper Protection</strong>) en Defender, <strong>Controlled Folder Access</strong> y bloqueo de modificaciones en exclusiones del antivirus, registrando cambios de exclusiones en Event Log <code>Microsoft-Windows-Windows Defender/Operational</code> (Event ID <strong><code>5007</code></strong>).</li></ul>
+<h2 id="cap-3-4-4-monitoreo-de-endpoints-con-sysmon">4. Monitoreo de endpoints con Sysmon</h2>
+<p>Sysmon (<em>System Monitor</em>, parte de Microsoft Sysinternals) complementa el registro nativo de Windows proporcionando telemetría estructurada sobre eventos de alto valor analítico: creación de procesos con línea de comandos completa y hashes, carga de imágenes y DLLs, cambios en el estado de servicios y accesos anómalos entre procesos. Integrar Sysmon con una configuración curada y reenviar los registros a un SIEM permite detectar comportamientos anómalos sin saturar el almacenamiento.</p>
+<h2 id="cap-3-4-ejemplo-paso-a-paso-auditoria-de-solo-lectura-de-servicios-y-protecciones-en-powershell">Ejemplo paso a paso: auditoría de solo lectura de servicios y protecciones en PowerShell</h2>
+<p>En este procedimiento revisamos en nuestra VM Windows de laboratorio si existen servicios con rutas potencialmente ambiguas, inspeccionamos los permisos de un directorio de aplicación y verificamos el estado de las protecciones de memoria y credenciales.</p>
+<pre><code class="lenguaje-powershell"># 1. Identificar servicios de terceros con espacios en la ruta y sin comillas dobles
+Get-CimInstance -ClassName Win32_Service |
+    Where-Object {
+        $_.PathName -and
+        $_.PathName -notmatch '^"' -and
+        $_.PathName -notmatch 'C:\\Windows\\' -and
+        $_.PathName -match ' '
+    } |
+    Select-Object Name, StartName, State, PathName
+# Salida esperada en un equipo endurecido: sin resultados.
+# Si aparece algún servicio, debe corregirse citando la ruta ejecutable.
+
+# 2. Verificar permisos efectivos de la variable PATH del sistema
+($env:Path -split ';') | Where-Object { $_ -ne '' } | ForEach-Object {
+    if (Test-Path $_) {
+        Write-Host "`n--- Directorio: $_ ---"
+        icacls $_
+    }
+}
+# Revisá que usuarios estándar (Users / Everyone / Authenticated Users)
+# NO tengan permisos (M) Modify, (W) Write ni (F) Full Control.
+
+# 3. Comprobar estado de seguridad basada en virtualización (VBS) y Credential Guard
+Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard |
+    Select-Object VirtualizationBasedSecurityStatus, SecurityServicesRunning
+# Salida comentada:
+# VirtualizationBasedSecurityStatus = 2 indica VBS activo.
+# SecurityServicesRunning contiene 1 cuando Credential Guard está en ejecución.</code></pre>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>Bajo la óptica Blue Team (tácticas de alto nivel de MITRE ATT&amp;CK como <strong>Privilege Escalation</strong>, <strong>Credential Access</strong> y <strong>Defense Evasion</strong>), la protección de endpoints Windows se apoya en dos pilares:</p>
+<ul><li><strong>Telemetría de alta señal:</strong> Monitorear mediante Sysmon y los registros de seguridad la creación o modificación de servicios y tareas programadas, cargas de DLLs desde carpetas de usuario o temporales, y procesos no esperados que intenten abrir manejadores hacia procesos críticos del sistema.</li><li><strong>Endurecimiento preventivo:</strong> Habilitar Windows LAPS, Credential Guard y LSA Protection (<code>RunAsPPL</code>), depurar privilegios sensibles en cuentas de servicio, aplicar políticas CIS Benchmark mediante GPO/Intune y garantizar que ningún directorio del <code>PATH</code> ni ningún binario de servicio sea modificable por usuarios estándar.</li></ul></aside>
+<h2 id="cap-3-4-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<p>En tu VM Windows de laboratorio (aislada en red Host-Only):</p>
+<ol><li>Ejecutá <code>whoami /all</code> desde una consola estándar y luego desde una consola elevada, comparando el nivel de integridad (<em>Medium</em> vs. <em>High</em>) y la lista de privilegios habilitados.</li><li>Corré los comandos PowerShell de auditoría de servicios sin comillas y revisión de permisos <code>icacls</code> sobre los directorios del <code>PATH</code>, registrando cualquier desviación.</li><li>Inspeccioná las tareas programadas no pertenecientes a Microsoft (<code>Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\Microsoft*' }</code>) y verificá con qué cuenta se ejecutan.</li><li>Comprobá el estado actual de VBS/Credential Guard y documentá qué controles de endurecimiento recomendarías habilitar en ese equipo.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Un informe breve con: la comparativa de salida de <code>whoami /all</code> (estándar vs. elevada), el resultado de la auditoría de servicios y <code>PATH</code>, el inventario de tareas programadas de terceros y una lista priorizada de acciones de hardening para la VM evaluada.</p></aside>
+<h2 id="cap-3-4-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Por qué UAC no debe considerarse un límite de seguridad infalible frente a un proceso ejecutado bajo una cuenta con membresía administrativa?</strong> Porque UAC está diseñado como un control de conveniencia para evitar elevaciones accidentales en cuentas que ya poseen derechos administrativos; la verdadera separación exige operar diariamente con una cuenta estándar sin pertenencia al grupo <code>Administrators</code>.</p>
+<p><strong>2. ¿Cuál es el riesgo técnico de otorgar <code>SeImpersonatePrivilege</code> o <code>SeDebugPrivilege</code> a cuentas que no los necesitan estrictamente?</strong> <code>SeImpersonatePrivilege</code> permite asumir identidades de clientes privilegiados que se conecten al servicio, mientras que <code>SeDebugPrivilege</code> habilita la inspección y manipulación de otros procesos del sistema; ambos privilegios pueden derivar en control total del host si la cuenta se ve comprometida.</p>
+<p><strong>3. ¿Cómo se origina el problema de una ruta de servicio sin comillas y cuál es su corrección definitiva?</strong> Se origina cuando el campo <code>ImagePath</code> de un servicio contiene espacios sin comillas dobles, induciendo a Windows a probar rutas parciales previas; la corrección consiste en encerrar la ruta del ejecutable entre comillas dobles y restringir los permisos de escritura en los directorios contenedores.</p>
+<p><strong>4. ¿Qué ventaja operativa y de seguridad ofrece Windows LAPS en una red corporativa?</strong> Automatiza la generación y rotación de contraseñas únicas por equipo para la cuenta de administrador local, impidiendo que el compromiso de un endpoint facilite el movimiento lateral hacia otros equipos mediante contraseñas compartidas.</p>
+<p><strong>5. ¿Cómo se complementan LSA Protection (<code>RunAsPPL</code>) y Credential Guard para proteger credenciales en memoria?</strong> <code>RunAsPPL</code> restringe el acceso de procesos no protegidos al espacio de memoria de <code>lsass.exe</code>, mientras que Credential Guard aísla los secretos de autenticación mediante virtualización por hardware (VBS) para que no queden expuestos al sistema operativo principal.</p>
+<h2 id="cap-3-4-antes-de-avanzar">Antes de avanzar</h2>
+<ul><li>☐ Distinguís con claridad los niveles de integridad, SIDs y privilegios del token en Windows.</li><li>☐ Sabés auditar permisos de servicios, rutas sin comillas y tareas programadas mediante PowerShell e <code>icacls</code>.</li><li>☐ Comprendés el mecanismo del orden de búsqueda de DLLs y cómo prevenirlo con ACLs y rutas seguras.</li><li>☐ Conocés el propósito y los requisitos de Windows LAPS, <code>RunAsPPL</code> y Credential Guard.</li><li>☐ Comprendés qué valor aporta Sysmon al monitoreo defensivo de endpoints Windows.</li></ul>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con los Capítulos 3.1 a 3.4 completos consolidaste las bases operativas y defensivas de sesiones, contraseñas y escalada local tanto en Linux como en Windows. Asegurate de respaldar tus notas y políticas de hardening antes de iniciar la Parte B del Tomo III.</p></aside>
+<h2 id="cap-3-4-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li>Microsoft Learn: <em>Access Control Overview, Integrity Levels y User Account Control</em> (https://learn.microsoft.com/en-us/windows/security/identity-protection/access-control/access-control)</li><li>Microsoft Learn: <em>Windows LAPS Overview</em> y <em>Configure Additional LSA Protection</em> (https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-overview)</li><li>Microsoft Learn: <em>Windows Defender Credential Guard Overview</em> (https://learn.microsoft.com/en-us/windows/security/identity-protection/credential-guard/)</li><li>Microsoft Sysinternals: <em>Sysmon Documentation</em> (https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon)</li><li>CIS Benchmarks: <em>CIS Microsoft Windows Enterprise Benchmarks</em> y MITRE ATT&amp;CK Enterprise Matrix (https://www.cisecurity.org/cis-benchmarks y https://attack.mitre.org/)</li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 4 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Windows Privilege Escalation</td><td>Medium</td><td>Offensive</td><td>33</td></tr><tr><td>Introduction to Windows Evasion Techniques</td><td>Hard</td><td>Offensive</td><td>14</td></tr><tr><td>Windows System Security</td><td>Hard</td><td>Defensive</td><td>7</td></tr><tr><td>Windows System Security - 2</td><td>Medium</td><td>Defensive</td><td>6</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="20-escalada-privilegios-linux.html">← 3.3 Escalada de privilegios en Linux y hardening de servidores</a></div><div><a href="22-pivoting-tunneling-y-movimiento-lateral.html">3.5 Pivoting, tunneling, movimiento lateral y microsegmentación →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>
