@@ -94,14 +94,15 @@ Ninguna campaña de concientización reemplaza a los controles criptográficos y
 El phishing tradicional con formularios estáticos perdió efectividad frente al MFA clásico (SMS o TOTP). Para sortearlo, los atacantes modernos despliegan **proxies inversos *Adversary-in-the-Middle* (AiTM)** montados sobre dominios fraudulentos con certificados TLS válidos: el proxy actúa como intermediario transparente en tiempo real entre el navegador de la víctima y el proveedor de identidad legítimo (*IdP*), reescribiendo cabeceras (`Host`, `Location`, `Set-Cookie`) y URLs en vuelo.
 
 ```text
-+------------------+          TLS (dominio falso)          +------------------------+          TLS (dominio real)          +------------------+
-|     Víctima      | <===================================> |   Proxy Inverso AiTM   | <===================================> |  IdP Legítimo    |
-|   (Navegador)    |   1. Ingresa usuario, clave y TOTP    |  (login-corp.example)  |   2. Reenvía credenciales y TOTP      | (login.corp.com) |
-+------------------+                                       |                        |                                       +------------------+
-                                                           |  [Captura en vuelo:]   | <---- 3. Responde Set-Cookie / Token -------|
-                                                           |  - Password            |       de sesión YA autenticada
-                                                           |  - Cookie de sesión    |
-                                                           +------------------------+
+[Víctima (Navegador)]
+        |  (1) TLS contra dominio falso (login-corp.example)
+        |      Envía usuario, contraseña y código TOTP/SMS
+        v
+[Proxy Inverso AiTM] -> Captura credenciales + cookie de sesión en vuelo
+        |  (2) TLS contra dominio real (login.corp.com)
+        |      Reenvía credenciales y TOTP; recibe Set-Cookie autenticada
+        v
+[IdP Legítimo]       -> Sesión válida (neutralizado con FIDO2/WebAuthn)
 ```
 
 Como el flujo completo se negocia contra el IdP real, la víctima supera normalmente su segundo factor (código TOTP, SMS o aprobación *push*), y el proxy intercepta la **cookie de sesión autenticada** emitida por el IdP. Con esa cookie, el atacante reutiliza la sesión activa desde otro equipo sin volver a necesitar la contraseña ni el código MFA.

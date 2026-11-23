@@ -149,15 +149,17 @@ Permisos como `iam:CreateAccessKey`, `iam:CreateLoginProfile` o `iam:UpdateLogin
 | `iam:AttachUserPolicy` / `AttachRolePolicy` | Autoasignación de políticas administrativas predefinidas | Limitar mediante SCP o restringir a prefijos de roles no privilegiados |
 | `iam:CreateAccessKey` | Generación de credenciales estáticas sobre otras identidades | Restringir `Resource` a `arn:aws:iam::*:user/${aws:username}` o bloquear vía SCP |
 
-### Comparativa Multi-Cloud: Primitivas de Escalada IAM y Protección de Metadatos (IMDS)
+### Comparativa Multi-Cloud: Primitivas de Escalada IAM
 
-Aunque cada proveedor utiliza su propia nomenclatura, los patrones de abuso de identidad y exposición de credenciales locales mediante metadatos presentan equivalencias directas en **AWS**, **Azure / Entra ID** y **GCP** (cuyo detalle de red e IMDS profundizás en el capítulo siguiente):
+Aunque cada proveedor utiliza su propia nomenclatura, los patrones de abuso y escalada de privilegios en el plano de identidad presentan equivalencias directas en **AWS**, **Azure / Entra ID** y **GCP**:
 
-| Proveedor | Primitivas frecuentes de escalada IAM | Protección del plano de metadatos (IMDS) | Control Purple Team clave |
-| :--- | :--- | :--- | :--- |
-| **AWS** | `iam:PassRole` + cómputo, `sts:AssumeRole` por *Trust Policy* amplia, `iam:CreatePolicyVersion` (`SetAsDefault`). | **IMDSv2 obligatorio (`HttpTokens: required`)**: exige `PUT` con `X-aws-ec2-metadata-token` y `HopLimit = 1`. | Imponer SCP organizacional contra IMDSv1, *Permissions Boundaries* y alertas en CloudTrail ante `AssumeRole` / `CreatePolicyVersion`. |
-| **Azure / Entra ID** | Abuso de *App Registrations* / *Service Principals* (secretos o roles `Owner`/`Contributor`) y *Consent Phishing* OAuth. | **IMDS de Azure (`169.254.169.254`)**: exige cabecera obligatoria `Metadata: true` en cada solicitud HTTP para tokens de *Managed Identity*. | Restringir creación de *App Registrations* por usuarios estándar, exigir *Admin Consent* y aplicar *Conditional Access* sobre identidades humanas y cargas. |
-| **GCP** | `iam.serviceAccounts.actAs` (adjuntar una *Service Account* privilegiada a Compute/Cloud Functions) y `setIamPolicy` sobre proyecto/carpeta. | **Metadata Server (`metadata.google.internal` / `169.254.169.254`)**: exige obligatoriamente la cabecera `Metadata-Flavor: Google` y rechaza `X-Forwarded-For`. | Acotar `actAs` a *Service Accounts* mínimas, bloquear `setIamPolicy` fuera de IaC y auditar `SetIamPolicy` en Cloud Audit Logs. |
+| Proveedor | Primitivas frecuentes de escalada IAM | Detección y mitigación Purple Team |
+| :--- | :--- | :--- |
+| **AWS** | `iam:PassRole` + cómputo, `sts:AssumeRole` por *Trust Policy* amplia, `iam:CreatePolicyVersion` (`SetAsDefault`). | Imponer *Permissions Boundaries*, exigir `iam:PassedToService` en `PassRole` y generar alertas en CloudTrail ante `AssumeRole` anómalos o `CreatePolicyVersion`. |
+| **Azure / Entra ID** | Abuso de *App Registrations* / *Service Principals* (secretos o roles `Owner`/`Contributor`) y *Consent Phishing* OAuth. | Restringir la creación de *App Registrations* por usuarios estándar, exigir *Admin Consent*, aplicar RBAC mínimo y reforzar *Conditional Access*. |
+| **GCP** | `iam.serviceAccounts.actAs` (adjuntar una *Service Account* privilegiada a Compute/Cloud Functions) y `setIamPolicy` sobre proyecto/carpeta. | Acotar `actAs` a *Service Accounts* mínimas, bloquear `setIamPolicy` fuera de flujos IaC revisados y auditar eventos `SetIamPolicy` en Cloud Audit Logs. |
+
+Para el análisis de exposición de credenciales temporales a través del servicio de metadatos de instancia (**IMDS**) en los tres proveedores, consultá la comparativa dedicada del **Capítulo 5.2**.
 
 ## Identidad Híbrida y Moderna: Microsoft Entra ID
 

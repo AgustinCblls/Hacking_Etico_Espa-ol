@@ -207,7 +207,7 @@ binwalk -e firmware_lab.bin</code></pre>
 
 GLOSARIO_ITEMS = [
     ("ACL / DACL", "Access Control List / Discretionary ACL. Lista de entradas de control de acceso que define qué usuarios o grupos tienen permisos (lectura, escritura, control total) sobre un archivo NTFS, servicio u objeto de Active Directory."),
-    ("ADCS", "Active Directory Certificate Services. Infraestructura de clave pública (PKI) de Microsoft integrada en AD que emite certificados digitales; una mala configuración en sus plantillas (ESC1–ESC8) puede permitir escalada a Domain Admin."),
+    ("ADCS", "Active Directory Certificate Services. Infraestructura de clave pública (PKI) de Microsoft integrada en AD que emite certificados digitales; una mala configuración en sus plantillas (ESC1–ESC16) puede permitir escalada a Domain Admin."),
     ("AEAD", "Authenticated Encryption with Associated Data. Familia de modos criptográficos modernos (AES-GCM, ChaCha20-Poly1305) que garantizan confidencialidad, integridad y autenticidad en una sola operación."),
     ("AES-GCM", "Modo Galois/Counter Mode para AES; estándar AEAD de alto rendimiento que cifra datos y genera una etiqueta criptográfica de autenticación (requiere no repetir nunca la pareja Clave + Nonce)."),
     ("AMSI", "Antimalware Scan Interface. Interfaz de Windows que permite a motores de scripting (PowerShell, WSH, .NET) enviar contenido dinámico ya desofuscado al antivirus/EDR antes de ejecutarlo."),

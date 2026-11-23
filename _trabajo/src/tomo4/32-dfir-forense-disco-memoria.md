@@ -185,7 +185,7 @@ Verificá que podés:
 - Interpretar salidas básicas de Volatility 3 (`pstree`, `psscan`, `cmdline`, `netscan`, `malfind`) y alinear eventos en UTC.
 
 ::: nota Puerta de salida
-Avanzá al último capítulo de la obra (**Capítulo 4.8 · Triage estático de malware, desofuscación y telemetría de bajo nivel**) para integrar inspección estática segura, sensores ETW/AMSI, el puente completo con **Curso de Reversing en Windows** y el reporte ejecutivo/técnico de incidentes.
+Avanzá al último capítulo del Tomo IV (**Capítulo 4.8 · Triage estático de malware, desofuscación y telemetría de bajo nivel**) para integrar inspección estática segura, sensores ETW/AMSI, el puente completo con **Curso de Reversing en Windows** y el reporte ejecutivo/técnico de incidentes.
 :::
 
 ## Referencias y estándares abiertos
