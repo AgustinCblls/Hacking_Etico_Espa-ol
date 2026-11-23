@@ -36,6 +36,33 @@ Un **SIEM** (*Security Information and Event Management*) transforma millones de
 | Agregación y conteo | `\| stats count by src_ip` | Agregación *Terms* sobre `source.ip` en Lens/Discover |
 | Serie temporal | `\| timechart span=5m count` | Histograma de fecha con intervalo `5m` |
 
+::: aviso Aclaración clave: los dos «KQL» (Elastic Kibana vs Microsoft Sentinel)
+En entrevistas técnicas, certificaciones y laboratorios suele aparecer una confusión muy frecuente porque dos tecnologías distintas comparten exactamente la misma sigla **KQL**:
+
+- **Elastic KQL (*Kibana Query Language*):** lenguaje declarativo liviano orientado únicamente a **filtrar documentos** en Kibana Discover / Elastic Security usando `campo: valor` y operadores booleanos (`and`, `or`, `not`). No tiene tuberías (`|`) ni agregaciones estadísticas propias dentro de la cadena de filtro.
+- **Microsoft KQL (*Kusto Query Language*):** lenguaje completo basado en **tuberías (`|`)** utilizado en **Microsoft Sentinel**, **Azure Monitor (Log Analytics)** y **Microsoft Defender XDR** para filtrar, proyectar, unir tablas y agregar grandes volúmenes de eventos (de estructura muy cercana a Splunk SPL).
+
+Comparación directa buscando ejecuciones codificadas de PowerShell fuera de un host de administración:
+
+```kql
+# 1. Elastic KQL (Kibana Discover / Elastic Security) -> Solo filtrado
+event.code: "1" and process.name: "powershell.exe" and
+process.command_line: *-enc* and not host.name: "adm-srv-01"
+```
+
+```kusto
+// 2. Microsoft KQL (Kusto Query Language en Sentinel / Defender XDR) -> Filtro + agregación
+DeviceProcessEvents
+| where Timestamp > ago(24h)
+| where FileName =~ "powershell.exe" and ProcessCommandLine has "-enc"
+| where DeviceName !~ "adm-srv-01"
+| summarize Ejecuciones = count() by DeviceName, AccountName, ProcessCommandLine
+| sort by Ejecuciones desc
+```
+
+Desde un enfoque **Purple Team**, cuando diseñás una detección en Sigma conviene saber de antemano a qué backend la vas a transpilar: en **Elastic KQL** el filtro alimenta la regla o visualización en Kibana, mientras que en **Sentinel (Kusto KQL)** podés resolver filtrado, enriquecimiento y conteo en la misma consulta.
+:::
+
 ## 3. Casos de detección lado a lado (SPL y KQL)
 
 A continuación se presentan cuatro escenarios esenciales de monitoreo en un SOC, alineados con tácticas padre de MITRE ATT&CK (**Acceso a Credenciales**, **Ejecución** y **Persistencia**).

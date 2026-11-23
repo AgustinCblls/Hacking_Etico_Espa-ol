@@ -43,7 +43,7 @@
 <tr><td><code>&gt;</code> / <code>&gt;&gt;</code></td><td><code>1</code> (<code>stdout</code>)</td><td>Sobrescribe o agrega al archivo destino</td><td>Guardar inventario de puertos o procesos</td></tr>
 <tr><td><code>2&gt;</code></td><td><code>2</code> (<code>stderr</code>)</td><td>Redirige solo errores a un archivo o <code>/dev/null</code></td><td>Silenciar avisos de <code>Permission denied</code> en <code>find</code></td></tr>
 <tr><td><code>2&gt;&amp;1</code></td><td><code>2</code> → <code>1</code></td><td>Fusiona errores en la misma salida estándar</td><td>Capturar salida completa de un comando en un log</td></tr>
-<tr><td>`\</td><td>`</td><td><code>1</code> → <code>0</code></td><td>Conecta la salida de un comando a la entrada del siguiente</td></tr>
+<tr><td><code>|</code></td><td><code>1</code> → <code>0</code></td><td>Conecta la salida de un comando a la entrada del siguiente</td><td>Filtrar, ordenar y contar eventos en cadena</td></tr>
 <tr><td><code>tee -a</code></td><td><code>1</code> → pantalla y archivo</td><td>Duplica el flujo hacia un archivo y hacia <code>stdout</code></td><td>Conservar evidencia mientras se sigue procesando</td></tr>
 </tbody></table></div>
 <h3 id="cap-1-5-1-2-modo-estricto-y-escritura-defensiva-de-scripts">1.2 Modo estricto y escritura defensiva de scripts</h3>
@@ -67,7 +67,7 @@ IFS=$'\n\t'</code></pre>
 <tr><td><code>cut</code></td><td>Corte por delimitador simple o posición</td><td>Extraer columnas fijas en archivos CSV o <code>/etc/passwd</code></td></tr>
 <tr><td><code>awk</code></td><td>Procesamiento por columnas, condiciones y sumatorias</td><td>Correlacionar campos variables, filtrar por umbral y formatear tablas</td></tr>
 <tr><td><code>sed</code></td><td>Sustitución y edición en flujo</td><td>Sanitizar direcciones IP, limpiar encabezados o extraer rangos de líneas</td></tr>
-<tr><td>`sort \</td><td>uniq -c`</td><td>Ordenamiento y conteo de frecuencias</td></tr>
+<tr><td><code>sort | uniq -c</code></td><td>Ordenamiento y conteo de frecuencias</td><td>Identificar los orígenes más ruidosos o rutas más solicitadas</td></tr>
 </tbody></table></div>
 <h3 id="cap-1-5-2-2-extraccion-estructurada-con-awk-sed-sort-y-uniq">2.2 Extracción estructurada con <code>awk</code>, <code>sed</code>, <code>sort</code> y <code>uniq</code></h3>
 <p>Mientras <code>cut</code> falla cuando los campos están separados por múltiples espacios consecutivos, <code>awk</code> divide automáticamente por secuencias de espacios en blanco (<code>$1</code>, <code>$2</code>, ..., <code>$NF</code> para el último campo) y permite lógica condicional en una sola pasada:</p>
@@ -147,7 +147,7 @@ echo "Reporte guardado en: ${REPORTE}"</code></pre>
 <tr><td>Nomenclatura</td><td>Comandos breves (<code>ps</code>, <code>ss</code>, <code>grep</code>)</td><td>Convención <code>Verbo-Sustantivo</code> (<code>Get-Process</code>, <code>Get-NetTCPConnection</code>)</td></tr>
 <tr><td>Filtrado</td><td><code>grep</code>, <code>awk</code></td><td><code>Where-Object</code> (alias <code>?</code>)</td></tr>
 <tr><td>Selección de campos</td><td><code>cut</code>, <code>awk '{print $1,$5}'</code></td><td><code>Select-Object</code> (alias <code>select</code>)</td></tr>
-<tr><td>Agrupación y conteo</td><td>`sort \</td><td>uniq -c`</td></tr>
+<tr><td>Agrupación y conteo</td><td><code>sort | uniq -c</code></td><td><code>Group-Object</code> (alias <code>group</code>)</td></tr>
 <tr><td>Descubrimiento de esquema</td><td><code>man comando</code></td><td><code>Get-Help</code>, <code>Get-Command</code>, <code>Get-Member</code></td></tr>
 </tbody></table></div>
 <p>Cuando trabajes con un cmdlet nuevo en PowerShell, enviá un único elemento a <code>Get-Member</code> (por ejemplo, <code>Get-Process | Select-Object -First 1 | Get-Member</code>) para inspeccionar los nombres exactos y tipos de datos de todas sus propiedades antes de construir filtros.</p>

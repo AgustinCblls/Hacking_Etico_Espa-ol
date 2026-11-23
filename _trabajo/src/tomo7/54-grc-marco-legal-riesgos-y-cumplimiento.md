@@ -89,6 +89,17 @@ Estándar contractual obligatorio para toda entidad que almacene, procese o tran
 | **NIST CSF 2.0** | Lenguaje común y madurez por resultados | 6 funciones: *Govern, Identify, Protect, Detect, Respond, Recover* | Marco de referencia flexible (no certificable) |
 | **PCI-DSS v4.0** | Protección de datos de tarjetas (CDE) | 12 requisitos; foco en segmentación, MFA y scripts de pago | Auditoría anual QSA o cuestionario SAQ |
 
+### Marcos GRC complementarios clave en 2026
+
+En entornos corporativos SaaS, financieros, europeos y basados en IA, los auditores y equipos *Purple Team* deben mapear sus controles técnicos y reportes ejecutivos contra cuatro marcos adicionales de adopción prioritaria:
+
+| Marco / Regulación | Alcance y propósito | Requisitos o pilares clave | Evidencia y plazos críticos |
+| :--- | :--- | :--- | :--- |
+| **SOC 2** (*AICPA TSC*) | Confianza en proveedores SaaS y servicios cloud | Evalúa hasta 5 *Trust Services Criteria*: **Security** (obligatorio), **Availability**, **Processing Integrity**, **Confidentiality** y **Privacy**. | **Tipo I** (diseño de controles en fecha puntual) vs. **Tipo II** (eficacia operativa continua durante 3–12 meses). |
+| **Directiva NIS2** (UE) | Ciberseguridad de infraestructura crítica europea | Aplica a **entidades esenciales e importantes**; exige gestión de riesgos en cadena de suministro, MFA, cifrado y responsabilidad directa de la dirección. | **Reporte en fases**: alerta temprana en **24 h**, notificación detallada del incidente en **72 h** e informe final al mes. |
+| **Reglamento DORA** (UE) | Resiliencia operativa digital del sector financiero | Regula bancos, aseguradoras, *fintech* y proveedores TIC críticos; unifica gestión de riesgos TIC, pruebas de resiliencia y supervisión de terceros. | Exige pruebas avanzadas guiadas por amenazas (**TLPT** / *Red Teaming* periódico) y reporte estricto de incidentes mayores. |
+| **ISO/IEC 42001** | Sistema de Gestión de Inteligencia Artificial (AIMS) | Primer estándar certificable para gobernanza de IA: inventario de modelos, evaluación de sesgos, transparencia, trazabilidad de datos y seguridad de *pipelines*. | Certificable por organismo acreditado bajo estructura análoga a ISO 27001 (PDCA + controles de ciclo de vida de IA). |
+
 ## Marco legal, privacidad, notificación de brechas y delitos informáticos
 
 ### GDPR y principios equivalentes en España y Latinoamérica
@@ -164,7 +175,7 @@ Gobernar la seguridad digital implica combinar rigor técnico con respaldo contr
 ## Antes de avanzar
 
 ::: nota Puerta de salida
-Con este capítulo completaste el Tomo VII. Verificá que puedas redactar el alcance y el protocolo *Stop-and-Notify* de un RoE, calcular el retorno de un control con SLE/ARO/ALE, distinguir ISO 27001, NIST CSF 2.0 y PCI-DSS v4.0, y explicar el flujo de notificación a 72 horas y cadena de custodia.
+Con este capítulo completaste el núcleo regulatorio del Tomo VII. Antes de avanzar al **Capítulo 7.8 (Anexo Técnico · Seguridad en IA, Modelos de Lenguaje y Agentes)**, verificá que puedas redactar el alcance y el protocolo *Stop-and-Notify* de un RoE, calcular el retorno de un control con SLE/ARO/ALE, distinguir ISO 27001, NIST CSF 2.0, PCI-DSS v4.0, SOC 2, NIS2/DORA e ISO/IEC 42001, y explicar el flujo de notificación a 72 horas y cadena de custodia.
 :::
 
 ## Referencias y estándares abiertos

@@ -69,6 +69,18 @@ Un volcado de memoria (`.raw`, `.dmp`, `.vmem`) conserva estado vivo que nunca e
 | `windows.netscan` | Sockets TCP/UDP abiertos, puertos locales y direcciones remotas por PID. | Sesiones `ESTABLISHED` desde procesos sin función de red (`notepad.exe`, `regsvr32.exe`). |
 | `windows.malfind` | Regiones de memoria privada con permisos `PAGE_EXECUTE_READWRITE` sin archivo PE respaldado en disco. | Indicios de inyección de código en memoria o desensamblado no respaldado por módulo legítimo. |
 
+#### Plugins de Volatility 3 para Linux (flujo complementario con `LiME`)
+
+En servidores Linux, tras capturar la memoria física en vivo con **LiME** (generando un volcado `.lime` junto con el archivo de símbolos **ISF** —*Intermediate Symbol Format*— correspondiente a la versión exacta del kernel), **Volatility 3** ofrece plugins específicos para reconstruir el estado volátil:
+
+| Plugin de Volatility 3 (Linux) | Qué extrae de la imagen `.lime` | Señal típica de alerta (Purple Team) |
+|---|---|---|
+| `linux.pslist` | Lista de estructuras `task_struct` de procesos en ejecución. | Procesos con nombres que imitan daemons del sistema (`[kworker]` falso) o ejecutándose desde `/tmp` / `/dev/shm`. |
+| `linux.pstree` | Árbol jerárquico padre-hijo (`PPID → PID`) de procesos Linux. | Intérpretes (`sh`, `bash`, `python3`) nacidos desde `nginx`, `apache2`, `java` o `postgres`. |
+| `linux.bash` | Historial de comandos recuperado directamente de la memoria de procesos `bash`. | Comandos ejecutados incluso cuando el atacante truncó `~/.bash_history` o desactivó `HISTFILE`. |
+| `linux.lsmod` | Módulos del kernel (`LKM`) cargados y enlazados en memoria. | Módulos no firmados o desconocidos cargados tras el compromiso (*rootkits* de kernel). |
+| `linux.sockstat` | Descriptores de sockets abiertos (TCP, UDP, Unix) asociados a cada PID. | *Reverse shells* activas o conexiones salientes desde servicios que no deberían iniciar tráfico externo. |
+
 *(Puente con la obra hermana: si querés profundizar en cómo Windows representa internamente los objetos `_EPROCESS`, el VAD (*Virtual Address Descriptor*), las colmenas del Registro, servicios, COM/RPC y ETW en el kernel, consultá la **Rama 2D · Windows Internals y Virtualización** de [Curso de Reversing en Windows](../../CLS_Guia/2d.html) dentro del paquete hermano).*
 
 ### Adquisición forense, artefactos de navegador y detección de antiforense
@@ -81,6 +93,23 @@ Una investigación DFIR robusta no solo analiza una instantánea aislada de memo
   - **Borrado de registros de eventos:** Limpiar *Security* (`Event ID 1102`) o *System* (`Event ID 104`) en Windows destruye eventos previos, pero el propio borrado genera de inmediato un evento de auditoría de limpieza, al igual que las brechas temporales abruptas en la secuencia de `RecordNumber` o en `/var/log/` truncado en Linux.
   - **Alternate Data Streams (`ADS`) en NTFS:** Permiten adjuntar contenido oculto detrás del flujo principal (`archivo.txt:oculto`), incluyendo el indicador legítimo `Zone.Identifier` que registra desde qué URL fue descargado un archivo. Se auditan con `dir /r` o `Get-Item -Path <ruta> -Stream *` en PowerShell.
   - **Timestomping:** Alterar fechas de modificación visibles no siempre actualiza simultáneamente ambos conjuntos de metadatos en NTFS; comparar las marcas de `$STANDARD_INFORMATION` frente a `$FILE_NAME` dentro de la `$MFT` suele delatar la discrepancia cronológica, al igual que rastrear remanentes en `$UsnJrnl` de utilidades de *artifact wiping*.
+
+### Detección en runtime Linux con eBPF / Falco (complemento moderno a `auditd`)
+
+Mientras `auditd` registra llamadas al sistema (`execve`, `openat`) principalmente para auditoría histórica en disco —con mayor costo de rendimiento bajo cargas intensivas—, los motores basados en **eBPF** (*extended Berkeley Packet Filter*) como **Falco** inspeccionan eventos directamente en el espacio del kernel en tiempo real con sobrecarga mínima y contexto enriquecido (proceso padre, usuario, cgroup y contenedor). Desde un enfoque **Purple Team**, podés validar qué telemetría dispara una regla ante un comportamiento anómalo antes de que el atacante borre logs locales:
+
+```yaml
+# Regla Falco (eBPF): alertar cuando un servidor web genera una shell o lee /etc/shadow
+- rule: Shell o lectura sensible desde servidor web
+  desc: Detecta procesos hijos de shell o lectura de /etc/shadow lanzados por servicios web
+  condition: >
+    spawned_process and proc.pname in (nginx, apache2, node, gunicorn) and
+    (proc.name in (sh, bash, dash, python3) or fd.name = "/etc/shadow")
+  output: >
+    Actividad sospechosa en runtime (user=%user.name parent=%proc.pname
+    cmd=%proc.cmdline container=%container.name)
+  priority: CRITICAL
+```
 
 ## 5. Ejemplo paso a paso: cadena de custodia, línea temporal MACB y Volatility 3
 

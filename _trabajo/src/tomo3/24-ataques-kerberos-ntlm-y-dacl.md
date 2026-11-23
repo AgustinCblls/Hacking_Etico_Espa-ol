@@ -111,6 +111,23 @@ pypykatz lsa minidump /ruta/lab/lsass_dump.dmp
 3. **Deshabilitar WDigest en claro (`UseLogonCredential = 0`)** y aplicar estrictamente **Tiering** para impedir que administradores de Dominio inicien sesión en servidores de nivel inferior.
 :::
 
+### Reutilización y falsificación de credenciales: PtH, Overpass-the-Hash, PtT y tickets forjados
+
+Cuando una evaluación o un incidente expone hashes NT, claves AES, tickets Kerberos en memoria o el secreto de la cuenta **`krbtgt`**, el riesgo pasa del acceso inicial a la persistencia y el movimiento lateral sin necesidad de conocer contraseñas en texto claro:
+
+| Técnica | Material criptográfico utilizado | Mecanismo técnico y alcance | Detección prioritaria en SIEM y mitigación |
+|---|---|---|---|
+| **Pass-the-Hash (PtH)** | Hash NT (RC4) de usuario local o de dominio. | Reutiliza el hash NT directamente para completar el desafío-respuesta NTLM hacia servicios remotos (SMB, WMI, WinRM) sin descifrar la contraseña. | **Event ID `4624` (`Logon Type 9` / `NewCredentials`)** en el origen al clonar sesión o `Logon Type 3` con autenticación NTLM en destino. Mitigar con **Windows LAPS**, `Protected Users` y restricción de NTLM. |
+| **Overpass-the-Hash (Pass-the-Key)** | Hash NT o clave **AES-128 / AES-256** del usuario. | Usa la clave derivada para firmar el timestamp del `AS-REQ` y obtener del KDC un **TGT Kerberos legítimo**, evitando tráfico NTLM hacia el servidor destino. | **Event ID `4768`** con **`Ticket Encryption Type: 0x17` (RC4)** en dominios que operan con AES, junto a `4624` (`Logon Type 9`). Exigir AES-256 y `Protected Users`. |
+| **Pass-the-Ticket (PtT)** | Ticket TGT o TGS exportado (`.kirbi` en Windows / `.ccache` vía `KRB5CCNAME` en Linux). | Inyecta un ticket vigente extraído de `lsass.exe` en otra sesión para suplantar al usuario hasta que expire el ticket, sin usar su contraseña ni su hash. | **Event ID `4624` (`Logon Type 9`)** en el host que inyecta el ticket y uso de un mismo TGT desde IPs distintas en **`4769`**. Mitigar con **RunAsPPL**, **Credential Guard** y límites de vida de TGT. |
+| **Golden Ticket** | Hash NT o clave AES de la cuenta **`krbtgt`** (obtenido vía DCSync). | Permite forjar offline un **TGT** para cualquier identidad (real o inexistente) con un **PAC** arbitrario de `Domain Admins` / `Enterprise Admins` o `sIDHistory`. | Solicitudes **`4769`** sin un **`4768`** previo coherente, algoritmos RC4 (`0x17`), nombres de cuenta inexistentes o tiempos de vida de ticket anómalos. Erradicar únicamente con la **doble rotación de `krbtgt`** (Cap. 3.8). |
+| **Silver Ticket** | Hash NT o clave AES de la cuenta dueña de un **SPN** (servicio o equipo). | Permite forjar offline un **TGS** únicamente válido para ese servicio puntual sin contactar al KDC; el servidor destino descifra el ticket con su propia clave y confía en el PAC si no valida contra el DC. | Ausencia total de **`4769`** en el KDC frente a un **`4624` (`Logon Type 3`, Kerberos)** registrado en el servidor destino, o anomalías de firma PAC (`PAC Validation`). Rotar la clave de la cuenta del servicio o migrar a **gMSA**. |
+| **Diamond / Sapphire Ticket** | Clave AES/NT de **`krbtgt`** (y en Sapphire, consulta S4U2self + U2U al KDC). | Técnicas diseñadas para evadir detecciones simples de Golden Tickets: **Diamond** solicita un TGT real al KDC (`4768` legítimo), lo descifra con `krbtgt`, altera únicamente el PAC y lo recifra; **Sapphire** obtiene además un PAC real y completo de un usuario objetivo mediante S4U2self antes de reempaquetar el TGT. | Correlacionar en **`4768` / `4769`** anomalías sutiles de cuenta y duración, solicitudes S4U2self inusuales desde equipos no autorizados y alertas previas de **DCSync (`4662`)**. Su remediación definitiva también exige la **doble rotación de `krbtgt`** descrita en el Cap. 3.8. |
+
+::: aviso Por qué la doble rotación de `krbtgt` es obligatoria ante Golden, Diamond o Sapphire Tickets
+El KDC conserva válidas tanto la clave actual (`N`) como la inmediatamente anterior (`N-1`) de `krbtgt` para no interrumpir sesiones vigentes. Por eso, si un actor comprometió `krbtgt` (habilitando Golden, Diamond o Sapphire Tickets), rotar la contraseña una sola vez deja los tickets forjados aún válidos contra `N-1`: debés ejecutar **dos rotaciones consecutivas** respetando el intervalo máximo de vida del TGT (Cap. 3.8).
+:::
+
 ## 5. Ejemplo paso a paso: auditoría de DACLs, delegación y firma con PowerShell
 
 Este script de diagnóstico defensivo verifica en segundos el estado de delegación Kerberos, permisos de replicación en la raíz del dominio y configuración de firma SMB/LDAP:

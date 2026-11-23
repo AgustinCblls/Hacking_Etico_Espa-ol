@@ -132,6 +132,25 @@ Además de SQL y comandos OS, el principio de **separación código/datos** apli
 2. **Inyección XPath (*XPath Injection*):** análoga a SQLi pero sobre consultas a documentos XML (`//usuario[nombre='...' and clave='...']/rol`). **Mitigación:** usar consultas XPath **parametrizadas** (variables vinculadas por la API XML) o listas blancas estrictas alfanuméricas.
 3. **Server-Side Includes (SSI) y Expression Language Injection (ELI):** ocurren cuando un servidor HTML antiguo evalúa directivas `<!--#exec ...-->` o un backend Java/Spring evalúa expresiones `${...}` suministradas por el cliente. **Mitigación:** deshabilitar SSI en el servidor web si no es indispensable y nunca evaluar entrada del cliente como expresión del framework.
 
+### Confirmación controlada de inyecciones ciegas y pruebas Out-of-Band (OAST)
+
+En auditorías reales, muchas inyecciones no devuelven mensajes de error ni muestran datos en la respuesta HTTP (*Blind Injection*). En un laboratorio aislado y autorizado, la confirmación debe hacerse con **pruebas mínimas, reproducibles y no destructivas** que demuestren la causa raíz sin provocar denegación de servicio (DoS) ni alterar registros:
+
+1. **SQLi ciega: inferencia booleana frente a inferencia temporal controlada**
+   - **Inferencia booleana (*Boolean-Blind*):** es siempre la primera opción porque no introduce carga ni latencia en el motor de base de datos. Se comparan dos expresiones lógicas inocuas (por ejemplo, una condición que evalúa a verdadero frente a otra que evalúa a falso) y se observa si la respuesta HTTP cambia de forma consistente en código de estado, longitud o texto funcional.
+   - **Inferencia temporal controlada (*Time-Blind*):** se usa únicamente cuando la respuesta HTTP es idéntica para verdadero y falso. Debe emplear una pausa **breve y acotada** (típicamente de 2 a 3 segundos, nunca bucles de cómputo pesado ni demoras largas que saturen el *pool* de conexiones de la aplicación) y repetirse con dos valores distintos de retardo (ej. 2 s frente a 4 s) para descartar ruido de red antes de confirmar el hallazgo.
+
+2. **Confirmación fuera de banda (OAST / OOB) para *Blind OS Command Injection***
+   - Cuando la aplicación invoca un subproceso del sistema operativo en segundo plano (por ejemplo, mediante `shell=True`) y descarta por completo la salida estándar (`stdout`/`stderr`) o responde de manera asíncrona, ni la respuesta HTTP ni el tiempo de espera confirman con certeza la ejecución.
+   - La técnica **OAST (*Out-of-Band Application Security Testing*)** utiliza un servidor de escucha controlado dentro de la red aislada del laboratorio —como una instancia local de **`interactsh`**, *Burp Collaborator* en entorno privado o un receptor HTTP/DNS propio— para detectar si el servidor auditado inicia una conexión saliente al procesar el parámetro.
+   - En lugar de ejecutar comandos invasivos o destructivos, se valida el canal con un identificador único de prueba mediante una resolución DNS mínima o una petición HTTP controlada hacia el listener del laboratorio (por ejemplo, `nslookup <token_unico>.oob.lab.local` o `curl -fsS http://127.0.0.1:9090/<token_unico>`). Recibir el registro DNS o HTTP con `<token_unico>` en el servidor de escucha confirma de forma inequívoca la inyección de comandos sin leer ni modificar archivos del servidor.
+
+::: defensa Telemetría y mitigación frente a inyecciones ciegas y canales OOB (Purple Team)
+- **Causa raíz:** concatenación de entrada no confiable en consultas SQL o en invocaciones de shell (`shell=True`), combinada con ausencia de restricciones de red saliente en el servidor de aplicaciones.
+- **Detección (Blue Team):** en host, correlacionar alertas de **Sysmon (Event ID 1)** o **`auditd`** cuando un proceso web (`gunicorn`, `nginx`, `node`, `java`) genera procesos hijos inesperados (`sh`, `bash`, `nslookup`, `dig`, `curl`); en red y DNS, alertar sobre consultas DNS salientes hacia subdominios de alta entropía o conexiones HTTP originadas por el backend hacia destinos no declarados.
+- **Mitigación:** además de aplicar parametrización SQL y `subprocess.run(..., shell=False)`, implementá **políticas estrictas de *egress* (filtrado de salida)** en firewall y Kubernetes/contenedores para bloquear resoluciones DNS externas arbitrarias y tráfico HTTP saliente no autorizado desde los servidores de aplicación.
+:::
+
 ### Uso metódico y controlado de SQLMap en auditorías autorizadas
 
 Cuando necesitás validar un hallazgo potencial de SQL Injection durante una auditoría autorizada en laboratorio (tras haber entendido el mecanismo manual), **`sqlmap`** automatiza la detección y enumeración controlada siempre que fijes parámetros prudentes:

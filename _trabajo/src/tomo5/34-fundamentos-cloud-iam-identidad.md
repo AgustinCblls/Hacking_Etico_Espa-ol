@@ -149,6 +149,16 @@ Permisos como `iam:CreateAccessKey`, `iam:CreateLoginProfile` o `iam:UpdateLogin
 | `iam:AttachUserPolicy` / `AttachRolePolicy` | Autoasignación de políticas administrativas predefinidas | Limitar mediante SCP o restringir a prefijos de roles no privilegiados |
 | `iam:CreateAccessKey` | Generación de credenciales estáticas sobre otras identidades | Restringir `Resource` a `arn:aws:iam::*:user/${aws:username}` o bloquear vía SCP |
 
+### Comparativa Multi-Cloud: Primitivas de Escalada IAM y Protección de Metadatos (IMDS)
+
+Aunque cada proveedor utiliza su propia nomenclatura, los patrones de abuso de identidad y exposición de credenciales locales mediante metadatos presentan equivalencias directas en **AWS**, **Azure / Entra ID** y **GCP** (cuyo detalle de red e IMDS profundizás en el capítulo siguiente):
+
+| Proveedor | Primitivas frecuentes de escalada IAM | Protección del plano de metadatos (IMDS) | Control Purple Team clave |
+| :--- | :--- | :--- | :--- |
+| **AWS** | `iam:PassRole` + cómputo, `sts:AssumeRole` por *Trust Policy* amplia, `iam:CreatePolicyVersion` (`SetAsDefault`). | **IMDSv2 obligatorio (`HttpTokens: required`)**: exige `PUT` con `X-aws-ec2-metadata-token` y `HopLimit = 1`. | Imponer SCP organizacional contra IMDSv1, *Permissions Boundaries* y alertas en CloudTrail ante `AssumeRole` / `CreatePolicyVersion`. |
+| **Azure / Entra ID** | Abuso de *App Registrations* / *Service Principals* (secretos o roles `Owner`/`Contributor`) y *Consent Phishing* OAuth. | **IMDS de Azure (`169.254.169.254`)**: exige cabecera obligatoria `Metadata: true` en cada solicitud HTTP para tokens de *Managed Identity*. | Restringir creación de *App Registrations* por usuarios estándar, exigir *Admin Consent* y aplicar *Conditional Access* sobre identidades humanas y cargas. |
+| **GCP** | `iam.serviceAccounts.actAs` (adjuntar una *Service Account* privilegiada a Compute/Cloud Functions) y `setIamPolicy` sobre proyecto/carpeta. | **Metadata Server (`metadata.google.internal` / `169.254.169.254`)**: exige obligatoriamente la cabecera `Metadata-Flavor: Google` y rechaza `X-Forwarded-For`. | Acotar `actAs` a *Service Accounts* mínimas, bloquear `setIamPolicy` fuera de IaC y auditar `SetIamPolicy` en Cloud Audit Logs. |
+
 ## Identidad Híbrida y Moderna: Microsoft Entra ID
 
 En ecosistemas empresariales, la identidad suele originarse en un directorio corporativo centralizado sincronizado con la nube. **Microsoft Entra ID** (anteriormente Azure Active Directory) funciona como el proveedor de identidad (IdP) central para Azure, Microsoft 365 y aplicaciones federadas por **SAML 2.0** u **OpenID Connect (OIDC)** hacia AWS o GCP.

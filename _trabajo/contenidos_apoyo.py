@@ -43,7 +43,7 @@ sudo tcpdump -i eth0 host 192.168.56.10 and port 80 -w captura_lab.pcap</code></
 <tr><td>Versión del SO / kernel</td><td><code>uname -a; cat /etc/os-release</code></td><td><code>systeminfo | findstr /B /C:"OS"</code></td></tr>
 <tr><td>Puertos en escucha local</td><td><code>ss -tulnp</code></td><td><code>netstat -ano</code> / <code>Get-NetTCPConnection</code></td></tr>
 <tr><td>Procesos en ejecución</td><td><code>ps auxf</code></td><td><code>Get-Process</code> / <code>tasklist /v</code></td></tr>
-<tr><td>Servicios activos</td><td><code>systemctl list-units --type=service --state=running</code></td><td><code>Get-Service | Where Status -eq Running</code></td></tr>
+<tr><td>Servicios activos</td><td><code>systemctl list-units --type=service --state=running</code></td><td><code>Get-Service | Where-Object {$_.Status -eq 'Running'}</code></td></tr>
 <tr><td>Tareas programadas</td><td><code>crontab -l; ls -la /etc/cron*</code></td><td><code>schtasks /query /fo LIST /v</code></td></tr>
 <tr><td>Binarios SUID / Permisos</td><td><code>find / -perm -4000 2&gt;/dev/null</code></td><td><code>icacls "C:\\Ruta\\Servicio"</code></td></tr>
 <tr><td>Logs recientes del sistema</td><td><code>journalctl -u ssh -n 50 --no-pager</code></td><td><code>Get-WinEvent -LogName Security -MaxEvents 20</code></td></tr>
@@ -174,6 +174,35 @@ semgrep --config auto ./mi_proyecto_lab/</code></pre>
 <pre><code class="lenguaje-bash"># Descompilar un APK de prueba en laboratorio e inspeccionar firmware embebido
 jadx -d ./salida_apk/ muestra_lab.apk
 binwalk -e firmware_lab.bin</code></pre>
+
+<h2 id="cs-ia-modern">10. Seguridad en IA/LLMs, OAST, PQC, SaaS/BEC y AiTM</h2>
+<div class="tabla"><table>
+<thead><tr><th>Vector o estándar 2026</th><th>Riesgo / Mecanismo clave</th><th>Control determinista y detección</th></tr></thead>
+<tbody>
+<tr><td><strong>Prompt Injection / RAG / MCP</strong></td><td>Instrucciones no confiables en contexto web/documentos o invocación excesiva de herramientas.</td><td>Separar instrucciones de datos, filtrar permisos por tenant antes de inyectar RAG, <em>Human-in-the-Loop</em> y listas blancas fuera del LLM.</td></tr>
+<tr><td><strong>Pruebas OAST / OOB</strong></td><td>Confirmación de Blind SSRF, XXE, CMDi y Log4Shell mediante DNS/HTTP hacia servidor local de prueba.</td><td>Restringir tráfico saliente (<em>egress filtering</em> DNS/HTTP) en servidores de backend y auditar peticiones anómalas.</td></tr>
+<tr><td><strong>PQC (ML-KEM / ML-DSA)</strong></td><td>Riesgo <em>Harvest Now, Decrypt Later</em> sobre tráfico TLS clásico capturado hoy.</td><td>Adoptar <em>Crypto-Agility</em> e intercambio híbrido TLS 1.3 (<code>X25519MLKEM768</code>) según estándares NIST PQC.</td></tr>
+<tr><td><strong>BEC y OAuth Consent Grants</strong></td><td>Aplicaciones de terceros con permisos <code>Mail.Read</code>/<code>Files.Read.All</code> o reglas ocultas de reenvío en M365/Workspace.</td><td>Restringir consentimiento de aplicaciones a administradores, revisar <em>Unified Audit Log</em> y alertar reglas de buzón nuevas.</td></tr>
+<tr><td><strong>Proxies inversos AiTM</strong></td><td>Proxy intermedio que captura cookies autenticadas tras superar TOTP o SMS.</td><td>MFA resistente a phishing (<strong>FIDO2/WebAuthn</strong>), <em>Conditional Access</em> por dispositivo compatible y <em>Token Protection</em>.</td></tr>
+</tbody></table></div>
+
+<h2 id="cs-kit-laboratorios">11. Índice maestro del kit <code>laboratorios/</code> (Mapa archivo ↔ capítulo)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Archivo en <code>laboratorios/</code></th><th>Capítulos</th><th>Objetivo práctico principal</th></tr></thead>
+<tbody>
+<tr><td><code>docker-compose.yml</code> · <code>app_lab_educativa.py</code></td><td>1.1, 1.8, 2.2–2.6</td><td>Stack local en <code>127.0.0.1</code> (Flask/SQLite seguro, Nginx y perfil opcional OWASP Juice Shop).</td></tr>
+<tr><td><code>auditor_red_local.py</code> · <code>diccionario_web_lab.txt</code></td><td>1.6, 2.1, 2.2</td><td>Escaneo TCP restringido a loopback/RFC 1918 y lista controlada de fuzzing HTTP con <code>ffuf</code>.</td></tr>
+<tr><td><code>auditor_whitebox_codereview.py</code></td><td>2.7, 6.4</td><td>Auditor AST Python para detectar sumideros peligrosos (<code>eval</code>, <code>pickle</code>, <code>shell=True</code>, SQL concatenado).</td></tr>
+<tr><td><code>analizador_logs_soc.py</code></td><td>1.6, 4.3, 4.6</td><td>Parser defensivo de bitácoras SSH/HTTP con emisión JSON de alertas (<code>SOC-AUTH-001</code>, <code>SOC-WEB-002</code>).</td></tr>
+<tr><td><code>sysmon_config_lab.xml</code> · <code>suricata_lab.rules</code></td><td>4.2, 4.4</td><td>Configuración base Sysmon v4.90 y 4 reglas IDS Suricata locales comentadas.</td></tr>
+<tr><td><code>reglas_sigma_ejemplo.yml</code> · <code>reglas_yara_ejemplo.yar</code></td><td>4.5, 4.8</td><td>Regla Sigma portátil (PowerShell codificado) y firma YARA de triage estático.</td></tr>
+<tr><td><code>muestras/auth_ssh_simulado.log</code> · <code>web_access_simulado.log</code></td><td>1.5, 1.6, 2.2, 4.3, 4.6</td><td>Registros simulados con IPs RFC 5737 listos para validar alertas SOC sin ruido real.</td></tr>
+<tr><td><code>muestras/correo_phishing_simulado.eml</code> · <code>muestra_triage_inofensiva.txt</code></td><td>4.6, 4.8</td><td>Triage pasivo de SPF/DKIM/DMARC y desofuscación estática UTF-16LE segura con YARA.</td></tr>
+<tr><td><code>Dockerfile.lab_seguro</code> · <code>k8s_pod_hardening.yaml</code> · <code>iac_cloud_hardening.tf</code></td><td>5.1–5.5</td><td>Manifiestos endurecidos para Docker rootless, Kubernetes <em>Restricted</em> y Terraform con <code>IMDSv2</code>.</td></tr>
+<tr><td><code>plantilla_informe_pentest.md</code> · <code>plantilla_informe_incidente.md</code></td><td>2.8, 4.1, 4.8, 7.7</td><td>Formatos reproducibles de informe técnico/ejecutivo (CVSS/CWE) y respuesta a incidentes (NIST 800-61).</td></tr>
+<tr><td><code>plantilla_threat_model_stride.md</code> · <code>plantilla_roe_alcance.md</code></td><td>2.8, 6.3, 7.7</td><td>Modelado STRIDE/DFD/ASVS y contrato operativo RoE con protocolo <em>Stop-and-Notify</em>.</td></tr>
+<tr><td><code>lab_rag_mcp_seguro.py</code></td><td>7.8</td><td>Simulador local 100 % Python de flujo RAG multi-tenant y Tool Calling/MCP con guardrails deterministas y auditoría JSON.</td></tr>
+</tbody></table></div>
 """
 
 GLOSARIO_ITEMS = [
@@ -293,6 +322,18 @@ GLOSARIO_ITEMS = [
     ("WPA3-SAE", "Estándar Wi-Fi moderno basado en Simultaneous Authentication of Equals (Dragonfly) que sustituye PSK clásico e impide ataques de diccionario offline tras capturar un handshake."),
     ("Bug Bounty / VDP", "Programas públicos o privados (HackerOne, Bugcrowd, Intigriti) donde investigadores reportan vulnerabilidades dentro de una Policy y Scope explícitos a cambio de recompensas o reconocimiento (VDP)."),
     ("Subdomain Takeover", "Vulnerabilidad que ocurre cuando un registro DNS CNAME apunta a un recurso SaaS o Cloud externo dado de baja y aún reclamable, permitiendo servir contenido bajo el subdominio de la organización."),
+    ("AiTM (Adversary-in-the-Middle)", "Ataque de intermediación mediante proxy inverso en phishing moderno que captura credenciales y la cookie de sesión ya autenticada tras superar MFA débil (SMS/TOTP), neutralizable con FIDO2/WebAuthn."),
+    ("BEC (Business Email Compromise)", "Compromiso o suplantación de buzones corporativos (por phishing, robo de sesión o abuso de permisos OAuth) para desviar pagos, facturas o datos sensibles mediante reglas ocultas de correo."),
+    ("Criptografía Post-Cuántica (PQC)", "Algoritmos matemáticos resistentes a computadoras cuánticas estandarizados por NIST (como ML-KEM para intercambio de claves y ML-DSA para firmas digitales) frente a la amenaza Harvest Now, Decrypt Later."),
+    ("Crypto-Agility", "Capacidad arquitectónica de una aplicación o infraestructura para sustituir algoritmos, longitudes de clave o protocolos criptográficos sin rediseñar el sistema completo."),
+    ("Diamond / Sapphire Ticket", "Variantes avanzadas de falsificación Kerberos que parten de un TGT legítimo descifrado y re-cifrado con la clave krbtgt (Diamond) o mediante S4U2self (Sapphire) para mantener coherencia en el PAC."),
+    ("Guardrails (IA / LLMs)", "Controles deterministas y filtros de validación colocados antes y después de un modelo de lenguaje para bloquear prompt injections, fugas de PII y salidas peligrosas antes de ejecutar acciones."),
+    ("Harvest Now, Decrypt Later", "Modelo de amenaza donde un adversario almacena hoy tráfico cifrado con intercambio clásico para descifrarlo en el futuro cuando exista capacidad cuántica suficiente."),
+    ("MCP (Model Context Protocol)", "Protocolo abierto para conectar modelos de lenguaje con herramientas y fuentes de datos externas; requiere aislamiento estricto, mínimo privilegio y validación fuera del modelo."),
+    ("OAST / Out-of-Band (OOB)", "Out-of-band Application Security Testing. Técnica para confirmar vulnerabilidades ciegas (SSRF, XXE, Command Injection) provocando una petición DNS o HTTP verificable hacia un servidor controlado del laboratorio."),
+    ("OAuth Consent Grant (Illicit)", "Técnica donde una aplicación de terceros solicita permisos delegados excesivos en M365 o Google Workspace (ej. Mail.Read, Files.Read.All) para acceder a datos sin robar la contraseña del usuario."),
+    ("Prompt Injection (Directa / Indirecta)", "Inyección de instrucciones en un LLM: directa desde el chat del usuario, o indirecta oculta dentro de páginas web, correos o documentos recuperados por RAG o agentes."),
+    ("RAG (Retrieval-Augmented Generation)", "Arquitectura que recupera fragmentos desde una base documental o vectorial para dárselos como contexto a un LLM; exige verificar permisos por documento antes de recuperar e inyectar el texto."),
 ]
 
 LABORATORIOS_HTML = """
@@ -329,13 +370,15 @@ LABORATORIOS_HTML = """
 <tr><td><a href="laboratorios/iac_cloud_hardening.tf"><code>iac_cloud_hardening.tf</code></a></td><td>Cap. 5.1, 5.2 y 5.5</td><td>Plantilla Terraform con bloqueo público S3, cifrado en reposo y exigencia obligatoria de tokens <code>IMDSv2</code>.</td></tr>
 <tr><td><a href="laboratorios/plantilla_threat_model_stride.md"><code>plantilla_threat_model_stride.md</code></a></td><td>Cap. 6.3</td><td>Plantilla lista para construir Diagramas de Flujo de Datos, matriz STRIDE, árboles de ataque y controles ASVS.</td></tr>
 <tr><td><a href="laboratorios/plantilla_roe_alcance.md"><code>plantilla_roe_alcance.md</code></a></td><td>Cap. 2.8 y 7.7</td><td>Plantilla de <em>Rules of Engagement</em> (RoE), exclusiones, protocolo <em>stop-and-notify</em> y firmas de autorización escrita.</td></tr>
+<tr><td><a href="laboratorios/lab_rag_mcp_seguro.py"><code>lab_rag_mcp_seguro.py</code></a></td><td>Cap. 7.8</td><td>Simulador educativo 100 % local en Python 3 para probar filtrado RAG multi-tenant, cuarentena de inyección indirecta y validación determinista de herramientas/MCP.</td></tr>
 </tbody></table></div>
 
 <h2 id="arranque-rapido-lab">Arranque rápido y pruebas verificables sin descargas externas</h2>
-<pre><code class="lenguaje-bash"># 1. Probar de inmediato el analizador SOC y el auditor White-Box AST desde la raíz del curso
+<pre><code class="lenguaje-bash"># 1. Probar de inmediato el analizador SOC, el auditor White-Box AST y el lab RAG/MCP desde la raíz
 python laboratorios/analizador_logs_soc.py laboratorios/muestras/auth_ssh_simulado.log 5
 python laboratorios/analizador_logs_soc.py laboratorios/muestras/web_access_simulado.log 4
 python laboratorios/auditor_whitebox_codereview.py ./laboratorios/
+python laboratorios/lab_rag_mcp_seguro.py
 
 # 2. Levantar la app educativa y Nginx localmente (solo en 127.0.0.1)
 cd laboratorios
@@ -359,20 +402,21 @@ FUENTES_LIMITES_HTML = """
 
 <h2 id="origen-temario">Cómo se construyó el mapa curricular (transparencia total)</h2>
 <p>Para garantizar que el curso cubra habilidades reales demandadas en roles técnicos (Pentester, Analista Web, Especialista en Active Directory, Analista SOC e Ingeniero de Detección), se relevó únicamente la <strong>taxonomía pública</strong> de 358 módulos y 25 rutas de estudio del catálogo abierto de Hack The Box Academy (títulos, dificultades, categorías y agrupación de rutas) sin utilizar credenciales privadas ni reproducir texto, ejercicios o material propietario de terceros.</p>
-<p>A partir de esa taxonomía y de los estándares internacionales abiertos de referencia, la obra consolidó <strong>54 capítulos originales distribuidos en 7 Tomos</strong>, redactados íntegramente desde documentación primaria y guías técnicas verificables.</p>
+<p>A partir de esa taxonomía y de los estándares internacionales abiertos de referencia, la obra consolidó <strong>55 capítulos originales distribuidos en 7 Tomos</strong>, redactados íntegramente desde documentación primaria y guías técnicas verificables.</p>
 
 <h2 id="estandares-abiertos">Estándares abiertos y documentación primaria de referencia</h2>
 <div class="tabla"><table>
 <thead><tr><th>Área temática</th><th>Fuentes y estándares de referencia</th></tr></thead>
 <tbody>
-<tr><td><strong>Metodología, Threat Modeling y GRC</strong></td><td>NIST SP 800-115, PTES, FIRST CVSS v3.1/v4, EPSS, STRIDE, PASTA, ISO/IEC 27001, NIST CSF 2.0, PCI-DSS v4.0 y GDPR.</td></tr>
-<tr><td><strong>Redes, Criptografía y Protocolos</strong></td><td>RFC 791 (IPv4), RFC 9293 (TCP), RFC 1035 (DNS), RFC 9110/9112 (HTTP), RFC 8446 (TLS 1.3), RFC 5280 (X.509 PKI), NIST SP 800-52 Rev. 2, NIST SP 800-38D (AES-GCM), Nmap, tcpdump y Wireshark.</td></tr>
+<tr><td><strong>Metodología, Threat Modeling y GRC</strong></td><td>NIST SP 800-115, PTES, FIRST CVSS v3.1/v4, EPSS, STRIDE, PASTA, ISO/IEC 27001, NIST CSF 2.0, PCI-DSS v4.0, SOC 2, NIS2, DORA y GDPR.</td></tr>
+<tr><td><strong>Redes, Criptografía y Protocolos</strong></td><td>RFC 791 (IPv4), RFC 9293 (TCP), RFC 1035 (DNS), RFC 9110/9112 (HTTP), RFC 8446 (TLS 1.3), RFC 5280 (X.509 PKI), NIST SP 800-52 Rev. 2, NIST SP 800-38D (AES-GCM), NIST FIPS 203/204 (PQC), Nmap, tcpdump y Wireshark.</td></tr>
 <tr><td><strong>Sistemas Operativos y Hardening</strong></td><td>Linux man-pages, documentación de systemd/auditd/AppArmor, CIS Benchmarks, Microsoft Learn (Windows Security, NTFS, PowerShell, WinEvent, Sysinternals).</td></tr>
 <tr><td><strong>Seguridad Web, APIs y Code Review</strong></td><td>OWASP Top 10, OWASP API Security Top 10, OWASP Web Security Testing Guide (WSTG), OWASP ASVS, OWASP Code Review Guide, OWASP Cheat Sheet Series, RFC 7519 (JWT) y RFC 6749/9700 (OAuth 2.0).</td></tr>
 <tr><td><strong>Active Directory, Red Team y OPSEC</strong></td><td>RFC 4120 (Kerberos v5), RFC 4556 (PKINIT), Microsoft Learn (AD DS, ADCS, Protected Users, gMSA, Tiering, Windows LAPS, MS-DRSR, AMSI/ETW), LOLBAS, GTFOBins y NIST SP 800-63B.</td></tr>
 <tr><td><strong>SOC, SIEM, NSM, Detection &amp; DFIR</strong></td><td>NIST SP 800-61 Rev. 3 (Incident Handling), MITRE ATT&amp;CK / CAR / D3FEND, RFC 3227, RFC 7208/6376/7489 (SPF/DKIM/DMARC), SigmaHQ, YARA, Suricata, Zeek, Elastic ECS, Splunk CIM y Volatility 3.</td></tr>
 <tr><td><strong>Cloud, Contenedores y DevSecOps</strong></td><td>AWS/Azure/GCP Security &amp; Well-Architected Docs, CIS Docker &amp; Kubernetes Benchmarks, Kubernetes Pod Security Standards, Terraform/Trivy/Sigstore y OWASP CI/CD Security Risks.</td></tr>
 <tr><td><strong>Mobile, Wireless, IoT y OT/ICS</strong></td><td>OWASP MASTG / MASVS (Android/iOS), IEEE 802.11 (WEP/WPA2/WPA3-SAE/802.1X), IEC 62443 / NIST SP 800-82 (OT/ICS y Modelo Purdue).</td></tr>
+<tr><td><strong>Inteligencia Artificial, LLMs y Agentes</strong></td><td>OWASP Top 10 for LLM Applications, MITRE ATLAS, NIST AI RMF 1.0 / AI 600-1, ISO/IEC 42001 y especificaciones de seguridad para MCP.</td></tr>
 </tbody></table></div>
 
 <h2 id="puente-cls-guia">Puente curricular con la obra hermana: Curso de Reversing en Windows</h2>
@@ -388,16 +432,15 @@ FUENTES_LIMITES_HTML = """
 
 <h2 id="alcance-y-exclusiones">Alcance integral de la Edición 2.0 (Hiper Biblioteca)</h2>
 <ul>
-  <li><strong>Incluido en profundidad (332 módulos HTB mapeados + expansión integral → 54 capítulos en 7 Tomos):</strong>
+  <li><strong>Incluido en profundidad (348 módulos HTB mapeados + expansión integral → 55 capítulos en 7 Tomos):</strong>
     <ul>
-      <li><strong>Tomos I–IV:</strong> Fundamentos de sistemas, redes y criptografía, Pentesting Web y APIs, Infraestructura/PrivEsc/Active Directory, SOC/SIEM/NSM/Sigma-YARA/Hunting/DFIR.</li>
-      <li><strong>Tomo V:</strong> Seguridad Multi-Cloud (AWS, Azure/Entra ID, GCP), Contenedores Docker, Kubernetes, CI/CD, DevSecOps, Telemetría y Forense Cloud (incluye los 17 módulos Cloud).</li>
-      <li><strong>Tomo VI:</strong> Web Avanzado nivel PortSwigger/WSTG (<em>Race Conditions</em> HTTP/2, <em>Cache Poisoning</em>, OAuth complejo, lógica de negocio, WebSockets, <em>DOM Clobbering</em>), Threat Modeling (STRIDE/PASTA), White-Box Code Review, Red Teaming/OPSEC/LOLBAS, arquitectura AV/EDR y Engineering Social controlada.</li>
-      <li><strong>Tomo VII:</strong> Mobile Android/iOS (OWASP MASTG, Frida, forense móvil — 9 módulos), Redes Inalámbricas Wi-Fi (WEP, WPS, WPA/WPA2/WPA3, 802.1X/RADIUS, Evil Twin — 11 módulos), Seguridad Física/Hardware/IoT, Entornos Industriales OT/ICS/SCADA (Purdue) y GRC/ISO 27001/NIST CSF/PCI-DSS/GDPR.</li>
+      <li><strong>Tomos I–IV:</strong> Fundamentos de sistemas, redes y criptografía (incl. PQC), Pentesting Web y APIs (incl. OAST), Infraestructura/PrivEsc/Active Directory (incl. IPv6 AD y ESC9–16), SOC/SIEM/NSM/Sigma-YARA/Hunting/DFIR (incl. Volatility Linux y eBPF/Falco).</li>
+      <li><strong>Tomo V:</strong> Seguridad Multi-Cloud (AWS, Azure/Entra ID, GCP), Contenedores Docker, Kubernetes (incl. Falco/Tetragon), CI/CD, DevSecOps, CSPM, Seguridad SaaS (M365/Workspace BEC y OAuth Grants) y Forense Cloud.</li>
+      <li><strong>Tomo VI:</strong> Web Avanzado nivel PortSwigger/WSTG (<em>Race Conditions</em> HTTP/2, <em>Cache Poisoning</em>, OAuth complejo, lógica de negocio, WebSockets, <em>DOM Clobbering</em>, <code>postMessage</code>/XS-Leaks y PDF headless SSRF), Threat Modeling (STRIDE/PASTA), White-Box Code Review, Red Teaming/OPSEC/LOLBAS, arquitectura AV/EDR e Ingeniería Social + proxies AiTM.</li>
+      <li><strong>Tomo VII:</strong> Mobile Android/iOS (OWASP MASTG, Frida, análisis estático <code>.ipa</code>, forense móvil), Redes Inalámbricas Wi-Fi (WEP, WPS, WPA/WPA2/WPA3, 802.1X/RADIUS, Evil Twin), Seguridad Física/Hardware/BLE/Sub-GHz/IoT, Entornos Industriales OT/ICS/SCADA (Purdue), GRC/ISO 27001/NIST CSF/SOC 2/NIS2/DORA/GDPR y <strong>Anexo Técnico de Seguridad en IA, LLMs y Agentes (16 módulos HTB integrados en Cap. 7.8)</strong>.</li>
     </ul>
   </li>
-  <li><strong>Puente con <code>Curso de Reversing</code> (10 módulos):</strong> Ensamblador, reversing de binarios, IDA Pro/Free, fuzzing binario y explotación de memoria remitidos directamente a <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><code>Curso de Reversing</code></a>.</li>
-  <li><strong>Anexo de referencia (16 módulos):</strong> Tópicos complementarios de seguridad en IA/LLM registrados en el catálogo maestro.</li>
+  <li><strong>Puente con <code>Curso de Reversing</code> (10 módulos):</strong> Ensamblador, reversing de binarios, IDA Pro/Free, fuzzing binario y explotación de memoria remitidos directamente a <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><code>Curso de Reversing en Windows</code></a>.</li>
 </ul>
 
 <h2 id="marco-etico">Marco legal, ético y de seguridad</h2>

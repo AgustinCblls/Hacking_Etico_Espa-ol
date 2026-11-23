@@ -124,6 +124,21 @@ def render_seguro(nombre_usuario):
     return render_template_string("<h1>Hola, {{ nombre }}</h1>", nombre=nombre_usuario)
 ```
 
+#### Identificación segura de motores de plantillas en SSTI (sondas aritméticas inocuas)
+
+Para confirmar si un parámetro es vulnerable a SSTI durante una auditoría autorizada **no se deben usar payloads destructivos ni llamadas a clases del sistema operativo**; basta con una secuencia breve de expresiones aritméticas inocuas:
+
+1. **Detectar evaluación:** enviá primero una expresión matemática simple como `{{7*7}}` o `${7*7}`. Si la aplicación devuelve `49` en lugar del texto literal, la entrada fue compilada como código de plantilla (causa raíz: concatenación previa al renderizado).
+2. **Diferenciar sintaxis y motor:** si `{{7*7}}` evaluó a `49`, distinguí entre motores como **Jinja2** y **Twig** con `{{7*'7'}}` (sin invocar módulos ni archivos). Si evaluó `${7*7}`, comprobá variantes específicas de **Freemarker** o **Thymeleaf**.
+3. **Documentar y remediar:** verificá que en alertas de WAF/logs queden bloqueadas estas expresiones en parámetros de texto y corregí el código pasando el dato dentro del diccionario de contexto de una plantilla estática.
+
+| Motor de plantillas | Sonda aritmética inocua | Resultado si es vulnerable | Comportamiento en patrón seguro |
+|---|---|---|---|
+| **Jinja2 (Python)** | `{{7*7}}` y luego `{{7*'7'}}` | `49` y `7777777` (repetición de cadena) | Se renderiza literal `{{7*'7'}}` (escapado en HTML) |
+| **Twig (PHP)** | `{{7*7}}` y luego `{{7*'7'}}` | `49` y `49` (coerción numérica) | Se renderiza literal `{{7*'7'}}` |
+| **Freemarker (Java)** | `${7*7}` | `49` | Se renderiza literal `${7*7}` |
+| **Thymeleaf (Java/Spring)** | `[[${7*7}]]` o `__${7*7}__` | `49` | Se renderiza literal o se rechaza en validación |
+
 ### Deserialización insegura de objetos
 
 La **serialización** convierte un objeto en memoria en una secuencia de bytes o texto para guardarlo o transmitirlo; la **deserialización** reconstruye el objeto original. Formatos nativos de objetos de lenguaje como **`pickle` y `yaml.load()` en Python**, `ObjectInputStream` en Java, `BinaryFormatter` en .NET o `unserialize()` en PHP pueden instanciar clases arbitrarias y ejecutar métodos especiales (`__reduce__` en Python, `readObject` en Java) durante el mismo acto de deserializar.
@@ -135,6 +150,16 @@ La **serialización** convierte un objeto en memoria en una secuencia de bytes o
 
 - **LFI con wrappers y *Log Poisoning*:** en aplicaciones heredadas PHP, la inclusión insegura de archivos combinada con wrappers (`php://filter/convert.base64-encode/resource=...`) o con escritura controlada en logs locales (`User-Agent` registrado en `access.log`) permite leer código fuente o elevar LFI a ejecución de código. Por ello la remediación obliga a usar mapas de rutas fijas (`switch`/diccionario) y configurar `allow_url_include = Off`.
 - **Log4Shell (`CVE-2021-44228`), Spring4Shell (`CVE-2022-22965`) y Text4Shell (`CVE-2022-42889`):** tres fallos emblemáticos del ecosistema Java donde cadenas no confiables (en cabeceras HTTP como `User-Agent`, parámetros de enlace de propiedades en Spring MVC o `StringSubstitutor` en Apache Commons Text) dispararon evaluaciones JNDI/LDAP remotas o alteración de propiedades del contenedor Tomcat. **Respuesta defensiva:** actualizar las bibliotecas críticas, deshabilitar resoluciones JNDI remotas (`log4j2.formatMsgNoLookups=true` en mitigación temporal + parche definitivo) y monitorear en el SIEM/WAF peticiones entrantes con marcadores `jndi:` o conexiones salientes anómalas originadas por el proceso Java hacia puertos LDAP/RMI externos.
+
+### Metodología OAST / OOB en laboratorio (*Blind SSRF*, *Blind XXE* y Log4Shell)
+
+Cuando el servidor procesa URLs, documentos XML o cadenas registradas en logs sin devolver el resultado de esa operación en la respuesta HTTP, la verificación controlada en un laboratorio aislado se apoya en pruebas **Out-of-Band (OAST / OOB)** contra un servidor de escucha local (como `interactsh` en red privada o un listener DNS/HTTP/LDAP propio en `127.0.0.1`):
+
+| Escenario ciego (*Blind*) | Causa raíz | Confirmación OAST inocua en laboratorio | Telemetría y mitigación (Purple Team) |
+|---|---|---|---|
+| **Blind SSRF** | El backend realiza peticiones HTTP salientes hacia URLs del cliente sin validar IP/dominio. | Apuntar el parámetro a `http://127.0.0.1:9090/ssrf-<id>` (o subdominio DNS de escucha local) y confirmar la llegada del *hit* con `User-Agent` del backend. | Registrar conexiones salientes del servidor web; validar con `ip.is_global`, desactivar redirecciones (`allow_redirects=False`) y aplicar *egress filtering*. |
+| **Blind XXE** | El parser XML tiene `DOCTYPE` y resolución de entidades externas habilitadas aunque no refleje el XML en la respuesta. | Enviar una declaración `<!DOCTYPE ...>` de prueba que referencie un recurso HTTP/DNS único del listener OAST del laboratorio, sin solicitar archivos locales reales. | Auditar configuraciones del parser (`defusedxml` en Python, `disallow-doctype-decl=true` en Java/.NET) y alertar resoluciones DNS/HTTP originadas por parsers XML. |
+| **Log4Shell (`CVE-2021-44228`)** | Log4j2 vulnerable evalúa búsquedas `${jndi:...}` dentro de cadenas registradas en logs (como `User-Agent` o parámetros). | Enviar una sonda benigna con token identificador (`${jndi:ldap://127.0.0.1:1389/probe-<id>}`) hacia un listener pasivo de laboratorio (sin entregar carga ejecutable) para verificar si el proceso Java intenta conectar. | Actualizar Log4j2 a versión parcheada, verificar `log4j2.formatMsgNoLookups=true`, monitorear en WAF/SIEM patrones `jndi:` y bloquear tráfico saliente LDAP/RMI/DNS no autorizado desde contenedores Java. |
 
 ## 6. Ejemplo paso a paso: verificación de controles anti-Traversal y anti-SSRF en Python
 

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cap. 7.8 · Anexo Técnico · Seguridad en IA, Modelos de Lenguaje (LLMs) y Agentes (OWASP LLM Top 10) · Hacking Ético Español</title>
+<meta name="description" content="Auditar y endurecer flujos RAG + Tool Calling / MCP frente a Prompt Injection, Excessive Agency y fugas de datos">
+<link rel="stylesheet" href="../guia/estilo.css">
+
+</head>
+<body>
+<a class="salto" href="#contenido">Saltar al contenido</a>
+<header class="cabecera">
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <nav class="principal" aria-label="Navegación principal">
+    <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
+    <a href="../guia/index.html">Curso</a>
+    <a href="../catalogo_completo.html">Catálogo 358</a>
+    <a href="../laboratorios.html">Laboratorios</a>
+    <a href="../hojas-referencia-rapida.html">Cheat Sheets</a>
+    <a href="../glosario.html">Glosario</a>
+    <a href="../preguntas_y_respuestas.html">Repaso</a>
+    <a href="../buscar.html">Buscar</a>
+  </nav>
+</header>
+<main id="contenido">
+<nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo7.html">Tomo VII</a><span aria-hidden="true">›</span><span>Cap. 7.8</span></nav>
+<h1 id="cap-7-8">Capítulo 7.8 · Anexo Técnico · Seguridad en IA, Modelos de Lenguaje (LLMs) y Agentes (OWASP LLM Top 10)</h1>
+<div class="meta-nivel"><span class="nivel-badge especialista">Mobile, Wireless, OT, GRC e IA</span> <span class="nivel-badge mixto">Ofensivo/Defensivo</span> <span><strong>Tomo VII · Ruta 7 · Mobile, Wireless, OT, GRC e IA</strong></span> <span class="meta-sep">·</span> <span>Último capítulo · <a href="../preguntas_y_respuestas.html">Ir al Repaso Integral</a></span></div>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al finalizar este capítulo anexo vas a comprender la arquitectura completa de una aplicación con IA generativa (prompt de sistema, usuario, RAG, herramientas/MCP y salida), dominar los riesgos críticos del <strong>OWASP Top 10 for LLM Applications</strong>, auditar y endurecer flujos de <strong>RAG + Tool Calling / MCP</strong> en Python 3 sin depender de APIs externas, y diseñar guardrails deterministas alineados con <strong>NIST AI RMF</strong>, <strong>MITRE ATLAS</strong> e <strong>ISO/IEC 42001</strong>.</p></aside>
+<p><strong>Prerrequisitos:</strong> Tomo II (Seguridad Web y APIs), Tomo VI (White-Box Code Review y Threat Modeling) y Cap. 7.7 (GRC). <strong>Duración sugerida:</strong> 7 a 9 horas.</p>
+<h2 id="cap-7-8-1-superficie-de-ataque-en-aplicaciones-con-ia-generativa">1. Superficie de ataque en aplicaciones con IA generativa</h2>
+<p>Un Modelo de Lenguaje Grande (<strong>LLM</strong>) por sí solo recibe texto y devuelve texto. El riesgo crítico de seguridad aparece cuando se lo conecta como motor de decisión dentro de una aplicación que ingiere documentos externos no confiables (<strong>RAG</strong>) e invoca acciones sobre bases de datos, APIs o sistemas operativos (<strong>Agentes y Tool Calling / MCP</strong>):</p>
+<pre><code class="lenguaje-text">+-------------------+       +--------------------------------------------+
+| Usuario / Atacante| ----&gt; | 1. Prompt del Sistema (Reglas e identidad) |
++-------------------+       +--------------------------------------------+
+                                             |
++-------------------+                        v
+| Corpus RAG / Web  | -----&gt; [ 2. Contexto concatenado en el LLM ]
+| Correos / Issues  |        (Frontera de confianza mixta: DATOS != CODIGO)
++-------------------+                        |
+                                             v
+                            +------------------------------------+
+                            | 3. Motor LLM (Probabilístico)      |
+                            +------------------------------------+
+                                      |                   |
+                 +--------------------+                   +--------------------+
+                 v                                                             v
++---------------------------------+                           +---------------------------------+
+| 4a. Salida al Cliente / Backend |                           | 4b. Tool Calling / Servidor MCP   |
+| (Si va sin escapar -&gt; XSS/SQLi) |                           | (API, BD, FS, Shell en Sandbox) |
++---------------------------------+                           +---------------------------------+</code></pre>
+<p>El error arquitectónico raíz equivale al que vimos en SQL Injection (Cap. 2.3): el LLM procesa en <strong>un mismo canal lineal de tokens</strong> las instrucciones confiables del desarrollador (<em>System Prompt</em>) y los datos no confiables de usuarios o documentos externos. Por eso, el modelo no ofrece una separación criptográfica entre código y datos.</p>
+<h2 id="cap-7-8-2-owasp-top-10-for-llm-applications-y-riesgos-en-agentes">2. OWASP Top 10 for LLM Applications y riesgos en agentes</h2>
+<h3 id="cap-7-8-2-1-prompt-injection-directa-e-indirecta-llm01">2.1 Prompt Injection directa e indirecta (<code>LLM01</code>)</h3>
+<ul><li><strong>Inyección directa:</strong> el usuario redacta instrucciones en el chat buscando anular el <em>System Prompt</em> o evadir restricciones (<em>jailbreaking</em>). Aunque los filtros de texto ayudan, ningún filtro basado solo en otro modelo probabilístico es infalible.</li><li><strong>Inyección indirecta (la más peligrosa en producción):</strong> el usuario hace una pregunta inocente (<em>"Resumí los correos recibidos hoy"</em> o <em>"Analizá esta página web"</em>), pero dentro del documento externo, correo, comentario de <em>pull request</em> o registro web recuperado se esconde una instrucción maliciosa dirigida al LLM. Si el agente tiene herramientas conectadas, esa carga externa puede intentar secuestrar su flujo de ejecución.</li></ul>
+<h3 id="cap-7-8-2-2-insecure-output-handling-llm05">2.2 Insecure Output Handling (<code>LLM05</code>)</h3>
+<p>Tratar la respuesta de un LLM como si fuera texto seguro de confianza reintroduce vulnerabilidades web clásicas en la aplicación que consume esa salida:</p>
+<ul><li>Si el frontend inserta la respuesta del LLM directamente en el DOM (<code>innerHTML</code> / <code>dangerouslySetInnerHTML</code>) sin escapar HTML, una inyección puede provocar <strong>XSS</strong>.</li><li>Si el backend concatena código o consultas SQL generadas por el modelo directamente en <code>cursor.execute()</code> o <code>os.system()</code>, reaparecen <strong>SQL Injection</strong>, <strong>SSRF</strong> o <strong>Command Injection</strong>.</li><li><strong>Regla estructural:</strong> aplicá exactamente los mismos controles que para entrada de usuario no confiable: escape contextual en navegador, <strong>consultas parametrizadas</strong> y validación estricta por esquema antes de consumir cualquier salida del LLM.</li></ul>
+<h3 id="cap-7-8-2-3-excessive-agency-y-seguridad-en-tool-calling-mcp-llm06">2.3 Excessive Agency y seguridad en Tool Calling / MCP (<code>LLM06</code>)</h3>
+<p>Los protocolos modernos de conexión entre agentes y herramientas —como el <strong>Model Context Protocol (<code>MCP</code>)</strong>— permiten que un modelo descubra servidores externos y llame funciones con parámetros JSON. Sin barreras deterministas externas al modelo surgen tres fallas críticas:</p>
+<ol><li><strong><em>Excessive Agency</em> (agencia excesiva):</strong> otorgar al agente herramientas de escritura o borrado (<code>delete_user</code>, <code>run_sql</code>, <code>exec_shell</code>) cuando la tarea solo requería lectura acotada.</li><li><strong><em>Tool Poisoning</em> y <em>Rug Pulls</em> en servidores MCP:</strong> un servidor MCP de terceros comprometido puede ocultar instrucciones manipuladoras dentro de las descripciones de sus propias herramientas para desviar el comportamiento del agente hacia otras herramientas confiables del mismo host.</li><li><strong>Ausencia de verificación determinista:</strong> confiar en que "el prompt dice que solo consulte su propio usuario". <strong>Todo control de autorización, validación de argumentos (regex/tipos/esquemas) y confirmación humana (<em>Human-in-the-Loop</em>) debe vivir en código determinista fuera del LLM.</strong></li></ol>
+<h3 id="cap-7-8-2-4-seguridad-en-rag-y-fugas-de-datos-sensibles-llm02-llm08">2.4 Seguridad en RAG y fugas de datos sensibles (<code>LLM02</code> / <code>LLM08</code>)</h3>
+<p>En una arquitectura <strong>RAG (<em>Retrieval-Augmented Generation</em>)</strong>, los fragmentos recuperados desde una base vectorial se inyectan como contexto en el prompt. Los fallos más frecuentes ocurren por omisión de autorización previa o contaminación del índice:</p>
+<ul><li><strong>Fuga multi-tenant / entre roles:</strong> si el buscador vectorial busca solo por similitud semántica sin filtrar metadatos (<code>tenant_id</code>, <code>role</code>, <code>classification</code>) <strong>antes</strong> de entregar fragmentos al LLM, un empleado de Finanzas podría recuperar nóminas confidenciales de RRHH o documentos de otro cliente.</li><li><strong>Envenenamiento del corpus RAG (<em>RAG Poisoning</em>):</strong> un actor externo capaz de subir tickets, reseñas o documentos indexados puede plantar textos optimizados semánticamente para ser recuperados con alta frecuencia e inyectar respuestas falsas o enlaces de phishing.</li></ul>
+<h3 id="cap-7-8-2-5-envenenamiento-de-datos-supply-chain-de-modelos-y-system-prompts-llm03-llm04-llm07">2.5 Envenenamiento de datos, Supply Chain de modelos y System Prompts (<code>LLM03</code>, <code>LLM04</code>, <code>LLM07</code>)</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Riesgo en ciclo de vida IA</th>
+<th>Mecanismo técnico observable</th>
+<th>Mitigación verificable</th>
+</tr></thead><tbody>
+<tr><td><strong>Supply Chain de pesos (<code>pickle</code>)</strong></td><td>Cargar modelos heredados <code>.pkl</code>/<code>.pt</code> ejecuta deserialización Python arbitraria al cargar los pesos en memoria.</td><td>Exigir formato seguro <strong><code>safetensors</code></strong>, verificar hashes SHA-256 publicados y firmas criptográficas antes de cargar modelos.</td></tr>
+<tr><td><strong>Envenenamiento de entrenamiento (<em>Data Poisoning</em>)</strong></td><td>Incorporar muestras adulteradas o etiquetas manipuladas en el <em>fine-tuning</em> para implantar sesgos o disparadores (<em>backdoors</em>).</td><td>Auditar procedencia (<em>data lineage</em>), validar integridad de datasets y evaluar modelos contra conjuntos de prueba limpios.</td></tr>
+<tr><td><strong>Fuga de <em>System Prompt</em> (<code>LLM07</code>)</strong></td><td>Consultar el contexto inicial del modelo mediante técnicas de reformulación o traducción.</td><td><strong>Nunca guardar secretos, claves API, URLs privadas ni reglas de autorización exclusivas dentro del <em>System Prompt</strong></em>: asumilo público por diseño.</td></tr>
+</tbody></table></div>
+<p><em>(Complemento de seguridad ML clásica: en clasificadores supervisados también existen ataques adversarios de <strong>evasión</strong> —pequeñas perturbaciones diseñadas para cruzar fronteras de decisión— e <strong>inversión/extracción de modelo</strong> mediante consultas masivas; se mitigan con limitación de tasa, redondeo de probabilidades devueltas y entrenamiento adversario).</em></p>
+<h2 id="cap-7-8-3-ejemplo-paso-a-paso-en-laboratorio-local-laboratorios-lab-rag-mcp-seguro-py">3. Ejemplo paso a paso en laboratorio local (<code>laboratorios/lab_rag_mcp_seguro.py</code>)</h2>
+<p>El repositorio incluye el script educativo 100 % local <a href="../laboratorios/lab_rag_mcp_seguro.py"><code>laboratorios/lab_rag_mcp_seguro.py</code></a> (no requiere GPU ni APIs externas). Compara un flujo ingenuo <strong>vulnerable</strong> frente a un flujo <strong>endurecido</strong> cuando un documento externo indexado en el RAG intenta ejecutar una inyección indirecta sobre un usuario del tenant <code>finanzas</code>.</p>
+<p><strong>Paso 1:</strong> Ejecutar el script desde la raíz del curso para observar ambos comportamientos:</p>
+<pre><code class="lenguaje-bash">python laboratorios/lab_rag_mcp_seguro.py</code></pre>
+<p><strong>Paso 2:</strong> Comparar las dos salidas JSON generadas por la ejecución real:</p>
+<pre><code class="lenguaje-json">{
+  "modo": "VULNERABLE",
+  "docs_recuperados": [
+    "doc-01",
+    "doc-02",
+    "doc-03"
+  ],
+  "salida_sin_escapar": "Procesado ticket: &lt;script&gt;alert('XSS')&lt;/script&gt;",
+  "tool_ejecutada": {
+    "nombre": "exportar_archivo",
+    "arg": "/etc/shadow"
+  }
+}</code></pre>
+<pre><code class="lenguaje-json">{
+  "modo": "SEGURO",
+  "docs_recuperados": [
+    "doc-01",
+    "doc-03"
+  ],
+  "salida_escapada": "Resumen basado en documentos autorizados para: Revisar factura #402",
+  "tool_resultado": {
+    "estado": "EJECUTADA_EN_SANDBOX",
+    "tool": "consultar_estado_ticket",
+    "arg": "TK-0402"
+  },
+  "auditoria": [
+    {
+      "evento": "PROMPT_INJECTION_DETECTADA",
+      "doc_id": "doc-03"
+    }
+  ]
+}</code></pre>
+<p>Observá las tres diferencias críticas:</p>
+<ol><li>En el modo vulnerable se filtró <code>doc-02</code> (documento <code>confidencial</code> del tenant <code>rrhh</code>), salió <code>&lt;script&gt;</code> sin escapar hacia el cliente y el agente aceptó llamar <code>exportar_archivo(/etc/shadow)</code>.</li><li>En el modo seguro, el filtro <strong>RBAC previo</strong> excluyó <code>doc-02</code> antes de tocar el LLM, la detección de patrón en <code>doc-03</code> puso el fragmento en cuarentena registrando <code>PROMPT_INJECTION_DETECTADA</code> en auditoría, y la <strong>lista blanca determinista de herramientas</strong> + <code>html.escape()</code> mantuvieron la ejecución acotada.</li></ol>
+<aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva: guardrails, sandboxing y telemetría</p><ol><li><strong>Guardrails deterministas antes que probabilísticos:</strong> un clasificador basado en IA ayuda como primera señal, pero la última línea de defensa debe ser <strong>código determinista</strong>: validación por esquema (<code>JSON Schema</code> / <code>Pydantic</code>), listas blancas de herramientas permitidas, verificación RBAC por documento en el recuperador RAG y escape de salidas según contexto.</li><li><strong>Aislamiento (<em>Sandboxing</em>) de agentes con ejecución:</strong> si un asistente o servidor MCP ejecuta código o comandos, debe correr dentro de contenedores efímeros sin privilegios (<code>--cap-drop=ALL</code>, usuario no root, sistema de archivos de solo lectura, sin acceso a <code>169.254.169.254</code> ni a secretos de red interna).</li><li><strong>Auditoría y telemetría IA:</strong> registrá en logs inmutables del SIEM cada invocación de herramientas (usuario autenticado, herramienta solicitada, argumentos saneados, aprobación <em>Human-in-the-Loop</em> y bloqueos de guardrails) para detectar intentos sistemáticos de abuso o deriva del agente.</li><li><strong>Gobernanza formal:</strong> alineá el inventario de modelos, pruebas de <em>AI Red Teaming</em> periódicas y gestión de riesgos con <strong>NIST AI RMF</strong>, <strong>MITRE ATLAS</strong> e <strong>ISO/IEC 42001</strong>.</li></ol></aside>
+<h2 id="cap-7-8-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
+<ol><li>Ejecutá <code>python laboratorios/lab_rag_mcp_seguro.py</code> y revisá en su código cómo <code>flujo_seguro()</code> combina filtro RBAC multi-tenant, detección de inyección indirecta, validación por regex de argumentos y <code>html.escape()</code>.</li><li>Extendé <code>HERRAMIENTAS_PERMITIDAS</code> agregando una herramienta ficticia marcada como <code>"sensible": True</code> (por ejemplo <code>aprobar_reembolso</code>) e implementá una comprobación determinista que exija un flag explícito <code>aprobacion_humana=True</code> antes de permitir su ejecución.</li><li>Escribí una segunda prueba unitaria donde <code>motor_llm_simulado</code> devuelva <code>"tool_call": {"nombre": "consultar_estado_ticket", "arg": "../../etc/passwd"}</code> y verificá que el guardrail determinista rechace el argumento por no cumplir el patrón <code>^TK-[0-9]{4}$</code> dejando el evento registrado en <code>auditoria</code>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Tu extensión de <code>lab_rag_mcp_seguro.py</code> con control <em>Human-in-the-Loop</em> para herramientas sensibles, la captura de rechazo ante intento de <em>Path Traversal</em> en el argumento y una matriz corta mapeando tus controles contra OWASP LLM Top 10.</p></aside>
+<h2 id="cap-7-8-preguntas-de-repaso">Preguntas de repaso</h2>
+<p><strong>1. ¿Cuál es la causa raíz común entre la Prompt Injection indirecta y vulnerabilidades clásicas como SQL Injection?</strong> En ambos casos se mezclan en un mismo canal secuencial las instrucciones de control del sistema (<em>System Prompt</em> o sentencia SQL) con datos externos no confiables (fragmentos recuperados de RAG, correos o formularios). Como un LLM procesa todo como tokens de texto continuo, no ofrece aislamiento criptográfico nativo entre reglas y datos, exigiendo validaciones y controles de autorización deterministas fuera del modelo.</p>
+<p><strong>2. ¿Por qué el control de acceso (RBAC/tenant) en una arquitectura RAG debe aplicarse en la consulta a la base vectorial ANTES de enviar el texto al LLM?</strong> Porque si un documento confidencial perteneciente a otro departamento o tenant llega a inyectarse en el contexto del prompt, el modelo ya tuvo acceso a esa información y puede filtrarla en su respuesta incluso si el prompt del sistema indica "no reveles datos ajenos". Filtrar primero por permisos de usuario garantiza que el secreto nunca entre al contexto.</p>
+<p><strong>3. ¿Qué diferencia existe entre <em>Excessive Agency</em> y <em>Insecure Output Handling</em> en OWASP LLM Top 10?</strong> <em>Excessive Agency</em> ocurre cuando se le conceden al modelo o servidor MCP herramientas con permisos, acciones destructivas o alcance superior al estrictamente necesario sin validación externa ni confirmación humana. <em>Insecure Output Handling</em> ocurre cuando la aplicación consumidora confía ciegamente en el texto generado por el LLM e inserta esa salida sin escapar ni parametrizar dentro de HTML (<code>XSS</code>), SQL (<code>SQLi</code>) o subprocesos del sistema.</p>
+<p><strong>4. ¿Por qué nunca deben almacenarse claves API, contraseñas ni lógica exclusiva de autorización dentro de un <em>System Prompt</em>?</strong> Porque el <em>System Prompt</em> no es un almacén de secretos ni un límite criptográfico: mediante técnicas de inyección o reformulación de contexto puede filtrarse total o parcialmente al usuario. Los secretos deben gestionarse en <em>Secrets Managers</em> en el backend, y la autorización debe verificarse en código determinista antes de invocar herramientas o consultar datos.</p>
+<p><strong>5. ¿Qué riesgo introduce cargar modelos en formato <code>.pkl</code> frente a <code>safetensors</code>, y qué tres marcos de referencia estructuran la defensa en sistemas de IA?</strong> Los archivos <code>.pkl</code> usan el módulo <code>pickle</code> de Python, capaz de ejecutar código arbitrario durante la deserialización del archivo de pesos; el formato <code>safetensors</code> almacena tensores de forma puramente declarativa sin ejecución de código. Los tres marcos de referencia centrales son el <strong>OWASP Top 10 for LLM Applications</strong> (riesgos de aplicación/agentes), <strong>MITRE ATLAS</strong> (matriz de tácticas y técnicas adversarias en IA) y <strong>NIST AI RMF</strong> junto a <strong>ISO/IEC 42001</strong> (gestión integral de riesgos y gobernanza).</p>
+<h2 id="cap-7-8-antes-de-avanzar">Antes de avanzar</h2>
+<aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con este capítulo anexo completaste los <strong>7 Tomos (55 capítulos)</strong> de <strong>Hacking Ético Español</strong>, integrando desde fundamentos de sistemas y redes hasta defensa Cloud, Code Review, OT/ICS, GRC y Seguridad en IA/LLMs y Agentes. Tu próximo paso es transformar esta teoría en kilometraje práctico resolviendo máquinas y laboratorios reales con ayuda de la <a href="../hojas-referencia-rapida.html">Separata de Escritorio</a> y el <a href="../laboratorios.html">Kit de Laboratorios</a>.</p></aside>
+<h2 id="cap-7-8-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
+<ul><li><strong>OWASP Top 10 for LLM Applications &amp; Generative AI Security Project (v2025 / GenAI):</strong> clasificación y mitigaciones de riesgos en LLMs, RAG y sistemas agénticos.</li><li><strong>MITRE ATLAS (<em>Adversarial Threat Landscape for Artificial-Intelligence Systems</em>):</strong> matriz de tácticas, técnicas y casos de estudio adversarios en IA/ML.</li><li><strong>NIST AI Risk Management Framework (AI RMF 1.0 + Generative AI Profile NIST AI 600-1).</strong></li><li><strong>ISO/IEC 42001:2023:</strong> requisitos para un Sistema de Gestión de Inteligencia Artificial (AIMS).</li><li><strong>Documentación técnica de <code>safetensors</code> (Hugging Face) y especificación abierta de Model Context Protocol (MCP) Security Best Practices.</strong></li></ul>
+
+<details class="qa" style="margin-top:1.5rem">
+  <summary>Trazabilidad curricular: 16 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>
+  <div class="respuesta">
+    <p>Este capítulo fue redactado de forma 100 % original integrando los tópicos de referencia de los siguientes módulos del catálogo público:</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Módulo de referencia</th><th>Dificultad</th><th>Categoría</th><th>Secciones</th></tr></thead>
+      <tbody><tr><td>Fundamentals of AI</td><td>Fundamental</td><td>General</td><td>24</td></tr><tr><td>Applications of AI in InfoSec</td><td>Medium</td><td>General</td><td>25</td></tr><tr><td>Introduction to Red Teaming AI</td><td>Medium</td><td>Offensive</td><td>11</td></tr><tr><td>Prompt Injection Attacks</td><td>Medium</td><td>Offensive</td><td>12</td></tr><tr><td>AI Data Attacks</td><td>Hard</td><td>Offensive</td><td>25</td></tr><tr><td>LLM Output Attacks</td><td>Medium</td><td>Offensive</td><td>14</td></tr><tr><td>Attacking AI - Application and System</td><td>Medium</td><td>Offensive</td><td>14</td></tr><tr><td>AI Evasion - Foundations</td><td>Medium</td><td>Offensive</td><td>12</td></tr><tr><td>AI Evasion - First-Order Attacks</td><td>Hard</td><td>Offensive</td><td>23</td></tr><tr><td>AI Evasion - Sparsity Attacks</td><td>Hard</td><td>Offensive</td><td>28</td></tr><tr><td>AI Defense</td><td>Medium</td><td>Defensive</td><td>21</td></tr><tr><td>AI Privacy</td><td>Medium</td><td>Defensive</td><td>21</td></tr><tr><td>AI-Augmented Pentesting Foundations</td><td>Easy</td><td>Offensive</td><td>16</td></tr><tr><td>AI Literacy - Models</td><td>Medium</td><td>General</td><td>24</td></tr><tr><td>AI Literacy - Agents</td><td>Medium</td><td>General</td><td>23</td></tr><tr><td>AI Literacy - Runtime</td><td>Medium</td><td>General</td><td>20</td></tr></tbody>
+    </table></div>
+  </div>
+</details>
+<nav class="pager" aria-label="Navegación entre capítulos"><div><a href="54-grc-marco-legal-riesgos-y-cumplimiento.html">← 7.7 GRC, marco legal, contratos (RoE), cuantificación de riesgos e ISO 27001 / NIST CSF</a></div><div><a href="../preguntas_y_respuestas.html">Repaso integral →</a></div></nav>
+</main>
+<footer class="pie">
+  <p>Manual técnico libre, educativo y defensivo. Todas las prácticas están diseñadas exclusivamente para laboratorios locales aislados (VMs propias o Docker en <code>127.0.0.1</code>).</p>
+  <p><a href="../00_EMPEZAR_AQUI.html">Inicio</a> · <a href="../guia/index.html">Mapa del curso</a> · <a href="../catalogo_completo.html">Catálogo 358</a> · <a href="../orden_impresion.html">Imprenta y PDFs</a> · <a href="../fuentes_y_limites.html">Fuentes y límites</a></p>
+</footer>
+
+</body>
+</html>

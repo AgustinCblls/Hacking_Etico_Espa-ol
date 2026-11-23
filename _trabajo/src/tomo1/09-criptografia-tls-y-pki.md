@@ -29,7 +29,7 @@ En el cifrado simétrico, emisor y receptor comparten una misma clave secreta (`
 | Modo de operación | Comportamiento técnico | Riesgo o vulnerabilidad conocida | Recomendación actual |
 |---|---|---|---|
 | **ECB (*Electronic Codebook*)** | Cada bloque de 16 bytes idéntico produce exactamente el mismo bloque cifrado. | Filtra patrones visuales y estructurales del mensaje original sin conocer la clave. | **Prohibido siempre.** |
-| **CBC (*Cipher Block Caching*) sin MAC** | Usa un Vector de Inicialización (`IV`) aleatorio y encadena bloques con XOR. | Sin autenticación (HMAC), permite modificar bits arbitrarios del mensaje o explotar errores de relleno (**Padding Oracle**). | Evitar en código nuevo; nunca usar sin `Encrypt-then-MAC`. |
+| **CBC (*Cipher Block Chaining*) sin MAC** | Usa un Vector de Inicialización (`IV`) aleatorio y encadena bloques con XOR. | Sin autenticación (HMAC), permite modificar bits arbitrarios del mensaje o explotar errores de relleno (**Padding Oracle**). | Evitar en código nuevo; nunca usar sin `Encrypt-then-MAC`. |
 | **AES-GCM / ChaCha20-Poly1305 (AEAD)** | Cifra en modo flujo autenticado y genera una etiqueta criptográfica (**Tag de autenticación**) de 128 bits. | Si el receptor verifica el Tag antes de descifrar, rechaza cualquier manipulación. **Cuidado crítico:** nunca reutilizar la misma pareja `(Clave, Nonce)` dos veces. | **Estándar obligatorio** en protocolos y aplicaciones nuevas. |
 
 ## 3. Criptografía asimétrica, firmas digitales e intercambio de claves
@@ -82,6 +82,19 @@ A lo largo de la última década, numerosas vulnerabilidades públicas en TLS ob
 | **CRIME y BREACH** | Compresión TLS o compresión HTTP (`gzip`) combinada con secretos reflejados (cookies/tokens CSRF), filtrando bytes por longitud cifrada. | Compresión TLS eliminada en TLS 1.3 y separación/máscaras en tokens secretos reflejados. |
 | **Bleichenbacher y DROWN** | Uso de relleno RSA PKCS#1 v1.5 en el intercambio de claves RSA o soporte simultáneo heredado de **SSLv2**. | Deshabilitar SSLv2 completamente y exigir **ECDHE** con Forward Secrecy en lugar de intercambio estático RSA. |
 | **Generadores débiles de números aleatorios (PRNG)** | Uso de `random` estándar en lugar de fuentes criptográficas (`CSPRNG`) para claves, tokens o nonces. | Usar siempre `secrets` en Python, `CryptGenRandom`/`BCryptGenRandom` en Windows o `/dev/urandom` / `getrandom()` en Linux. |
+
+### Criptografía Post-Cuántica (PQC) y *Crypto-Agility* (panorama 2026)
+
+::: nota Bloque actualizado 2026: Transición Post-Cuántica y Agilidad Criptográfica
+Aunque las computadoras cuánticas capaces de ejecutar el algoritmo de Shor contra `RSA` y curvas elípticas (`ECDHE`/`ECDSA`) todavía están en desarrollo, la amenaza **HNDL (*Harvest Now, Decrypt Later*)** ya es operativa hoy: un adversario puede capturar y archivar tráfico TLS o backups cifrados actualmente para descifrarlos dentro de unos años cuando disponga de capacidad cuántica. Por eso el foco actual está puesto en el **intercambio de claves** y en la **agilidad criptográfica**.
+
+1. **Estándares NIST vigentes:** tras estandarizar en 2024 sus algoritmos post-cuánticos basados en retículos y hashes, el ecosistema de producción adopta:
+   - **ML-KEM (FIPS 203, derivado de *CRYSTALS-Kyber*):** mecanismo de encapsulamiento de claves (*Key Encapsulation Mechanism*) para establecer secretos de sesión resistentes a computación cuántica.
+   - **ML-DSA (FIPS 204, derivado de *CRYSTALS-Dilithium*):** estándar principal para firmas digitales post-cuánticas (complementado por `SLH-DSA` / FIPS 205 basado en hashes).
+2. **Intercambio de claves híbrido en TLS 1.3 (`X25519MLKEM768`):** en 2026 los navegadores principales, CDNs y pilas TLS modernas (como OpenSSL 3.5+) negocian grupos híbridos como **`X25519MLKEM768`**. En lugar de confiar en un solo esquema, el cliente y el servidor combinan el secreto de curva elíptica clásica (`X25519`) con el de `ML-KEM-768`: si cualquiera de los dos algoritmos resiste, la clave de sesión permanece protegida frente a ataques clásicos y futuros ataques cuánticos (mitigando HNDL sin perder compatibilidad).
+3. **Por qué las organizaciones necesitan *Crypto-Agility*:** los estándares, tamaños de clave y bibliotecas cambian con el tiempo. La **agilidad criptográfica** es la capacidad de inventariar qué algoritmos usa cada sistema (inventario CBOM — *Cryptographic Bill of Materials*) y rotar primitivas, certificados o grupos TLS mediante configuración centralizada sin reescribir código fuente ni romper clientes.
+   - **Enfoque Purple Team (detección y operación):** al auditar servicios TLS 1.3 podés verificar si negocian grupos híbridos revisando la línea `Server Temp Key` en `openssl s_client -connect 127.0.0.1:8443 -tls1_3`. En red, tené en cuenta que las claves públicas `ML-KEM` aumentan el tamaño del mensaje *ClientHello* por encima de los ~1.500 bytes de un paquete Ethernet estándar (fragmentación TCP), por lo que conviene probar firewalls, balanceadores e IDS/IPS heredados en laboratorio antes de habilitar PQC híbrido en producción.
+:::
 
 ## 6. Ejemplo paso a paso: inspección de certificados y HMAC/SHA-256 en laboratorio
 

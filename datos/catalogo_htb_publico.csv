@@ -125,34 +125,34 @@ ID,Titulo,Dificultad,Categoria,Secciones,Dominio,Alcance,Tomo_Asignado,Capitulo_
 124,Detection & OpSec Cyber Range,Medium,Purple,9,Detection Engineering,En alcance,Tomo IV,4.5,Detection Engineer,https://academy.hackthebox.com/course/preview/detection--opsec-cyber-range
 125,Android Forensics,Medium,General,7,Mobile · Dinámico y Forense,En alcance,Tomo VII,7.2,Android Application Pentesting,https://academy.hackthebox.com/course/preview/android-forensics
 126,Network Foundations,Fundamental,General,12,Redes TCP/IP,En alcance,Tomo I,1.2,Junior Cybersecurity Analyst,https://academy.hackthebox.com/course/preview/network-foundations
-127,Fundamentals of AI,Fundamental,General,24,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Foundations & Literacy | AI Red Teamer,https://academy.hackthebox.com/course/preview/fundamentals-of-ai
+127,Fundamentals of AI,Fundamental,General,24,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Foundations & Literacy | AI Red Teamer,https://academy.hackthebox.com/course/preview/fundamentals-of-ai
 128,Wi-Fi Evil Twin Attacks,Medium,Offensive,16,"Inalámbricas · WPA3, Enterprise y WIDS",En alcance,Tomo VII,7.4,Wi-Fi Penetration Tester,https://academy.hackthebox.com/course/preview/wi-fi-evil-twin-attacks
-129,Applications of AI in InfoSec,Medium,General,25,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/applications-of-ai-in-infosec
+129,Applications of AI in InfoSec,Medium,General,25,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/applications-of-ai-in-infosec
 130,Introduction to Information Security,Fundamental,General,24,Fundamentos y Metodología,En alcance,Tomo I,1.1,Junior Cybersecurity Analyst,https://academy.hackthebox.com/course/preview/introduction-to-information-security
-131,Introduction to Red Teaming AI,Medium,Offensive,11,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/introduction-to-red-teaming-ai
+131,Introduction to Red Teaming AI,Medium,Offensive,11,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/introduction-to-red-teaming-ai
 132,Introduction to Penetration Testing,Fundamental,Offensive,21,Reconocimiento y Nmap,En alcance,Tomo II,2.1,Junior Cybersecurity Analyst,https://academy.hackthebox.com/course/preview/introduction-to-penetration-testing
 133,Pentest in a Nutshell,Easy,Offensive,24,Reconocimiento y Nmap,En alcance,Tomo II,2.1,Junior Cybersecurity Analyst,https://academy.hackthebox.com/course/preview/pentest-in-a-nutshell
-134,Prompt Injection Attacks,Medium,Offensive,12,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/prompt-injection-attacks
+134,Prompt Injection Attacks,Medium,Offensive,12,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/prompt-injection-attacks
 135,Wi-Fi Penetration Testing Tools and Techniques,Medium,Offensive,30,Inalámbricas · Wi-Fi y WEP/WPS/WPA2,En alcance,Tomo VII,7.3,Wi-Fi Penetration Tester,https://academy.hackthebox.com/course/preview/wi-fi-penetration-testing-tools-and-techniques
 136,Bypassing Wi-Fi Captive Portals,Medium,Offensive,17,"Inalámbricas · WPA3, Enterprise y WIDS",En alcance,Tomo VII,7.4,Wi-Fi Penetration Tester,https://academy.hackthebox.com/course/preview/bypassing-wi-fi-captive-portals
 137,Introduction to Dynamic Analysis with WinDbg,Hard,Defensive,15,Telemetría Bajo Nivel y Triage,En alcance,Tomo IV,4.8,Detection Engineer,https://academy.hackthebox.com/course/preview/introduction-to-dynamic-analysis-with-windbg
-138,AI Data Attacks,Hard,Offensive,25,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-data-attacks
+138,AI Data Attacks,Hard,Offensive,25,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-data-attacks
 139,Windows Kernel Telemetry & Detection Techniques,Hard,Defensive,25,Telemetría Bajo Nivel y Triage,En alcance,Tomo IV,4.8,Detection Engineer,https://academy.hackthebox.com/course/preview/windows-kernel-telemetry--detection-techniques
 140,Attacking WPA3 Wi-Fi Networks,Medium,Offensive,16,"Inalámbricas · WPA3, Enterprise y WIDS",En alcance,Tomo VII,7.4,Wi-Fi Penetration Tester,https://academy.hackthebox.com/course/preview/attacking-wpa3-wi-fi-networks
 141,Attacking Corporate Wi-Fi Networks,Medium,Offensive,18,"Inalámbricas · WPA3, Enterprise y WIDS",En alcance,Tomo VII,7.4,Wi-Fi Penetration Tester,https://academy.hackthebox.com/course/preview/attacking-corporate-wi-fi-networks
 142,Active Directory Hardening - Recon & Initial Access,Medium,Defensive,8,Active Directory,En alcance,Tomo III,3.6,,https://academy.hackthebox.com/course/preview/active-directory-hardening---recon--initial-access
-143,LLM Output Attacks,Medium,Offensive,14,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/llm-output-attacks
+143,LLM Output Attacks,Medium,Offensive,14,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/llm-output-attacks
 144,Windows Low Level Detectability,Hard,Defensive,17,Telemetría Bajo Nivel y Triage,En alcance,Tomo IV,4.8,Detection Engineer,https://academy.hackthebox.com/course/preview/windows-low-level-detectability
 145,Wi-Fi Password Cracking Techniques,Medium,Offensive,16,Inalámbricas · Wi-Fi y WEP/WPS/WPA2,En alcance,Tomo VII,7.3,Wi-Fi Penetration Tester,https://academy.hackthebox.com/course/preview/wi-fi-password-cracking-techniques
 146,Windows API Monitoring and Hooking,Medium,Defensive,12,Telemetría Bajo Nivel y Triage,En alcance,Tomo IV,4.8,Detection Engineer,https://academy.hackthebox.com/course/preview/windows-api-monitoring-and-hooking
 147,Active Directory Hardening - Accounts & Credentials,Medium,Defensive,6,Active Directory,En alcance,Tomo III,3.6,,https://academy.hackthebox.com/course/preview/active-directory-hardening---accounts--credentials
-148,Attacking AI - Application and System,Medium,Offensive,14,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/attacking-ai---application-and-system
+148,Attacking AI - Application and System,Medium,Offensive,14,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/attacking-ai---application-and-system
 149,Linux Process Injections & Detections,Hard,Defensive,20,Telemetría Bajo Nivel y Triage,En alcance,Tomo IV,4.8,Detection Engineer,https://academy.hackthebox.com/course/preview/linux-process-injections--detections
-150,AI Evasion - Foundations,Medium,Offensive,12,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-evasion---foundations
-151,AI Evasion - First-Order Attacks,Hard,Offensive,23,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-evasion---first-order-attacks
-152,AI Evasion - Sparsity Attacks,Hard,Offensive,28,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-evasion---sparsity-attacks
+150,AI Evasion - Foundations,Medium,Offensive,12,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-evasion---foundations
+151,AI Evasion - First-Order Attacks,Hard,Offensive,23,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-evasion---first-order-attacks
+152,AI Evasion - Sparsity Attacks,Hard,Offensive,28,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-evasion---sparsity-attacks
 153,WMI Tradecraft Analysis,Medium,Defensive,12,Telemetría Bajo Nivel y Triage,En alcance,Tomo IV,4.8,Detection Engineer,https://academy.hackthebox.com/course/preview/wmi-tradecraft-analysis
-154,AI Defense,Medium,Defensive,21,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-defense
+154,AI Defense,Medium,Defensive,21,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-defense
 155,Network Packet Analysis,Easy,Defensive,6,NSM / Tráfico / IDS-IPS,En alcance,Tomo IV,4.4,Google Cybersecurity Certificate Preparation,https://academy.hackthebox.com/course/preview/network-packet-analysis
 156,Public Key Infrastructure,Easy,Defensive,6,"Criptografía, TLS y PKI",En alcance,Tomo I,1.9,CompTIA Security+ Preparation,https://academy.hackthebox.com/course/preview/public-key-infrastructure
 157,Threat Hunting with IPS/IDS,Hard,Defensive,6,Threat Hunting y CTI,En alcance,Tomo IV,4.6,,https://academy.hackthebox.com/course/preview/threat-hunting-with-ipsids
@@ -163,7 +163,7 @@ ID,Titulo,Dificultad,Categoria,Secciones,Dominio,Alcance,Tomo_Asignado,Capitulo_
 162,MITRE ATT&CK Framework,Easy,Defensive,9,Operaciones SOC e Incident Response,En alcance,Tomo IV,4.1,,https://academy.hackthebox.com/course/preview/mitre-attck-framework
 163,Identifying Threats and Malicious Software,Easy,Defensive,9,Operaciones SOC e Incident Response,En alcance,Tomo IV,4.1,CompTIA Security+ Preparation,https://academy.hackthebox.com/course/preview/identifying-threats-and-malicious-software
 164,Privilege Escalation Tradecraft Analysis,Hard,Defensive,24,Telemetría Bajo Nivel y Triage,En alcance,Tomo IV,4.8,Detection Engineer,https://academy.hackthebox.com/course/preview/privilege-escalation-tradecraft-analysis
-165,AI Privacy,Medium,Defensive,21,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-privacy
+165,AI Privacy,Medium,Defensive,21,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Red Teamer,https://academy.hackthebox.com/course/preview/ai-privacy
 166,Threat Hunting with DNS,Hard,Defensive,7,Threat Hunting y CTI,En alcance,Tomo IV,4.6,,https://academy.hackthebox.com/course/preview/threat-hunting-with-dns
 167,Threat Hunting for Ransomware Attacks,Hard,Defensive,6,Threat Hunting y CTI,En alcance,Tomo IV,4.6,,https://academy.hackthebox.com/course/preview/threat-hunting-for-ransomware-attacks
 168,Persistence Tradecraft Analysis,Hard,Defensive,18,Telemetría Bajo Nivel y Triage,En alcance,Tomo IV,4.8,Detection Engineer,https://academy.hackthebox.com/course/preview/persistence-tradecraft-analysis
@@ -352,8 +352,8 @@ ID,Titulo,Dificultad,Categoria,Secciones,Dominio,Alcance,Tomo_Asignado,Capitulo_
 351,Red Team Mindset,Medium,Offensive,10,Reconocimiento y Nmap,En alcance,Tomo II,2.1,,https://academy.hackthebox.com/course/preview/red-team-mindset
 352,Threat Planning and Reconnaissance,Hard,Offensive,12,Reconocimiento y Nmap,En alcance,Tomo II,2.1,,https://academy.hackthebox.com/course/preview/threat-planning-and-reconnaissance
 353,Introduction to Detection Engineering,Medium,Defensive,29,Detection Engineering,En alcance,Tomo IV,4.5,Detection Engineer,https://academy.hackthebox.com/course/preview/introduction-to-detection-engineering
-354,AI-Augmented Pentesting Foundations,Easy,Offensive,16,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,,https://academy.hackthebox.com/course/preview/ai-pentesting-foundations
-355,AI Literacy - Models,Medium,General,24,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Foundations & Literacy,https://academy.hackthebox.com/course/preview/ai-literacy-models
-356,AI Literacy - Agents,Medium,General,23,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Foundations & Literacy,https://academy.hackthebox.com/course/preview/ai-literacy-agents
-357,AI Literacy - Runtime,Medium,General,20,IA / Seguridad AI,Complementario (Anexo),Anexo · Catálogo,—,AI Foundations & Literacy,https://academy.hackthebox.com/course/preview/ai-literacy-runtime
+354,AI-Augmented Pentesting Foundations,Easy,Offensive,16,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,,https://academy.hackthebox.com/course/preview/ai-pentesting-foundations
+355,AI Literacy - Models,Medium,General,24,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Foundations & Literacy,https://academy.hackthebox.com/course/preview/ai-literacy-models
+356,AI Literacy - Agents,Medium,General,23,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Foundations & Literacy,https://academy.hackthebox.com/course/preview/ai-literacy-agents
+357,AI Literacy - Runtime,Medium,General,20,"Anexo · Seguridad en IA, LLMs y Agentes",En alcance,Tomo VII,7.8,AI Foundations & Literacy,https://academy.hackthebox.com/course/preview/ai-literacy-runtime
 358,Good Vibes,Medium,Purple,22,Fundamentos y Metodología,En alcance,Tomo I,1.1,,https://academy.hackthebox.com/course/preview/good-vibes

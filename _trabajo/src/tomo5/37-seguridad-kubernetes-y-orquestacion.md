@@ -188,6 +188,30 @@ Cuando los requisitos organizacionales superan el alcance de PSS (por ejemplo: p
 - **OPA Gatekeeper:** Basado en Open Policy Agent y el lenguaje declarativo **Rego**; evalúa restricciones complejas mediante `ConstraintTemplates` y `Constraints`.
 - **Kyverno:** Motor nativo de Kubernetes que define políticas de validación, mutación y generación directamente en **YAML** sin necesidad de aprender un lenguaje de consulta externo, lo que acelera su adopción en equipos DevSecOps.
 
+## Seguridad en Runtime en Kubernetes con eBPF (Falco y Tetragon)
+
+Los controles de admisión (`PSA`, Gatekeeper, Kyverno) inspeccionan el manifiesto YAML **antes** de que el Pod arranque, pero no ven lo que ocurre **adentro** del contenedor si una aplicación sufre ejecución remota de código o si un usuario autorizado abre una sesión interactiva. Para cubrir esa brecha en tiempo real se despliegan sensores basados en **eBPF** como `DaemonSet` en cada Worker Node —principalmente **Falco** (detección y alertas) y **Cilium Tetragon** (observabilidad y bloqueo activo en kernel mediante `TracingPolicy`)— capaces de correlacionar llamadas al sistema con metadatos de Kubernetes (namespace, Pod, imagen y cuenta de servicio):
+
+1. **Detección de shells dentro de contenedores (`kubectl exec` o spawn anómalo):** Alerta cuando un proceso de aplicación (`nginx`, `node`, `java`, `python`) lanza `/bin/sh` o `/bin/bash`, o cuando alguien inicia una shell interactiva mediante `kubectl exec` en producción.
+2. **Lectura inesperada de tokens de *ServiceAccount*:** Monitorea aperturas (`openat`) sobre `/var/run/secrets/kubernetes.io/serviceaccount/token` realizadas por procesos que no corresponden al binario legítimo de la aplicación (por ejemplo `curl`, `cat` o un intérprete recién invocado).
+3. **Acceso o montaje inesperado a rutas sensibles del nodo:** Detecta intentos de lectura o escritura sobre `/etc/shadow`, `/etc/kubernetes/pki`, `/proc/sysrq-trigger` o el socket del runtime (`/run/containerd/containerd.sock`) desde procesos en contenedores.
+
+```yaml
+# Ejemplo de regla Falco (eBPF) para detectar lectura del token de ServiceAccount por utilidades o shells
+- rule: Lectura sospechosa de token ServiceAccount en contenedor
+  desc: Detecta acceso al token JWT de Kubernetes desde shells o herramientas CLI dentro de un Pod
+  condition: >
+    open_read and container and
+    fd.name startswith "/var/run/secrets/kubernetes.io/serviceaccount" and
+    proc.name in (sh, bash, dash, cat, curl, wget, python3)
+  output: >
+    Acceso anomalo a token K8s (ns=%k8s.ns.name pod=%k8s.pod.name
+    proc=%proc.name cmd=%proc.cmdline file=%fd.name)
+  priority: WARNING
+```
+
+*(Nota operativa Purple Team: si usás **Tetragon**, además de registrar el evento en JSON podés adjuntar una acción `Sigkill` sobre `sys_execve` o `security_file_open` para frenar la ejecución en el kernel en microsegundos tras validar la regla en modo auditoría).*
+
 ## Auditoría con CIS Kubernetes Benchmark y `kube-bench`
 
 Al igual que en Docker, la verificación sistemática de la configuración del plano de control, `etcd`, `kubelet` y políticas del clúster se automatiza mediante **CIS Kubernetes Benchmark** utilizando la herramienta de código abierto **`kube-bench`** de Aqua Security, complementada con comandos nativos de verificación `kubectl auth can-i`:

@@ -162,6 +162,16 @@ La forma más robusta de garantizar que ningún equipo despliegue instancias her
 }
 ```
 
+### Comparativa Multi-Cloud: Primitivas de Escalada IAM y Protección IMDS (AWS, Azure y GCP)
+
+Cuando auditás o defendés cargas de trabajo híbridas, debés correlacionar cómo un SSRF hacia el servicio de metadatos o una delegación excesiva en IAM habilita el movimiento lateral en los tres principales proveedores:
+
+| Proveedor | Primitivas críticas de escalada IAM | Protección nativa del servicio de metadatos (IMDS) | Validación y mitigación Purple Team |
+| :--- | :--- | :--- | :--- |
+| **AWS** | `iam:PassRole` (delegar un rol superior a EC2/Lambda), `sts:AssumeRole` transitivo y `iam:CreatePolicyVersion` (activar nueva versión de política). | **IMDSv2:** flujo en dos pasos (`PUT /latest/api/token` + cabecera `X-aws-ec2-metadata-token` en solicitudes siguientes), rechaza `X-Forwarded-For` y limita `HopLimit = 1`. | Verificar `HttpTokens: required` vía SCP, acotar `PassRole` con `iam:PassedToService` y monitorear uso externo de credenciales de instancia en GuardDuty. |
+| **Azure / Entra ID** | Abuso de *App Registrations* / *Service Principals* con permisos RBAC amplios o credenciales expuestas, y **Consent Phishing** sobre permisos OAuth delegados. | **IMDS de Azure (`169.254.169.254`):** bloquea peticiones sin la cabecera explícita **`Metadata: true`**, neutralizando SSRF simples que no permiten inyectar cabeceras HTTP personalizadas. | Usar *Managed Identities* con mínimo privilegio RBAC, restringir el registro/consentimiento de aplicaciones en Entra ID y validar en aplicaciones web que el proxy no reenvíe cabeceras arbitrarias. |
+| **GCP** | `iam.serviceAccounts.actAs` (suplantar o vincular una *Service Account* de mayor privilegio a un recurso) y `setIamPolicy` (reescribir políticas IAM en proyecto, carpeta o bucket). | **Metadata Server de GCP (`169.254.169.254` / `metadata.google.internal`):** exige obligatoriamente la cabecera **`Metadata-Flavor: Google`** (y deshabilita los endpoints heredados `v1beta1` sin cabecera). | Desactivar APIs de metadatos heredadas, restringir `actAs` y `setIamPolicy` a cuentas CI/CD auditadas y activar alerta sobre `SetIamPolicy` en Cloud Logging. |
+
 ## Auditoría CLI en Laboratorio
 
 Usá estos comandos desde tu terminal configurada contra un laboratorio propio o entorno LocalStack para auditar S3, redes VPC y cumplimiento de IMDSv2:

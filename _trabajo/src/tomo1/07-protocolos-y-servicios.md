@@ -194,7 +194,7 @@ Una tabla de inventario de servicios activos en tu laboratorio (puerto, protocol
 - [ ] Tenés claro cómo aplicar segmentación y mínimo privilegio sobre servicios administrativos y motores SQL.
 
 ::: nota Puerta de salida
-Con los servicios de red de infraestructura bajo control, el siguiente paso cierra el Tomo I enfocándose en la superficie más expuesta en Internet: las aplicaciones web, HTTP/TLS y los proxies locales de inspección (Capítulo 1.8).
+Con los servicios de red de infraestructura bajo control, el siguiente paso aborda la superficie más expuesta en Internet —las aplicaciones web, HTTP y los proxies locales de inspección (Capítulo 1.8)— preparando el cierre del Tomo I en el Capítulo 1.9 sobre Criptografía aplicada, PKI y TLS.
 :::
 
 ## Referencias y estándares abiertos

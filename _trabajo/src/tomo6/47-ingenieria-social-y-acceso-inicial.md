@@ -89,6 +89,29 @@ Ninguna campaña de concientización reemplaza a los controles criptográficos y
 3. **Etiquetado externo (*External Email Banner*) y monitoreo de dominios *lookalike***: agregar una etiqueta visual automática y consistente a todo correo originado fuera del tenant corporativo ayuda a detectar rápidamente intentos de suplantación de nombres ejecutivos (*CEO Fraud*) enviados desde dominios gratuitos o tipográficos (`emp1esa.example`), complementado con alertas tempranas sobre registros de certificados TLS y dominios recién creados parecidos a la marca.
 4. **Protocolos de verificación fuera de banda (*Out-of-band*) y botón de reporte conectado al SOAR**: toda solicitud de cambio de cuenta bancaria, transferencia urgente o restablecimiento de MFA debe validarse por un canal independiente previamente conocido (nunca respondiendo al mismo hilo ni llamando al número incluido en el correo sospechoso). Y el botón de reporte en el cliente de correo debe enviar el mensaje con cabeceras completas al flujo SOAR/SOC para purgar copias similares en otros buzones en minutos.
 
+### Proxies inversos AiTM y defensas complementarias a FIDO2/WebAuthn
+
+El phishing tradicional con formularios estáticos perdió efectividad frente al MFA clásico (SMS o TOTP). Para sortearlo, los atacantes modernos despliegan **proxies inversos *Adversary-in-the-Middle* (AiTM)** montados sobre dominios fraudulentos con certificados TLS válidos: el proxy actúa como intermediario transparente en tiempo real entre el navegador de la víctima y el proveedor de identidad legítimo (*IdP*), reescribiendo cabeceras (`Host`, `Location`, `Set-Cookie`) y URLs en vuelo.
+
+```text
++------------------+          TLS (dominio falso)          +------------------------+          TLS (dominio real)          +------------------+
+|     Víctima      | <===================================> |   Proxy Inverso AiTM   | <===================================> |  IdP Legítimo    |
+|   (Navegador)    |   1. Ingresa usuario, clave y TOTP    |  (login-corp.example)  |   2. Reenvía credenciales y TOTP      | (login.corp.com) |
++------------------+                                       |                        |                                       +------------------+
+                                                           |  [Captura en vuelo:]   | <---- 3. Responde Set-Cookie / Token -------|
+                                                           |  - Password            |       de sesión YA autenticada
+                                                           |  - Cookie de sesión    |
+                                                           +------------------------+
+```
+
+Como el flujo completo se negocia contra el IdP real, la víctima supera normalmente su segundo factor (código TOTP, SMS o aprobación *push*), y el proxy intercepta la **cookie de sesión autenticada** emitida por el IdP. Con esa cookie, el atacante reutiliza la sesión activa desde otro equipo sin volver a necesitar la contraseña ni el código MFA.
+
+Si bien **FIDO2/WebAuthn** neutraliza el proxy AiTM al vincular criptográficamente la firma al origen exacto (`RP ID`), en despliegues empresariales reales suele coexistir con métodos legados durante migraciones o cuentas de servicio. Por eso la defensa en profundidad exige tres controles complementarios sobre la capa de identidad:
+
+- **Conditional Access basado en cumplimiento de dispositivo (*Device Compliance* / *Hybrid Joined*):** el IdP exige que la solicitud de autenticación provenga de un dispositivo enrolado en MDM/Intune y marcado como conforme (cifrado activo, EDR saludable y parches al día) o unido a *Hybrid Entra ID / AD*. Como el servidor donde corre el proxy AiTM no posee el certificado de dispositivo corporativo ni cumple las políticas, el IdP bloquea la emisión del token aunque la contraseña y el TOTP sean válidos.
+- ***Token Protection* (vinculación criptográfica del token al dispositivo):** vincula criptográficamente los tokens de actualización (*Refresh Tokens* / *Primary Refresh Tokens*) a una clave asimétrica almacenada en el **TPM** del endpoint físico. Incluso si un proxy AiTM o un *infostealer* lograra exfiltrar la cookie o el token, al intentar presentarlo desde otra máquina sin la clave privada del TPM el IdP rechaza la renovación de sesión.
+- **Continuous Access Evaluation (CAE):** supera la limitación clásica de los tokens JWT de vida fija (por ejemplo, 60 minutos sin revalidación). Con CAE, el IdP y las aplicaciones compatibles mantienen un canal de eventos críticos para revocar sesiones activas **en pocos minutos** ante señales de compromiso: cambio abrupto de IP/ubicación hacia infraestructura anónima, pérdida de estado de cumplimiento del dispositivo, deshabilitación de cuenta o alerta de usuario en riesgo emitida por el SOC.
+
 ## Vectores *Client-Side* en escritorio Windows (enfoque PEN-200 y defensa en endpoint)
 
 Cuando un perímetro no expone servicios vulnerables externos, las evaluaciones prácticas estilo **PEN-200** modelan escenarios donde un usuario interno abre un archivo en su estación Windows, desencadenando la conexión inicial hacia la red interna del laboratorio:
@@ -219,7 +242,7 @@ La mitigación integral frente a la Ingeniería Social exige desplazar el peso d
 ## Antes de avanzar
 
 ::: nota Puerta de salida
-Antes de continuar con los siguientes módulos de respuesta ante incidentes y análisis forense, asegurate de poder responder con precisión:
+Antes de iniciar el **Tomo VII** con el **Capítulo 7.1 (Seguridad Mobile I: arquitectura Android/iOS y análisis estático según OWASP MASTG)**, asegurate de poder responder con precisión:
 - Qué cinco principios de Cialdini estructuran los pretextos y cómo se contrarrestan operativamente.
 - Qué diferencia hay entre DMARC `p=none`, `p=quarantine` y `p=reject`, y qué protege FIDO2 frente a proxies AiTM.
 - Qué reglas éticas rigen una campaña autorizada de simulación y por qué la tasa de reporte al SOC es su indicador central.

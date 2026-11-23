@@ -153,6 +153,24 @@ Sobre el sistema de archivos extraído (`squashfs-root/`), la inspección pasiva
 | `cat etc/inittab && ls -la etc/init.d/` | Verificar servicios peligrosos al inicio (ej. Telnet). |
 | `strings usr/bin/httpd \| grep -E "system\|/bin/sh"` | Buscar posibles inyecciones de comandos en binarios web. |
 
+### Bluetooth Low Energy (BLE): arquitectura GAP/GATT y auditoría ética
+
+Muchos dispositivos médicos, cerraduras inteligentes y sensores IoT emplean **Bluetooth Low Energy (BLE)** en la banda de 2.4 GHz. Su modelo operativo se divide en dos capas esenciales para el auditor:
+
+- **GAP (*Generic Access Profile*):** gobierna el descubrimiento y la publicidad (*advertising*). Un dispositivo *Peripheral* emite paquetes periódicos anunciando su nombre, dirección MAC (fija o aleatoria rotativa) y servicios disponibles para que un *Central* (teléfono o gateway) inicie la conexión.
+- **GATT (*Generic Attribute Profile*):** una vez establecida la conexión, expone los datos en una jerarquía de **Servicios** y **Características** identificadas por UUIDs. Cada característica define permisos como **`Read`** (lectura), **`Write`** / **`Write Without Response`** (escritura de comandos o configuración) y **`Notify`** (suscripción a cambios en tiempo real).
+
+El fallo más frecuente en auditorías IoT ocurre al usar el modo de emparejamiento débil ***Just Works*** (o *LE Legacy Pairing* sin código PIN), que no ofrece verificación frente a intercepción *Man-in-the-Middle*, combinado con características `Write` críticas expuestas sin exigir enlace cifrado previo (*Encryption / Authentication Required*). En laboratorio sobre **hardware propio**, podés relevar dispositivos cercanos con `hcitool lescan` o `bluetoothctl`, inspeccionar tráfico capturado en **Wireshark** (disector BLE) y auditar conexiones propias de forma pasiva con **`btlejack`** usando dongles dedicados para confirmar si los comandos de control viajan cifrados mediante *LE Secure Connections* (ECDH + *Numeric Comparison* o *Passkey*).
+
+### Radiofrecuencia Sub-GHz: código fijo frente a *rolling codes*
+
+Controles remotos de portones, alarmas inalámbricas, sensores industriales y sistemas de apertura vehicular operan habitualmente en bandas ISM **Sub-GHz** (**315 MHz**, **433.92 MHz**, **868 MHz** o **915 MHz**) utilizando modulaciones simples como **ASK/OOK** o **FSK**:
+
+- **Código fijo (*Fixed Code*):** el control transmite siempre exactamente la misma secuencia binaria estática al presionar el botón. Cualquier transceptor en alcance puede grabar esa señal y retransmitirla literalmente (*replay attack*) para abrir el acceso sin conocer clave alguna.
+- ***Rolling codes* modernos (como KeeLoq o esquemas cifrados AES):** cada transmisión combina un identificador del transmisor con un **contador incremental sincronizado** cifrado mediante una clave secreta compartida con el receptor. El receptor valida que el contador sea estrictamente mayor que el último aceptado dentro de una ventana válida, invalidando automáticamente cualquier captura repetida (aunque implementaciones heredadas de KeeLoq con claves de fabricante débiles o ataques de bloqueo + captura secuencial refuerzan la necesidad de usar protocolos bidireccionales modernos con AES-128).
+
+En una auditoría ética de laboratorio, la verificación inicial se limita a **recepción pasiva** sobre dispositivos propios usando un receptor **SDR (*Software Defined Radio*)** económico (por ejemplo, un *RTL-SDR* en modo solo escucha) junto a herramientas como `rtl_433` o **Universal Radio Hacker (URH)** para inspeccionar el espectrograma, demodular la trama y confirmar que el sistema no transmita identificadores de código fijo en claro.
+
 ## Práctica guiada en laboratorio
 
 En esta práctica vas a inspeccionar de forma pasiva un firmware abierto en entorno aislado y auditar los controles locales de USB e IOMMU en tu máquina virtual Linux.

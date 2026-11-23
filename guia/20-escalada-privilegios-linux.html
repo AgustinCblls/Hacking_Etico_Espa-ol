@@ -79,6 +79,20 @@ sudo aa-status
 # Verificar estado de SELinux en sistemas basados en RHEL/Fedora
 getenforce
 sestatus</code></pre>
+<h3 id="cap-3-3-auditoria-de-nfs-no-root-squash-y-gestion-defensiva-del-kernel">Auditoría de NFS (<code>no_root_squash</code>) y gestión defensiva del kernel</h3>
+<ul><li><strong>Exportaciones NFS sin <code>root_squash</code> (<code>/etc/exports</code>):</strong> por diseño seguro, la opción predeterminada <code>root_squash</code> en un servidor NFS mapea las peticiones de un cliente remoto con <code>UID 0</code> (<code>root</code>) hacia una cuenta local sin privilegios (<code>nobody</code> o <code>nfsnobody</code>), evitando que un cliente modifique permisos privilegiados en el recurso compartido. Cuando un directorio se exporta con <strong><code>no_root_squash</code></strong> hacia subredes amplias o equipos sin aislamiento, quien posea privilegios de <code>root</code> en el cliente montado puede crear un binario propiedad de <code>root</code> con el bit SUID activado dentro del recurso compartido y luego ejecutarlo localmente en el servidor NFS para elevar a <code>UID 0</code>. Auditá siempre <code>/etc/exports</code> y <code>exportfs -v</code>, eliminá <code>no_root_squash</code> (usá <code>root_squash</code> o <code>all_squash</code>), restringí las IPs autorizadas y montá recursos NFS en clientes con <code>nosuid,nodev</code>.</li><li><strong>Gestión defensiva de superficie del kernel Linux:</strong> además de aplicar actualizaciones periódicas o <em>livepatching</em> (como <code>kpatch</code> o <em>Canonical Livepatch</em>) para corregir vulnerabilidades locales de privilegio sin esperar reinicios prolongados, reducí la superficie de ataque del núcleo vía <code>sysctl</code> en <code>/etc/sysctl.d/99-hardening-kernel.conf</code>:</li></ul>
+<pre><code class="lenguaje-bash"># Auditar exportaciones NFS activas buscando no_root_squash
+cat /etc/exports
+sudo exportfs -v
+
+# Parámetros recomendados en /etc/sysctl.d/99-hardening-kernel.conf
+# Restringir namespaces de usuario sin privilegios (donde contenedores/sandboxes no lo requieran)
+kernel.unprivileged_userns_clone = 0
+# Ocultar direcciones de punteros del núcleo en /proc/kallsyms (dificulta evadir KASLR)
+kernel.kptr_restrict = 2
+# Limitar lectura del ring buffer del núcleo (dmesg) a usuarios con CAP_SYSLOG / root
+kernel.dmesg_restrict = 1</code></pre>
+<p>Aplicá los cambios con <code>sudo sysctl --system</code> y verificá que sigan vigentes ante reinicios.</p>
 <h2 id="cap-3-3-4-deteccion-de-actividad-privilegiada-con-auditd">4. Detección de actividad privilegiada con <code>auditd</code></h2>
 <p>El subsistema de auditoría del núcleo Linux (<code>auditd</code>) permite registrar eventos críticos de seguridad de manera inmutable para análisis posterior o envío hacia un SIEM.</p>
 <pre><code class="lenguaje-bash"># Consultar reglas activas de auditd en el servidor de laboratorio

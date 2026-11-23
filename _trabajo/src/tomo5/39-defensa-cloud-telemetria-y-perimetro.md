@@ -158,6 +158,14 @@ El siguiente patrón de evento en EventBridge captura únicamente hallazgos de G
 }
 ```
 
+### Evaluación continua de postura (CSPM abierto): Prowler, ScoutSuite y Steampipe
+
+Mientras la telemetría (CloudTrail / Cloud Logging) registra *qué pasó* en el tiempo y GuardDuty alerta sobre *comportamientos anómalos*, las herramientas **CSPM (*Cloud Security Posture Management*)** auditan de forma periódica la *configuración actual* contra marcos como CIS Benchmark, PCI-DSS o NIST. En operaciones Purple Team abiertas destacan tres herramientas complementarias:
+
+- **Prowler:** herramienta CLI en Python orientada inicialmente a AWS (y extendida a Azure, GCP y Kubernetes) que evalúa cientos de controles CIS, IAM, cifrado, S3, VPC e IMDSv2 generando reportes HTML, JSON-OCSF y hallazgos exportables a AWS Security Hub.
+- **ScoutSuite:** auditor multi-cloud desarrollado por NCC Group que recolecta la configuración de solo lectura vía APIs de AWS, Azure y GCP y construye un informe HTML navegable offline para revisar rápidamente superficies expuestas (buckets públicos, Security Groups `0.0.0.0/0`, claves antiguas).
+- **Steampipe:** motor basado en PostgreSQL + plugins que expone las APIs de AWS, Azure, GCP, Kubernetes y GitHub como tablas consultables en tiempo real mediante **SQL estándar** (por ejemplo, cruzar en una sola consulta instancias EC2 expuestas con `http_tokens = 'optional'` y roles IAM adjuntos).
+
 ---
 
 ## Defensa perimetral web y mitigación Anti-DDoS
@@ -270,6 +278,24 @@ gcloud compute backend-services update prod-api-backend \
 
 ::: peligro Modo evaluación antes de bloquear en producción
 Tanto en AWS WAF (`Count`) como en GCP Cloud Armor (`--preview`), activá siempre las reglas nuevas en modo auditoría durante 24 a 72 horas sobre tráfico real antes de pasarlas a `Block` o `deny-403`. Una regla SQLi o XSS con sensibilidad alta sin ajuste previo suele generar falsos positivos sobre payloads JSON o campos de texto enriquecido legítimos.
+:::
+
+---
+
+## Seguridad en ecosistemas SaaS corporativos: Microsoft 365 y Google Workspace
+
+En la práctica operativa, la mayoría de las intrusiones corporativas no comienzan vulnerando una instancia EC2 ni un clúster Kubernetes, sino comprometiendo identidades y flujos de correo/archivos en plataformas **SaaS** como **Microsoft 365** y **Google Workspace**. Para el equipo defensivo, el buzón y el almacenamiento colaborativo forman parte crítica del perímetro cloud:
+
+- **BEC (*Business Email Compromise*):** Ataques orientados a secuestrar o suplantar cuentas ejecutivas/financieras (mediante phishing *Adversary-in-the-Middle* que roba cookies de sesión MFA) para modificar datos bancarios de proveedores o autorizar transferencias fraudulentas sin desplegar malware binario.
+- **Abuso de *OAuth App Consent Grants* maliciosos (Consent Phishing):** En lugar de robar la contraseña, el atacante induce a un usuario a autorizar una aplicación OAuth de terceros con permisos delegados de alto impacto —como `Mail.Read`, `Mail.Send`, `Files.Read.All` u `offline_access`—. Una vez otorgado el consentimiento, la aplicación mantiene acceso persistente a correos y documentos vía API Graph/REST incluso si el usuario cambia su contraseña, hasta que un administrador revoque explícitamente el permiso o el *Enterprise App*.
+- **Reglas ocultas de reenvío y eliminación en *Exchange Online* y Gmail:** Tras ingresar al buzón, es habitual crear reglas silenciosas (`New-InboxRule` en Exchange Online o filtros automáticos en Gmail) que desvían respuestas de facturación o alertas de seguridad hacia la carpeta *Deleted Items* / *RSS Feeds* o reenvían copias hacia dominios externos bajo control del atacante.
+- **Auditoría en el *Unified Audit Log* (M365) y *Google Workspace Audit Logs*:**
+  - En **Microsoft 365**, habilitá el **Unified Audit Log (UAL)** en Microsoft Purview y monitoreá eventos críticos como `Consent to application`, `Add app role assignment grant to user`, `New-InboxRule`, `Set-InboxRule`, `MailItemsAccessed` (para dimensionar exfiltración real de correos) y `UserLoggedIn` desde IPs o *User-Agents* atípicos.
+  - En **Google Workspace**, auditá los registros de **Token / OAuth** (`authorize` con `scope` sobre Gmail o Drive), cambios en configuraciones de reenvío y delegación en **Gmail Audit Logs**, y restringí qué aplicaciones de terceros no verificadas pueden solicitar acceso mediante *API Controls / App Access Control*.
+
+::: defensa Controles inmediatos para frenar abuso SaaS
+1. **Deshabilitá el autoconsentimiento de usuarios para apps OAuth:** Configurá el flujo de **Admin Consent** en Entra ID y la lista blanca de aplicaciones confiables en Google Workspace para que ningún empleado pueda otorgar `Mail.Read` o `Files.Read.All` sin revisión previa de seguridad.
+2. **Bloqueá el reenvío automático externo por política:** Desactivá el *auto-forwarding* hacia dominios externos a nivel de tenant en *Exchange Online* (*Anti-spam outbound policy*) y en *Google Workspace*, permitiendo únicamente excepciones documentadas y monitoreadas.
 :::
 
 ---

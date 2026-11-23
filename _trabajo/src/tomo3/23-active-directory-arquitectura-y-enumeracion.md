@@ -124,6 +124,18 @@ Asimismo, la auditoría de acceso inicial en AD (**AD Hardening — Recon & Init
 2. **Sesiones SMB nulas (*NULL Sessions*) y grupo `Pre-Windows 2000 Compatible Access`:** verificar que `Everyone` y `Anonymous Logon` no pertenezcan a dicho grupo heredado (evita enumeración LDAP sin credenciales).
 3. **Credenciales heredadas en `SYSVOL` (`GPP cpassword` MS14-025):** auditar que ningún archivo XML antiguo de Group Policy Preferences conserve el atributo `cpassword` en `\\dominio\SYSVOL`.
 
+### El vector IPv6 en Active Directory (DHCPv6, RA spoofing y NTLM Relay)
+
+Incluso cuando una organización ya deshabilitó correctamente `LLMNR`, `NBT-NS` y `mDNS`, las estaciones de trabajo Windows conservan la pila **IPv6 habilitada de forma predeterminada con prioridad sobre IPv4** para la resolución DNS. Si la red corporativa opera solo en IPv4 y no existe un servidor DHCPv6 autorizado, los equipos continúan solicitando configuración por **DHCPv6** y escuchando anuncios **ICMPv6 Router Advertisement (RA)** en el enlace local.
+
+Herramientas de auditoría de red como **`mitm6`** aprovechan ese comportamiento respondiendo a las solicitudes DHCPv6/RA para asignarse como servidor DNS IPv6 preferido de la víctima y resolver selectivamente peticiones internas (por ejemplo `WPAD` o nombres corporativos) hacia el equipo del auditor. Cuando el cliente intenta autenticarse automáticamente sobre HTTP o SMB, esa autenticación NetNTLMv2 se combina con **NTLM Relay hacia LDAPS** (para modificar DACLs, crear objetos de máquina o configurar RBCD) o hacia **ADCS Web Enrollment** para emitir certificados de usuario o equipo.
+
+::: defensa Remediación integral contra el abuso de IPv6 en Active Directory
+1. **Controles en switches de acceso (Capa 2):** habilitá **RA Guard** (RFC 6105) y **DHCPv6 Guard** (RFC 7610) en todos los puertos de usuario final para descartar anuncios RA y respuestas DHCPv6 originados desde puertos no autorizados.
+2. **Hardening de pila IPv6 en endpoints:** si IPv6 no se utiliza en producción, deshabilitá los componentes innecesarios mediante la clave de registro `DisabledComponents` en `HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters` (siguiendo la matriz oficial de Microsoft y evitando `0xFF` si rompe servicios internos dependientes de loopback IPv6), y desactivá la detección automática de proxy **WPAD** por GPO cuando no se requiera.
+3. **Cierre criptográfico del destino del Relay:** exigí **LDAP Signing + LDAP Channel Binding (CBT = Always)** en todos los Controladores de Dominio y configurá **HTTPS con Extended Protection for Authentication (EPA = Required)** en IIS / ADCS Web Enrollment, neutralizando cualquier intento de relayar la sesión NTLM aunque exista suplantación de DNS IPv6 en la subred.
+:::
+
 ## 5. Arquitectura defensiva: el Modelo de Administración por Niveles (Tiering)
 
 El hallazgo más frecuente en auditorías de Active Directory es el uso de una misma cuenta `Domain Admin` para iniciar sesión por escritorio remoto (RDP) en servidores de aplicaciones o estaciones de trabajo de usuarios para "instalar un programa rápido".

@@ -97,6 +97,14 @@ Si una petición malformada incluye ambas cabeceras (o una cabecera `Transfer-En
 2. **Prototype Pollution (JavaScript / Node.js):** cuando funciones inseguras de fusión recursiva de objetos (`merge`/`clone`) copian propiedades con clave `__proto__`, `constructor` o `prototype` desde un JSON de usuario, alterando propiedades heredadas de `Object.prototype` en toda la aplicación (causando escalada de privilegios lógica o ejecución de código en gadgets del backend/DOM). **Mitigación:** usar `Map` o `Object.create(null)`, validar esquemas JSON rechazando claves `__proto__` / `constructor` y congelar prototipos (`Object.freeze(Object.prototype)`).
 3. **Type Juggling (comparación débil de tipos en PHP/JS):** ocurre al usar `==` (comparación laxa) en lugar de `===` (identidad estricta de tipo y valor); por ejemplo, en versiones heredadas de PHP cadenas que empiezan con `"0e..."` comparadas con `==` se evaluaban como notación científica igual a cero. **Mitigación:** exigir siempre comparación estricta (`===`) y usar `hash_equals()` en tiempo constante para tokens y firmas.
 
+::: nota Profundización en el Tomo VI (Caps. 6.1 a 6.4)
+En este capítulo introducimos los fundamentos y mitigaciones esenciales. El análisis en profundidad de las técnicas avanzadas de explotación, telemetría y defensa se desarrolla en el **Tomo VI (Caps. 6.1 a 6.4)**:
+- ***Race Conditions* HTTP/2 (*single-packet attack*):** sincronización de ráfagas sobre multiplexación HTTP/2 y mitigaciones de concurrencia distribuida.
+- ***Web Cache Poisoning* y *Web Cache Deception*:** abuso de *unkeyed headers*, normalización de rutas en CDNs y reglas de cacheo seguras.
+- **OAuth 2.0 complejo:** validación estricta de `redirect_uri`, PKCE, confusión de `state` / `nonce` y abuso de flujos entre clientes y servidores de autorización.
+- ***Prototype Pollution* avanzado:** cadenas de *gadgets* en tiempo de ejecución en Node.js y DOM, junto con detección en análisis dinámico y estático.
+:::
+
 ## 4. Metodología de auditoría de código fuente (*Whitebox Pentesting*)
 
 Contar con acceso al código fuente de la aplicación transforma la auditoría: en lugar de adivinar desde afuera, podés verificar el 100 % de las rutas y encontrar defectos lógicos en minutos. La metodología profesional combina tres técnicas:
@@ -119,6 +127,10 @@ resolvers GraphQL)             llamadas HTTP o deserializadores        y estados
    - Red saliente: `requests.get()`, `urllib.request.urlopen()`.
    - Deserialización: `pickle.loads()`, `yaml.load()`.
 3. **Verificar el Sanitizador o Parametrización en el camino:** comprobar que entre cada *Source* y cada *Sink* exista parametrización estricta, validación por lista blanca o codificación contextual.
+
+::: nota Profundización en el Tomo VI (Caps. 6.1 a 6.4)
+El flujo de análisis estático que aplicamos aquí en Python se amplía en el **Tomo VI (Caps. 6.1 a 6.4)** con metodología sistemática de ***White-Box Code Review* en 5 lenguajes**, cubriendo patrones de fuentes, sanitizadores y sumideros específicos de cada ecosistema junto con reglas SAST reproducibles.
+:::
 
 ## 5. Ejemplo paso a paso: auditoría Whitebox automatizada con un script en Python
 

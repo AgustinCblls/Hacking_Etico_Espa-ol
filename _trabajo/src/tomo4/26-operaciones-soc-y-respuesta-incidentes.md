@@ -58,23 +58,35 @@ ss -tunap | grep ESTAB
 sha256sum /tmp/artefacto_sospechoso.bin 2>/dev/null || echo "Sin artefacto en /tmp"
 ```
 
-### Identificación de amenazas, documentos sospechosos y prevención en código
+### Identificación de amenazas, documentos sospechosos y verificación de línea base
 
 Ante archivos adjuntos sospechosos (como documentos ofimáticos o PDF recibidos por correo), el análisis seguro se realiza exclusivamente en máquinas virtuales aisladas sin salida a Internet: se inspeccionan metadatos, flujos embebidos y presencia de macros o enlaces externos antes de ejecutar cualquier contenido.
 
-En paralelo, muchos incidentes web se originan en errores lógicos de parámetros (por ejemplo, confiar en montos, roles o identificadores enviados desde el cliente). En aplicaciones JavaScript, el endurecimiento exige validar estrictamente tipos y reglas de negocio en el servidor:
+En paralelo, una parte crítica de la fase de **Preparación** del SOC consiste en mantener una **línea base criptográfica de binarios críticos** (*golden baseline*) y verificar firmas digitales en modo solo lectura para detectar de inmediato reemplazos o manipulaciones antes y durante un incidente:
 
-```javascript
-// Validación defensiva de parámetros en servidor (Node.js / Express)
-function procesarTransferencia(req, res) {
-  const monto = Number(req.body.monto);
-  if (!Number.isFinite(monto) || monto <= 0 || monto > 10000) {
-    return res.status(400).json({ error: "Parámetro inválido" });
-  }
-  // El rol y el usuario se obtienen de la sesión autenticada, nunca del body
-  const usuarioId = req.session.userId;
-  return res.status(200).json({ estado: "validado", usuarioId, monto });
+```python
+# Verificación defensiva de línea base SHA-256 para preparación SOC (solo lectura)
+import hashlib
+from pathlib import Path
+
+BASELINE_ESPERADA = {
+    "reglas_sigma_ejemplo.yml": "<sha256_conocido_de_repositorio>",
+    "sysmon_config_lab.xml": "<sha256_aprobado_por_soc>",
 }
+
+def verificar_integridad_artefactos(carpeta: str) -> list[str]:
+    alertas = []
+    for nombre, hash_ok in BASELINE_ESPERADA.items():
+        ruta = Path(carpeta) / nombre
+        if not ruta.exists():
+            alertas.append(f"AUSENTE: {nombre}")
+            continue
+        digest = hashlib.sha256(ruta.read_bytes()).hexdigest()
+        if hash_ok.startswith("<"):
+            print(f"[BASELINE] {nombre} -> {digest}")
+        elif digest != hash_ok:
+            alertas.append(f"ALTERADO: {nombre} ({digest})")
+    return alertas
 ```
 
 ### Estructura de un reporte de incidente de seguridad

@@ -135,6 +135,19 @@
 <tr><td><code>iam:AttachUserPolicy</code> / <code>AttachRolePolicy</code></td><td>Autoasignación de políticas administrativas predefinidas</td><td>Limitar mediante SCP o restringir a prefijos de roles no privilegiados</td></tr>
 <tr><td><code>iam:CreateAccessKey</code></td><td>Generación de credenciales estáticas sobre otras identidades</td><td>Restringir <code>Resource</code> a <code>arn:aws:iam::*:user/${aws:username}</code> o bloquear vía SCP</td></tr>
 </tbody></table></div>
+<h3 id="cap-5-1-comparativa-multi-cloud-primitivas-de-escalada-iam-y-proteccion-de-metadatos-imds">Comparativa Multi-Cloud: Primitivas de Escalada IAM y Protección de Metadatos (IMDS)</h3>
+<p>Aunque cada proveedor utiliza su propia nomenclatura, los patrones de abuso de identidad y exposición de credenciales locales mediante metadatos presentan equivalencias directas en <strong>AWS</strong>, <strong>Azure / Entra ID</strong> y <strong>GCP</strong> (cuyo detalle de red e IMDS profundizás en el capítulo siguiente):</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Proveedor</th>
+<th>Primitivas frecuentes de escalada IAM</th>
+<th>Protección del plano de metadatos (IMDS)</th>
+<th>Control Purple Team clave</th>
+</tr></thead><tbody>
+<tr><td><strong>AWS</strong></td><td><code>iam:PassRole</code> + cómputo, <code>sts:AssumeRole</code> por <em>Trust Policy</em> amplia, <code>iam:CreatePolicyVersion</code> (<code>SetAsDefault</code>).</td><td><strong>IMDSv2 obligatorio (<code>HttpTokens: required</code>)</strong>: exige <code>PUT</code> con <code>X-aws-ec2-metadata-token</code> y <code>HopLimit = 1</code>.</td><td>Imponer SCP organizacional contra IMDSv1, <em>Permissions Boundaries</em> y alertas en CloudTrail ante <code>AssumeRole</code> / <code>CreatePolicyVersion</code>.</td></tr>
+<tr><td><strong>Azure / Entra ID</strong></td><td>Abuso de <em>App Registrations</em> / <em>Service Principals</em> (secretos o roles <code>Owner</code>/<code>Contributor</code>) y <em>Consent Phishing</em> OAuth.</td><td><strong>IMDS de Azure (<code>169.254.169.254</code>)</strong>: exige cabecera obligatoria <code>Metadata: true</code> en cada solicitud HTTP para tokens de <em>Managed Identity</em>.</td><td>Restringir creación de <em>App Registrations</em> por usuarios estándar, exigir <em>Admin Consent</em> y aplicar <em>Conditional Access</em> sobre identidades humanas y cargas.</td></tr>
+<tr><td><strong>GCP</strong></td><td><code>iam.serviceAccounts.actAs</code> (adjuntar una <em>Service Account</em> privilegiada a Compute/Cloud Functions) y <code>setIamPolicy</code> sobre proyecto/carpeta.</td><td><strong>Metadata Server (<code>metadata.google.internal</code> / <code>169.254.169.254</code>)</strong>: exige obligatoriamente la cabecera <code>Metadata-Flavor: Google</code> y rechaza <code>X-Forwarded-For</code>.</td><td>Acotar <code>actAs</code> a <em>Service Accounts</em> mínimas, bloquear <code>setIamPolicy</code> fuera de IaC y auditar <code>SetIamPolicy</code> en Cloud Audit Logs.</td></tr>
+</tbody></table></div>
 <h2 id="cap-5-1-identidad-hibrida-y-moderna-microsoft-entra-id">Identidad Híbrida y Moderna: Microsoft Entra ID</h2>
 <p>En ecosistemas empresariales, la identidad suele originarse en un directorio corporativo centralizado sincronizado con la nube. <strong>Microsoft Entra ID</strong> (anteriormente Azure Active Directory) funciona como el proveedor de identidad (IdP) central para Azure, Microsoft 365 y aplicaciones federadas por <strong>SAML 2.0</strong> u <strong>OpenID Connect (OIDC)</strong> hacia AWS o GCP.</p>
 <h3 id="cap-5-1-conceptos-clave-en-entra-id">Conceptos Clave en Entra ID</h3>

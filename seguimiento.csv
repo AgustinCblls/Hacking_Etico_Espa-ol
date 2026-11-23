@@ -53,3 +53,4 @@
 7.5,Tomo VII,"Ruta 7 · Mobile, Wireless, OT y GRC",Mixto,"Seguridad física, perímetro hardware (RFID/BadUSB/DMA) e IoT/Firmware",guia/52-seguridad-fisica-hardware-e-iot.html,6–8 h,0,Pendiente,,
 7.6,Tomo VII,"Ruta 7 · Mobile, Wireless, OT y GRC",Mixto,Seguridad en entornos industriales OT / ICS / SCADA y Modelo Purdue,guia/53-redes-industriales-ot-ics-y-scada.html,6–8 h,0,Pendiente,,
 7.7,Tomo VII,"Ruta 7 · Mobile, Wireless, OT y GRC",Mixto,"GRC, marco legal, contratos (RoE), cuantificación de riesgos e ISO 27001 / NIST CSF",guia/54-grc-marco-legal-riesgos-y-cumplimiento.html,6–8 h,0,Pendiente,,
+7.8,Tomo VII,"Ruta 7 · Mobile, Wireless, OT, GRC e IA",Ofensivo/Defensivo,"Anexo Técnico · Seguridad en IA, Modelos de Lenguaje (LLMs) y Agentes (OWASP LLM Top 10)",guia/55-anexo-seguridad-ia-llm-y-agentes.html,7–9 h,16,Pendiente,,

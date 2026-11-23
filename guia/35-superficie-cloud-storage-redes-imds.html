@@ -134,6 +134,19 @@ curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
     }
   ]
 }</code></pre>
+<h3 id="cap-5-2-comparativa-multi-cloud-primitivas-de-escalada-iam-y-proteccion-imds-aws-azure-y-gcp">Comparativa Multi-Cloud: Primitivas de Escalada IAM y Protección IMDS (AWS, Azure y GCP)</h3>
+<p>Cuando auditás o defendés cargas de trabajo híbridas, debés correlacionar cómo un SSRF hacia el servicio de metadatos o una delegación excesiva en IAM habilita el movimiento lateral en los tres principales proveedores:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Proveedor</th>
+<th>Primitivas críticas de escalada IAM</th>
+<th>Protección nativa del servicio de metadatos (IMDS)</th>
+<th>Validación y mitigación Purple Team</th>
+</tr></thead><tbody>
+<tr><td><strong>AWS</strong></td><td><code>iam:PassRole</code> (delegar un rol superior a EC2/Lambda), <code>sts:AssumeRole</code> transitivo y <code>iam:CreatePolicyVersion</code> (activar nueva versión de política).</td><td><strong>IMDSv2:</strong> flujo en dos pasos (<code>PUT /latest/api/token</code> + cabecera <code>X-aws-ec2-metadata-token</code> en solicitudes siguientes), rechaza <code>X-Forwarded-For</code> y limita <code>HopLimit = 1</code>.</td><td>Verificar <code>HttpTokens: required</code> vía SCP, acotar <code>PassRole</code> con <code>iam:PassedToService</code> y monitorear uso externo de credenciales de instancia en GuardDuty.</td></tr>
+<tr><td><strong>Azure / Entra ID</strong></td><td>Abuso de <em>App Registrations</em> / <em>Service Principals</em> con permisos RBAC amplios o credenciales expuestas, y <strong>Consent Phishing</strong> sobre permisos OAuth delegados.</td><td><strong>IMDS de Azure (<code>169.254.169.254</code>):</strong> bloquea peticiones sin la cabecera explícita <strong><code>Metadata: true</code></strong>, neutralizando SSRF simples que no permiten inyectar cabeceras HTTP personalizadas.</td><td>Usar <em>Managed Identities</em> con mínimo privilegio RBAC, restringir el registro/consentimiento de aplicaciones en Entra ID y validar en aplicaciones web que el proxy no reenvíe cabeceras arbitrarias.</td></tr>
+<tr><td><strong>GCP</strong></td><td><code>iam.serviceAccounts.actAs</code> (suplantar o vincular una <em>Service Account</em> de mayor privilegio a un recurso) y <code>setIamPolicy</code> (reescribir políticas IAM en proyecto, carpeta o bucket).</td><td><strong>Metadata Server de GCP (<code>169.254.169.254</code> / <code>metadata.google.internal</code>):</strong> exige obligatoriamente la cabecera <strong><code>Metadata-Flavor: Google</code></strong> (y deshabilita los endpoints heredados <code>v1beta1</code> sin cabecera).</td><td>Desactivar APIs de metadatos heredadas, restringir <code>actAs</code> y <code>setIamPolicy</code> a cuentas CI/CD auditadas y activar alerta sobre <code>SetIamPolicy</code> en Cloud Logging.</td></tr>
+</tbody></table></div>
 <h2 id="cap-5-2-auditoria-cli-en-laboratorio">Auditoría CLI en Laboratorio</h2>
 <p>Usá estos comandos desde tu terminal configurada contra un laboratorio propio o entorno LocalStack para auditar S3, redes VPC y cumplimiento de IMDSv2:</p>
 <pre><code class="lenguaje-bash"># 1. Verificar estado de Block Public Access en un bucket S3

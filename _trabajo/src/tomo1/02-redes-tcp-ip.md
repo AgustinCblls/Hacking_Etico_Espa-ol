@@ -112,6 +112,23 @@ Las redes corporativas raramente funcionan como una única red plana: combinan c
 | **Enrutamiento (Estático, OSPF, BGP) y NAT** | Intercambian rutas entre subredes/sistemas autónomos (`OSPF` en LAN/WAN corporativa, `BGP` entre proveedores) y traducen direcciones privadas RFC 1918 (`NAT`) al salir a internet. | Exigir autenticación criptográfica en vecinos `OSPF`/`BGP` y recordar que **NAT no es un firewall**: solo traduce IPs/puertos; la seguridad real depende de reglas de filtrado con estado (*stateful*). |
 | **IPv6 y NDP (*Neighbor Discovery*)** | Direcciones de 128 bits (`fe80::/10` link-local, `fc00::/7` únicas locales, `2000::/3` globales) que reemplazan ARP por ICMPv6 **NDP** y usan **SLAAC** o DHCPv6. | Incluso en redes "solo IPv4", la pila IPv6 suele venir habilitada por defecto en Windows y Linux. Auditar siempre reglas de firewall IPv6 (`ip6tables`/`nftables`) y activar **RA Guard** en switches. |
 
+### IPv6 práctico, SLAAC/NDP y superficie oculta en redes "solo IPv4"
+
+Para auditar redes modernas no alcanza con dominar IPv4: casi todos los sistemas operativos actuales habilitan IPv6 por defecto y lo priorizan sobre IPv4 (RFC 6724) cuando ambos están disponibles.
+
+- **Direccionamiento práctico (`/64` estándar y Link-Local):** una dirección IPv6 mide **128 bits** (ocho grupos hexadecimales separados por `:` con compresión `::` de ceros contiguos). En LAN se asigna de forma estándar el prefijo **`/64`**: los primeros 64 bits identifican la red/subred y los últimos 64 bits forman el *Interface ID* del host. Toda interfaz con IPv6 activo genera automáticamente una dirección **Link-Local (`fe80::/10`)** válida únicamente dentro del enlace físico o VLAN local (jamás enrutable por routers) y obligatoria para el funcionamiento de NDP y como dirección de *next-hop*.
+- **SLAAC y NDP sobre ICMPv6 (reemplazo de ARP y broadcast):** IPv6 elimina las tramas *broadcast* y el protocolo ARP. En su lugar utiliza **NDP (*Neighbor Discovery Protocol*)** mediante mensajes ICMPv6 *multicast*:
+  - **RS / RA (*Router Solicitation* Type 133 / *Router Advertisement* Type 134):** al conectarse, el host envía un RS al grupo multicast de routers (`ff02::2`); los routers responden con un RA anunciando el prefijo `/64`, la puerta de enlace Link-Local y opcionalmente servidores DNS (RDNSS) para autoconfiguración sin estado (**SLAAC**).
+  - **NS / NA (*Neighbor Solicitation* Type 135 / *Neighbor Advertisement* Type 136):** cumplen un rol equivalente al ARP *Who-has / Is-at* para resolver una IPv6 a su dirección MAC y realizar detección de direcciones duplicadas (**DAD**).
+
+::: peligro Por qué IPv6 en redes "solo IPv4" es una superficie crítica de auditoría
+En entornos corporativos configurados "solo para IPv4", la causa raíz del riesgo es la **asimetría de controles**: los hosts mantienen su pila IPv6 activa, mientras que administradores y equipos de seguridad solo escriben reglas de firewall IPv4 (`iptables`, ACLs IPv4) y monitorean logs IPv4. Un atacante en el mismo segmento L2 puede emitir **Router Advertisements falsos (`RA`)** por SLAAC/NDP para autopromocionarse como gateway y DNSv6 preferido de estaciones Windows o Linux sin generar tráfico IPv4 sospechoso, o alcanzar puertos de servicios que quedaron expuestos en `::` sin reglas equivalentes en `ip6tables` / `nftables`.
+
+**Telemetría y mitigación (Purple Team):**
+1. **Visibilidad y paridad de firewall:** inventariá interfaces y reglas activas con `ip -6 addr`, `ip -6 route` y `sudo nft list ruleset` (o `sudo ip6tables -L -v -n`). Si un servicio no usa IPv6, vinculalo explícitamente a la interfaz IPv4 o aplicá políticas `DROP` simétricas en IPv6.
+2. **Mitigación en Capa 2:** habilitá **RA Guard (RFC 6105)** y **DHCPv6 Guard** en los switches de acceso para descartar mensajes ICMPv6 Type 134 (RA) provenientes de puertos de usuario final, junto con detección en IDS/NDR de paquetes ICMPv6 Type 134 no autorizados.
+:::
+
 ## Ejemplo paso a paso: Captura de un 3-way handshake HTTP y consulta DNS en loopback
 
 En esta práctica vas a capturar tráfico real contra el contenedor `lab_web` del Capítulo 1.1 (`127.0.0.1:8080`) usando dos terminales en tu máquina Linux de laboratorio.

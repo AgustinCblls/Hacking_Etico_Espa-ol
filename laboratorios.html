@@ -58,13 +58,15 @@
 <tr><td><a href="laboratorios/iac_cloud_hardening.tf"><code>iac_cloud_hardening.tf</code></a></td><td>Cap. 5.1, 5.2 y 5.5</td><td>Plantilla Terraform con bloqueo público S3, cifrado en reposo y exigencia obligatoria de tokens <code>IMDSv2</code>.</td></tr>
 <tr><td><a href="laboratorios/plantilla_threat_model_stride.md"><code>plantilla_threat_model_stride.md</code></a></td><td>Cap. 6.3</td><td>Plantilla lista para construir Diagramas de Flujo de Datos, matriz STRIDE, árboles de ataque y controles ASVS.</td></tr>
 <tr><td><a href="laboratorios/plantilla_roe_alcance.md"><code>plantilla_roe_alcance.md</code></a></td><td>Cap. 2.8 y 7.7</td><td>Plantilla de <em>Rules of Engagement</em> (RoE), exclusiones, protocolo <em>stop-and-notify</em> y firmas de autorización escrita.</td></tr>
+<tr><td><a href="laboratorios/lab_rag_mcp_seguro.py"><code>lab_rag_mcp_seguro.py</code></a></td><td>Cap. 7.8</td><td>Simulador educativo 100 % local en Python 3 para probar filtrado RAG multi-tenant, cuarentena de inyección indirecta y validación determinista de herramientas/MCP.</td></tr>
 </tbody></table></div>
 
 <h2 id="arranque-rapido-lab">Arranque rápido y pruebas verificables sin descargas externas</h2>
-<pre><code class="lenguaje-bash"># 1. Probar de inmediato el analizador SOC y el auditor White-Box AST desde la raíz del curso
+<pre><code class="lenguaje-bash"># 1. Probar de inmediato el analizador SOC, el auditor White-Box AST y el lab RAG/MCP desde la raíz
 python laboratorios/analizador_logs_soc.py laboratorios/muestras/auth_ssh_simulado.log 5
 python laboratorios/analizador_logs_soc.py laboratorios/muestras/web_access_simulado.log 4
 python laboratorios/auditor_whitebox_codereview.py ./laboratorios/
+python laboratorios/lab_rag_mcp_seguro.py
 
 # 2. Levantar la app educativa y Nginx localmente (solo en 127.0.0.1)
 cd laboratorios

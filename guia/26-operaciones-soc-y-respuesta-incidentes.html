@@ -62,19 +62,31 @@ Get-AuthenticodeSignature "C:\Windows\System32\cmd.exe" | Select-Object Status, 
 ps -ef --forest | head -n 30
 ss -tunap | grep ESTAB
 sha256sum /tmp/artefacto_sospechoso.bin 2&gt;/dev/null || echo "Sin artefacto en /tmp"</code></pre>
-<h3 id="cap-4-1-identificacion-de-amenazas-documentos-sospechosos-y-prevencion-en-codigo">Identificación de amenazas, documentos sospechosos y prevención en código</h3>
+<h3 id="cap-4-1-identificacion-de-amenazas-documentos-sospechosos-y-verificacion-de-linea-base">Identificación de amenazas, documentos sospechosos y verificación de línea base</h3>
 <p>Ante archivos adjuntos sospechosos (como documentos ofimáticos o PDF recibidos por correo), el análisis seguro se realiza exclusivamente en máquinas virtuales aisladas sin salida a Internet: se inspeccionan metadatos, flujos embebidos y presencia de macros o enlaces externos antes de ejecutar cualquier contenido.</p>
-<p>En paralelo, muchos incidentes web se originan en errores lógicos de parámetros (por ejemplo, confiar en montos, roles o identificadores enviados desde el cliente). En aplicaciones JavaScript, el endurecimiento exige validar estrictamente tipos y reglas de negocio en el servidor:</p>
-<pre><code class="lenguaje-javascript">// Validación defensiva de parámetros en servidor (Node.js / Express)
-function procesarTransferencia(req, res) {
-  const monto = Number(req.body.monto);
-  if (!Number.isFinite(monto) || monto &lt;= 0 || monto &gt; 10000) {
-    return res.status(400).json({ error: "Parámetro inválido" });
-  }
-  // El rol y el usuario se obtienen de la sesión autenticada, nunca del body
-  const usuarioId = req.session.userId;
-  return res.status(200).json({ estado: "validado", usuarioId, monto });
-}</code></pre>
+<p>En paralelo, una parte crítica de la fase de <strong>Preparación</strong> del SOC consiste en mantener una <strong>línea base criptográfica de binarios críticos</strong> (<em>golden baseline</em>) y verificar firmas digitales en modo solo lectura para detectar de inmediato reemplazos o manipulaciones antes y durante un incidente:</p>
+<pre><code class="lenguaje-python"># Verificación defensiva de línea base SHA-256 para preparación SOC (solo lectura)
+import hashlib
+from pathlib import Path
+
+BASELINE_ESPERADA = {
+    "reglas_sigma_ejemplo.yml": "&lt;sha256_conocido_de_repositorio&gt;",
+    "sysmon_config_lab.xml": "&lt;sha256_aprobado_por_soc&gt;",
+}
+
+def verificar_integridad_artefactos(carpeta: str) -&gt; list[str]:
+    alertas = []
+    for nombre, hash_ok in BASELINE_ESPERADA.items():
+        ruta = Path(carpeta) / nombre
+        if not ruta.exists():
+            alertas.append(f"AUSENTE: {nombre}")
+            continue
+        digest = hashlib.sha256(ruta.read_bytes()).hexdigest()
+        if hash_ok.startswith("&lt;"):
+            print(f"[BASELINE] {nombre} -&gt; {digest}")
+        elif digest != hash_ok:
+            alertas.append(f"ALTERADO: {nombre} ({digest})")
+    return alertas</code></pre>
 <h3 id="cap-4-1-estructura-de-un-reporte-de-incidente-de-seguridad">Estructura de un reporte de incidente de seguridad</h3>
 <p>Un buen reporte separa hechos verificables de hipótesis y permite que tanto dirección técnica como gestión comprendan el impacto:</p>
 <ul><li><strong>Resumen ejecutivo:</strong> Impacto en negocio, activos afectados y estado actual (contenido / resuelto).</li><li><strong>Línea de tiempo (UTC):</strong> Secuencia breve de hitos principales con marca horaria normalizada.</li><li><strong>Causa raíz y alcance:</strong> Vector inicial identificado, sistemas tocados y datos expuestos.</li><li><strong>Acciones correctivas:</strong> Contención aplicada, parches, rotaciones de credenciales y mejoras de monitoreo.</li></ul>

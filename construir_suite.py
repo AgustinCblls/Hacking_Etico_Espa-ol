@@ -122,12 +122,12 @@ TOMOS_META = [
         "dir": "tomo7",
         "slug_html": "tomo7.html",
         "pdf": "Tomo_7_Mobile_Wireless_OT_y_GRC.pdf",
-        "titulo": "Tomo VII · Mobile (MASTG), Wi-Fi, Hardware/IoT, OT/ICS y GRC Legal",
-        "subtitulo": "Ruta 7 · Dominios Especializados — Android/iOS, 802.11/WPA3/802.1X, RFID/DMA/Firmware, Purdue/SCADA e ISO 27001/NIST CSF",
+        "titulo": "Tomo VII · Mobile (MASTG), Wi-Fi, Hardware/IoT, OT/ICS, GRC e IA",
+        "subtitulo": "Ruta 7 · Dominios Especializados y Frontera — Android/iOS, 802.11/WPA3/802.1X, RFID/BLE/OT-SCADA, GRC 2026 y Seguridad en IA/LLMs",
         "nivel_css": "especialista",
         "nivel_txt": "Especialista",
-        "horas": "47–61 h",
-        "resumen": "Completa la biblioteca integral cubriendo seguridad móvil estática, dinámica y forense (Android/iOS), redes inalámbricas WEP/WPS/WPA2/WPA3/Enterprise, seguridad física y hardware/IoT, redes industriales OT/SCADA (Modelo Purdue) y GRC, riesgos y marcos legales.",
+        "horas": "54–70 h",
+        "resumen": "Completa la biblioteca integral cubriendo seguridad móvil estática, dinámica y forense (Android/iOS), redes inalámbricas WEP/WPS/WPA2/WPA3/Enterprise, seguridad física y hardware/BLE/IoT, redes industriales OT/SCADA (Modelo Purdue), GRC/marcos legales 2026 y el Anexo Técnico completo de Seguridad en IA, LLMs y Agentes (OWASP LLM Top 10 / MCP).",
     },
 ]
 
@@ -181,17 +181,23 @@ def inline(text):
     return re.sub(r"\x00(\d+)\x00", restaurar, text)
 
 
+def _split_md_row(linea):
+    marcador = "\x00PIPE\x00"
+    segura = linea.replace("\\|", marcador)
+    return [c.replace(marcador, "|").strip() for c in segura.strip("|").split("|")]
+
+
 def parse_tabla(block):
     lineas = [l.strip() for l in block.strip().split("\n") if l.strip()]
     if len(lineas) < 2:
         return None
-    cab = [c.strip() for c in lineas[0].strip("|").split("|")]
+    cab = _split_md_row(lineas[0])
     filas = [l for l in lineas[1:] if not re.match(r"^[\s:|-]+$", l.strip("|"))]
     salida = ['<div class="tabla"><table>', "<thead><tr>"]
     salida += [f"<th>{inline(c)}</th>" for c in cab]
     salida.append("</tr></thead><tbody>")
     for f in filas:
-        celdas = [c.strip() for c in f.strip("|").split("|")]
+        celdas = _split_md_row(f)
         while len(celdas) < len(cab):
             celdas.append("")
         salida.append("<tr>" + "".join(f"<td>{inline(c)}</td>" for c in celdas[: len(cab)]) + "</tr>")
@@ -525,7 +531,7 @@ def construir_sitio_html(data):
         '<li><strong>Ruta 4 · Especialista Blue Team / SOC (Tomo IV, 4.1–4.8):</strong> Operaciones SOC, Sysmon/auditd, SIEM (SPL/KQL), NSM (Wireshark/Zeek/Suricata), Sigma/YARA, Hunting/CTI, DFIR y triage estático.</li>'
         '<li><strong>Ruta 5 · Cloud y DevSecOps (Tomo V, 5.1–5.7):</strong> Multi-Cloud IAM/Entra ID, Storage/VPC/IMDSv2, Docker escapes, Kubernetes RBAC/PSS, CI/CD e IaC, CloudTrail/GuardDuty/WAF y Forense Cloud.</li>'
         '<li><strong>Ruta 6 · Ingeniería Ofensiva y OPSEC (Tomo VI, 6.1–6.7):</strong> Race Conditions HTTP/2, Cache Poisoning, OAuth/Lógica de Negocio, Threat Modeling (STRIDE/PASTA), White-Box Code Review, OPSEC/LOLBAS, AV/EDR e Ingeniería Social.</li>'
-        '<li><strong>Ruta 7 · Mobile, Wireless, OT y GRC (Tomo VII, 7.1–7.7):</strong> Mobile Android/iOS (MASTG/Frida/Forense), Wi-Fi WEP/WPA2/WPA3/802.1X/WIDS, Física/Hardware/IoT, OT/ICS/SCADA (Purdue) y GRC/ISO 27001/NIST CSF/GDPR.</li>'
+        '<li><strong>Ruta 7 · Mobile, Wireless, OT, GRC e IA (Tomo VII, 7.1–7.8):</strong> Mobile Android/iOS (MASTG/Frida/Forense/.ipa), Wi-Fi WEP/WPA2/WPA3/802.1X/WIDS, Física/Hardware/BLE/Sub-GHz/IoT, OT/ICS/SCADA (Purdue), GRC 2026 y Anexo de Seguridad en IA/LLMs/MCP.</li>'
         '</ol></div>'
         + "\n".join(mapa_sections)
     )
@@ -609,7 +615,7 @@ def construir_sitio_html(data):
 
 <aside class="callout aviso">
 <p class="callout-titulo">Cobertura integral de la Edición 2.0 (358 / 358 módulos) y Puente con Curso de Reversing</p>
-<p>Esta Hiper Biblioteca integra en <strong>{len(TOMOS_META)} Tomos ({len(caps)} capítulos)</strong> el espectro completo de la ciberseguridad moderna: Fundamentos, Pentesting Web/APIs, Infraestructura/AD, Blue Team/SOC/DFIR, Multi-Cloud/Docker/K8s/DevSecOps, Web Avanzado (PortSwigger/WSTG), Threat Modeling, White-Box Code Review, Red Team/OPSEC, Mobile (OWASP MASTG), Wi-Fi/802.1X/WPA3, Hardware/IoT/OT-SCADA y GRC/Legal ({en_alcance} módulos del catálogo público integrados directamente). Adicionalmente, incluye {anexo_ia} módulos complementarios de IA/LLM en el catálogo y enlaza los {puente_cls} módulos de ensamblador, depuración y reversing de binarios hacia nuestra obra hermana <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><strong>Curso de Reversing en Windows</strong></a>.</p>
+<p>Esta Hiper Biblioteca integra en <strong>{len(TOMOS_META)} Tomos ({len(caps)} capítulos)</strong> el espectro completo de la ciberseguridad moderna: Fundamentos, Pentesting Web/APIs, Infraestructura/AD, Blue Team/SOC/DFIR, Multi-Cloud/Docker/K8s/DevSecOps/SaaS, Web Avanzado (PortSwigger/WSTG), Threat Modeling, White-Box Code Review, Red Team/OPSEC, Mobile (OWASP MASTG), Wi-Fi/802.1X/WPA3, Hardware/BLE/OT-SCADA, GRC 2026 y Seguridad en IA, LLMs y Agentes ({en_alcance} módulos del catálogo público integrados directamente). Adicionalmente, enlaza los {puente_cls} módulos de ensamblador, depuración y reversing de binarios hacia nuestra obra hermana <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><strong>Curso de Reversing en Windows</strong></a>.</p>
 </aside>
 
 <h2 id="que-hay-en-el-paquete">Qué incluye este paquete (100 % offline)</h2>
@@ -683,18 +689,17 @@ def construir_sitio_html(data):
 <div class="stats-grid">
   <div class="stat-box"><div class="big">{en_alcance}</div><div class="lbl">En alcance (Tomos I–VII)</div></div>
   <div class="stat-box"><div class="big">{puente_cls}</div><div class="lbl">Puente con Curso de Reversing</div></div>
-  <div class="stat-box"><div class="big">{anexo_ia}</div><div class="lbl">Complementario: IA</div></div>
+  <div class="stat-box"><div class="big">358</div><div class="lbl">Módulos cubiertos (100 %)</div></div>
   <div class="stat-box"><div class="big">{len(caps)}</div><div class="lbl">Capítulos en {len(TOMOS_META)} Tomos</div></div>
 </div>
 
 <h2 id="explorador-modulos">Explorador filtrable de los 358 módulos</h2>
 <div class="filtros-bar">
-  <input id="f-q" type="search" placeholder="Filtrar por título, descripción, sección, dominio o path (ej. Kerberos, CloudTrail, Frida, WPA3, XSS)...">
+  <input id="f-q" type="search" placeholder="Filtrar por título, descripción, sección, dominio o path (ej. Kerberos, CloudTrail, LLM, Frida, WPA3)...">
   <select id="f-alc">
     <option value="">Todos los alcances (358)</option>
     <option value="En alcance">En alcance ({en_alcance})</option>
     <option value="Puente con CLS_Guia">Puente con Curso de Reversing ({puente_cls})</option>
-    <option value="Complementario (Anexo)">Complementario: IA ({anexo_ia})</option>
   </select>
   <select id="f-tom">
     <option value="">Todos los tomos</option>
@@ -703,9 +708,8 @@ def construir_sitio_html(data):
     <option value="Tomo III">Tomo III · Infra &amp; AD</option>
     <option value="Tomo IV">Tomo IV · Blue/SOC/DFIR</option>
     <option value="Tomo V">Tomo V · Cloud &amp; DevSecOps</option>
-    <option value="Tomo VII">Tomo VII · Mobile &amp; Wi-Fi</option>
+    <option value="Tomo VII">Tomo VII · Mobile, Wi-Fi e IA</option>
     <option value="Puente · CLS_Guia">Puente · Curso de Reversing</option>
-    <option value="Anexo · Catálogo">Anexo · IA</option>
   </select>
   <select id="f-dif">
     <option value="">Todas las dificultades</option>
@@ -1167,9 +1171,11 @@ def compilar_todos_los_pdfs(data, rendered_chapters):
         f'<tr><td><strong>{esc(p.get("title",""))}</strong></td><td>{esc(p.get("type",""))}</td><td>{esc(p.get("difficulty",""))}</td><td>{len(p.get("modules",[]))}</td></tr>'
         for p in sorted(data["paths"], key=lambda x: (0 if x.get("type") == "Job Role" else 1, x.get("title", "")))
     )
+    en_alcance = sum(1 for m in data["modulos"] if m["alcance"] == "En alcance")
+    puente_cls = sum(1 for m in data["modulos"] if "CLS_Guia" in m["alcance"])
     paths_pdf_html = (
         '<h1>Mapa de Rutas Públicas Relevadas (25 Paths) y Alcance Integral</h1>'
-        f'<p>Referencia resumida de las 25 rutas públicas (9 Job Role Paths y 16 Skill Paths) y los 358 módulos analizados e integrados en esta Edición 2.0 (332 módulos en Tomos I–VII, 10 puente con Curso de Reversing y 16 complementarios de IA).</p>'
+        f'<p>Referencia resumida de las 25 rutas públicas (9 Job Role Paths y 16 Skill Paths) y los 358 módulos analizados e integrados en esta Edición 2.0 ({en_alcance} módulos integrados en los {len(TOMOS_META)} Tomos —incluyendo los 16 módulos de IA en el Cap. 7.8— y {puente_cls} módulos puente con Curso de Reversing).</p>'
         f'<div class="tabla"><table><thead><tr><th>Ruta de referencia</th><th>Tipo</th><th>Nivel</th><th>Módulos</th></tr></thead><tbody>{paths_rows}</tbody></table></div>'
     )
     sep_secciones = [

@@ -76,6 +76,27 @@ getenforce
 sestatus
 ```
 
+### Auditoría de NFS (`no_root_squash`) y gestión defensiva del kernel
+
+- **Exportaciones NFS sin `root_squash` (`/etc/exports`):** por diseño seguro, la opción predeterminada `root_squash` en un servidor NFS mapea las peticiones de un cliente remoto con `UID 0` (`root`) hacia una cuenta local sin privilegios (`nobody` o `nfsnobody`), evitando que un cliente modifique permisos privilegiados en el recurso compartido. Cuando un directorio se exporta con **`no_root_squash`** hacia subredes amplias o equipos sin aislamiento, quien posea privilegios de `root` en el cliente montado puede crear un binario propiedad de `root` con el bit SUID activado dentro del recurso compartido y luego ejecutarlo localmente en el servidor NFS para elevar a `UID 0`. Auditá siempre `/etc/exports` y `exportfs -v`, eliminá `no_root_squash` (usá `root_squash` o `all_squash`), restringí las IPs autorizadas y montá recursos NFS en clientes con `nosuid,nodev`.
+- **Gestión defensiva de superficie del kernel Linux:** además de aplicar actualizaciones periódicas o *livepatching* (como `kpatch` o *Canonical Livepatch*) para corregir vulnerabilidades locales de privilegio sin esperar reinicios prolongados, reducí la superficie de ataque del núcleo vía `sysctl` en `/etc/sysctl.d/99-hardening-kernel.conf`:
+
+```bash
+# Auditar exportaciones NFS activas buscando no_root_squash
+cat /etc/exports
+sudo exportfs -v
+
+# Parámetros recomendados en /etc/sysctl.d/99-hardening-kernel.conf
+# Restringir namespaces de usuario sin privilegios (donde contenedores/sandboxes no lo requieran)
+kernel.unprivileged_userns_clone = 0
+# Ocultar direcciones de punteros del núcleo en /proc/kallsyms (dificulta evadir KASLR)
+kernel.kptr_restrict = 2
+# Limitar lectura del ring buffer del núcleo (dmesg) a usuarios con CAP_SYSLOG / root
+kernel.dmesg_restrict = 1
+```
+
+Aplicá los cambios con `sudo sysctl --system` y verificá que sigan vigentes ante reinicios.
+
 ## 4. Detección de actividad privilegiada con `auditd`
 
 El subsistema de auditoría del núcleo Linux (`auditd`) permite registrar eventos críticos de seguridad de manera inmutable para análisis posterior o envío hacia un SIEM.

@@ -336,6 +336,54 @@ export async function loadItemDetails(rawId) {
 }
 ```
 
+### 4.4 Seguridad en `window.postMessage` y *XS-Leaks*
+
+Cuando una aplicación web integra *iframes*, ventanas emergentes (`window.open`) o pasarelas externas de autenticación, suele intercambiar datos entre distintos orígenes mediante `window.postMessage()`. Aunque el método está diseñado para comunicación *cross-origin* segura, su uso descuidado introduce dos fallas frecuentes:
+
+- **Receptor sin validar `event.origin`:** si el manejador `window.addEventListener("message", (event) => ...)` procesa `event.data` y lo inyecta en el DOM (`innerHTML`) o altera el estado de la sesión sin comprobar estrictamente la identidad del remitente, cualquier sitio externo que abra la ventana puede enviar mensajes maliciosos y desencadenar un **DOM-based XSS** o robo de acciones.
+- **Emisor con comodín `"*"`:** invocar `targetWindow.postMessage(payload, "*")` entrega el mensaje sin importar qué origen esté cargado actualmente en la ventana destino. Si el contenido incluye un token OAuth o datos sensibles y el atacante navegó la ventana hacia su dominio, captura el secreto al instante.
+
+```javascript
+// Patrón seguro de emisión y recepción con validación estricta de origen
+const TRUSTED_ORIGIN = "https://app.ejemplo.com";
+
+// Emisor: especificar siempre el origen exacto en lugar de "*"
+popupWindow.postMessage({ type: "AUTH_STATUS", ready: true }, TRUSTED_ORIGIN);
+
+// Receptor: validar event.origin ANTES de leer o procesar event.data
+window.addEventListener("message", (event) => {
+  if (event.origin !== TRUSTED_ORIGIN) {
+    return;
+  }
+  if (typeof event.data?.message === "string") {
+    statusBanner.textContent = event.data.message; // Evitar innerHTML
+  }
+});
+```
+
+En paralelo, las técnicas de ***Cross-Site Leaks* (XS-Leaks)** aprovechan señales laterales observables entre orígenes para inferir si un usuario está autenticado o si una búsqueda privada arrojó resultados, sin leer directamente el cuerpo de la respuesta bloqueado por la *Same-Origin Policy*:
+
+- **Tamaño de respuesta y caché / eventos de error:** detectar mediante eventos `onload` / `onerror` o `PerformanceResourceTiming` si un recurso protegido devuelve `200 OK` frente a `404`/`403`, o inferir volumen de datos por tiempo de descarga y estado en caché.
+- **Conteo de *frames* e historial:** inspeccionar propiedades expuestas como `windowReference.length` (cantidad de `<iframe>` internos tras una consulta) o cambios en `history.length` tras redirecciones condicionales.
+
+**Mitigación *Purple Team*:** combiná validación estricta de `event.origin` con cabeceras defensivas que aíslan ventanas y bloquean solicitudes cruzadas no previstas: **`Cross-Origin-Opener-Policy: same-origin` (`COOP`)** rompe la referencia `window.opener` y el acceso a `window.length` entre orígenes distintos, **`Cross-Origin-Resource-Policy: same-origin` (`CORP`)** restringe la carga de subrecursos, y las cabeceras **`Fetch Metadata`** (`Sec-Fetch-Site`, `Sec-Fetch-Mode`, `Sec-Fetch-Dest`) permiten al backend rechazar peticiones `cross-site` hacia endpoints privados internos.
+
+### 4.5 SSRF y LFI en generadores de PDF y navegadores *headless*
+
+Muchas plataformas generan facturas, reportes o certificados convirtiendo HTML dinámico a PDF en el servidor mediante motores como **`wkhtmltopdf`**, **Puppeteer** o **Playwright/Chromium** en modo *headless*. El error crítico consiste en interpolar entradas controladas por el usuario (nombre de cliente, dirección, notas en Markdown o SVG) dentro de la plantilla HTML que renderiza el proceso del servidor.
+
+A diferencia de un XSS clásico que se ejecuta en el navegador de la víctima, el payload inyectado aquí se interpreta **en el navegador interno o motor WebKit/Chromium que corre dentro de la red corporativa o instancia cloud del backend**:
+
+- **SSRF hacia metadatos cloud e intranet:** etiquetas como `<iframe src="http://169.254.169.254/latest/meta-data/">`, `<img>` hacia puertos internos o scripts `fetch("http://127.0.0.1:8080/admin")` permiten exfiltrar credenciales IAM del servicio de metadatos o enumerar microservicios internos directamente impresos dentro del PDF descargado.
+- **LFI (*Local File Inclusion*) mediante esquema `file://`:** motores permisivos o mal configurados resuelven `<iframe src="file:///etc/passwd">` o `<object data="file:///app/.env">`, incrustando el contenido de archivos locales del servidor en el documento generado.
+
+::: defensa Aislamiento obligatorio para renderizado HTML-a-PDF
+Para blindar generadores de PDF y navegadores *headless* en producción:
+1. **Sanitización previa y plantillas seguras:** escapá todas las variables dinámicas antes de armar el HTML y rechazá etiquetas activas (`<script>`, `<iframe>`, `<object>`, `<embed>`, `<svg>` con referencias externas).
+2. **Desactivar JavaScript y acceso local:** en Puppeteer/Playwright, deshabilitá capacidades innecesarias, interceptá las peticiones de red (`page.setRequestInterception(true)`) bloqueando cualquier esquema distinto de `https:` o recursos en lista blanca, y en `wkhtmltopdf` evitá habilitar `--enable-local-file-access` (desactivado por defecto en versiones modernas).
+3. **Aislamiento de red y sandbox de contenedor:** ejecutá el renderizador en un contenedor dedicado sin privilegios, sin volúmenes sensibles montados y con todo tráfico saliente forzado a través de un **proxy de salida aislado** que bloquee rangos privados RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), `127.0.0.0/8` y enlaces locales de metadatos (`169.254.169.254`, `fd00:ec2::254`).
+:::
+
 ---
 
 ## Práctica guiada en laboratorio

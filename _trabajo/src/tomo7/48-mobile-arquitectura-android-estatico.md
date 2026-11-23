@@ -46,6 +46,10 @@ Aunque ambos sistemas comparten el objetivo de aislar aplicaciones mediante *san
 | **Distribución y superficie** | Ecosistema abierto (Play Store, tiendas alternativas, *sideloading* directo) | Ecosistema cerrado controlado por perfiles de aprovisionamiento y firma de Apple |
 | **Comunicación entre apps** | `Intent`, `Broadcast`, `ContentProvider`, `Binder` IPC | URL Schemes, Universal Links, App Extensions, XPC |
 
+::: nota Alcance práctico: Android frente a iOS
+El **análisis dinámico** de iOS (instrumentación en tiempo real, evasión de detección de *jailbreak*, inspección de Keychain o *hooking* de métodos Swift/Objective-C) requiere hardware iOS físico compatible o un entorno **macOS** con Xcode. En cambio, el **análisis estático** inicial de paquetes iOS (`.ipa` de desarrollo o sin cifrado FairPlay) sí es completamente multiplataforma y podés ejecutarlo desde cualquier estación **Linux o Windows**.
+:::
+
 ::: aviso Alineación con OWASP MASVS y MASTG
 El estándar **OWASP MASVS** (*Mobile Application Security Verification Standard*) define los requisitos verificables de seguridad para aplicaciones móviles en ocho categorías principales (como `MASVS-STORAGE`, `MASVS-CRYPTO`, `MASVS-AUTH`, `MASVS-NETWORK` y `MASVS-PLATFORM`). Su guía hermana, **OWASP MASTG** (*Mobile Application Security Testing Guide*), detalla los procedimientos técnicos exactos para verificar cada control en Android e iOS. Usá ambos documentos como lista de comprobación base durante toda auditoría.
 :::
@@ -183,6 +187,28 @@ En contraste, una configuración **endurecida** para producción prohíbe el tr�
     </domain-config>
 </network-security-config>
 ```
+
+## Análisis estático multiplataforma de paquetes iOS (.ipa)
+
+Aunque no cuentes con una Mac ni un iPhone de pruebas en tu laboratorio, podés ejecutar la auditoría estática completa de un paquete **`.ipa`** (*iOS App Store Package*) de desarrollo o sin cifrado FairPlay directamente desde **Linux o Windows**:
+
+1. **Descompresión del contenedor ZIP:** un archivo `.ipa` es un archivo ZIP estándar que contiene la carpeta `Payload/<NombreApp>.app/`:
+   ```bash
+   unzip muestra-lab.ipa -d ./analisis_ipa
+   ls -la ./analisis_ipa/Payload/*.app/
+   ```
+2. **Lectura de `Info.plist`, permisos y URL Schemes:** el archivo `Info.plist` suele estar en formato binario (*bplist*). Podés convertirlo a XML legible en Linux/Windows con `plistutil` (`libplist-utils`) o con el módulo estándar `plistlib` de Python para revisar permisos de privacidad (`NSCameraUsageDescription`, `NSLocationWhenInUseUsageDescription`), esquemas personalizados (`CFBundleURLSchemes`) expuestos a secuestro de enlaces (*URL Scheme Hijacking*) y listas de apps consultables (`LSApplicationQueriesSchemes`):
+   ```bash
+   python3 -c 'import plistlib, pprint; pprint.pprint(plistlib.load(open("./analisis_ipa/Payload/AppLab.app/Info.plist", "rb")))'
+   ```
+3. **Revisión de App Transport Security (ATS):** dentro de `Info.plist`, buscá el diccionario `NSAppTransportSecurity`. La presencia de `NSAllowsArbitraryLoads = True` desactiva globalmente la exigencia de HTTPS con TLS moderno en toda la aplicación, mientras que `NSExceptionAllowsInsecureHTTPLoads` habilita tráfico en texto claro para dominios puntuales que deben justificarse formalmente.
+4. **Inspección de binarios Mach-O:** el ejecutable principal (`Payload/<NombreApp>.app/<NombreApp>`) y los frameworks internos (`Frameworks/*.framework/`) usan formato **Mach-O**. Desde Linux o Windows podés verificar banderas de compilación defensiva (`PIE`, *Stack Canary*, `ARC`), extraer URLs/secretos y analizar funciones sin cifrar mediante **`strings`**, **`rabin2`** (del paquete Radare2) o **Ghidra**:
+   ```bash
+   rabin2 -I ./analisis_ipa/Payload/AppLab.app/AppLab | grep -iE "pic|canary|nx|crypto"
+   strings -n 8 ./analisis_ipa/Payload/AppLab.app/AppLab | grep -Ei "http://|api_key|secret|token"
+   ```
+
+Desde el enfoque **Purple Team**, toda compilación iOS de producción debe mantener **ATS habilitado sin `NSAllowsArbitraryLoads`**, reemplazar URL Schemes ambiguos por **Universal Links** verificados vía `apple-app-site-association`, compilar con **PIE + ARC + Stack Canaries** activos y evitar credenciales estáticas dentro de `Info.plist` o del binario Mach-O.
 
 ## Automatización del análisis estático con MobSF en Docker
 

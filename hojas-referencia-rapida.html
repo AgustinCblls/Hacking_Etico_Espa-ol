@@ -61,7 +61,7 @@ sudo tcpdump -i eth0 host 192.168.56.10 and port 80 -w captura_lab.pcap</code></
 <tr><td>Versión del SO / kernel</td><td><code>uname -a; cat /etc/os-release</code></td><td><code>systeminfo | findstr /B /C:"OS"</code></td></tr>
 <tr><td>Puertos en escucha local</td><td><code>ss -tulnp</code></td><td><code>netstat -ano</code> / <code>Get-NetTCPConnection</code></td></tr>
 <tr><td>Procesos en ejecución</td><td><code>ps auxf</code></td><td><code>Get-Process</code> / <code>tasklist /v</code></td></tr>
-<tr><td>Servicios activos</td><td><code>systemctl list-units --type=service --state=running</code></td><td><code>Get-Service | Where Status -eq Running</code></td></tr>
+<tr><td>Servicios activos</td><td><code>systemctl list-units --type=service --state=running</code></td><td><code>Get-Service | Where-Object {$_.Status -eq 'Running'}</code></td></tr>
 <tr><td>Tareas programadas</td><td><code>crontab -l; ls -la /etc/cron*</code></td><td><code>schtasks /query /fo LIST /v</code></td></tr>
 <tr><td>Binarios SUID / Permisos</td><td><code>find / -perm -4000 2&gt;/dev/null</code></td><td><code>icacls "C:\Ruta\Servicio"</code></td></tr>
 <tr><td>Logs recientes del sistema</td><td><code>journalctl -u ssh -n 50 --no-pager</code></td><td><code>Get-WinEvent -LogName Security -MaxEvents 20</code></td></tr>
@@ -192,6 +192,35 @@ semgrep --config auto ./mi_proyecto_lab/</code></pre>
 <pre><code class="lenguaje-bash"># Descompilar un APK de prueba en laboratorio e inspeccionar firmware embebido
 jadx -d ./salida_apk/ muestra_lab.apk
 binwalk -e firmware_lab.bin</code></pre>
+
+<h2 id="cs-ia-modern">10. Seguridad en IA/LLMs, OAST, PQC, SaaS/BEC y AiTM</h2>
+<div class="tabla"><table>
+<thead><tr><th>Vector o estándar 2026</th><th>Riesgo / Mecanismo clave</th><th>Control determinista y detección</th></tr></thead>
+<tbody>
+<tr><td><strong>Prompt Injection / RAG / MCP</strong></td><td>Instrucciones no confiables en contexto web/documentos o invocación excesiva de herramientas.</td><td>Separar instrucciones de datos, filtrar permisos por tenant antes de inyectar RAG, <em>Human-in-the-Loop</em> y listas blancas fuera del LLM.</td></tr>
+<tr><td><strong>Pruebas OAST / OOB</strong></td><td>Confirmación de Blind SSRF, XXE, CMDi y Log4Shell mediante DNS/HTTP hacia servidor local de prueba.</td><td>Restringir tráfico saliente (<em>egress filtering</em> DNS/HTTP) en servidores de backend y auditar peticiones anómalas.</td></tr>
+<tr><td><strong>PQC (ML-KEM / ML-DSA)</strong></td><td>Riesgo <em>Harvest Now, Decrypt Later</em> sobre tráfico TLS clásico capturado hoy.</td><td>Adoptar <em>Crypto-Agility</em> e intercambio híbrido TLS 1.3 (<code>X25519MLKEM768</code>) según estándares NIST PQC.</td></tr>
+<tr><td><strong>BEC y OAuth Consent Grants</strong></td><td>Aplicaciones de terceros con permisos <code>Mail.Read</code>/<code>Files.Read.All</code> o reglas ocultas de reenvío en M365/Workspace.</td><td>Restringir consentimiento de aplicaciones a administradores, revisar <em>Unified Audit Log</em> y alertar reglas de buzón nuevas.</td></tr>
+<tr><td><strong>Proxies inversos AiTM</strong></td><td>Proxy intermedio que captura cookies autenticadas tras superar TOTP o SMS.</td><td>MFA resistente a phishing (<strong>FIDO2/WebAuthn</strong>), <em>Conditional Access</em> por dispositivo compatible y <em>Token Protection</em>.</td></tr>
+</tbody></table></div>
+
+<h2 id="cs-kit-laboratorios">11. Índice maestro del kit <code>laboratorios/</code> (Mapa archivo ↔ capítulo)</h2>
+<div class="tabla"><table>
+<thead><tr><th>Archivo en <code>laboratorios/</code></th><th>Capítulos</th><th>Objetivo práctico principal</th></tr></thead>
+<tbody>
+<tr><td><code>docker-compose.yml</code> · <code>app_lab_educativa.py</code></td><td>1.1, 1.8, 2.2–2.6</td><td>Stack local en <code>127.0.0.1</code> (Flask/SQLite seguro, Nginx y perfil opcional OWASP Juice Shop).</td></tr>
+<tr><td><code>auditor_red_local.py</code> · <code>diccionario_web_lab.txt</code></td><td>1.6, 2.1, 2.2</td><td>Escaneo TCP restringido a loopback/RFC 1918 y lista controlada de fuzzing HTTP con <code>ffuf</code>.</td></tr>
+<tr><td><code>auditor_whitebox_codereview.py</code></td><td>2.7, 6.4</td><td>Auditor AST Python para detectar sumideros peligrosos (<code>eval</code>, <code>pickle</code>, <code>shell=True</code>, SQL concatenado).</td></tr>
+<tr><td><code>analizador_logs_soc.py</code></td><td>1.6, 4.3, 4.6</td><td>Parser defensivo de bitácoras SSH/HTTP con emisión JSON de alertas (<code>SOC-AUTH-001</code>, <code>SOC-WEB-002</code>).</td></tr>
+<tr><td><code>sysmon_config_lab.xml</code> · <code>suricata_lab.rules</code></td><td>4.2, 4.4</td><td>Configuración base Sysmon v4.90 y 4 reglas IDS Suricata locales comentadas.</td></tr>
+<tr><td><code>reglas_sigma_ejemplo.yml</code> · <code>reglas_yara_ejemplo.yar</code></td><td>4.5, 4.8</td><td>Regla Sigma portátil (PowerShell codificado) y firma YARA de triage estático.</td></tr>
+<tr><td><code>muestras/auth_ssh_simulado.log</code> · <code>web_access_simulado.log</code></td><td>1.5, 1.6, 2.2, 4.3, 4.6</td><td>Registros simulados con IPs RFC 5737 listos para validar alertas SOC sin ruido real.</td></tr>
+<tr><td><code>muestras/correo_phishing_simulado.eml</code> · <code>muestra_triage_inofensiva.txt</code></td><td>4.6, 4.8</td><td>Triage pasivo de SPF/DKIM/DMARC y desofuscación estática UTF-16LE segura con YARA.</td></tr>
+<tr><td><code>Dockerfile.lab_seguro</code> · <code>k8s_pod_hardening.yaml</code> · <code>iac_cloud_hardening.tf</code></td><td>5.1–5.5</td><td>Manifiestos endurecidos para Docker rootless, Kubernetes <em>Restricted</em> y Terraform con <code>IMDSv2</code>.</td></tr>
+<tr><td><code>plantilla_informe_pentest.md</code> · <code>plantilla_informe_incidente.md</code></td><td>2.8, 4.1, 4.8, 7.7</td><td>Formatos reproducibles de informe técnico/ejecutivo (CVSS/CWE) y respuesta a incidentes (NIST 800-61).</td></tr>
+<tr><td><code>plantilla_threat_model_stride.md</code> · <code>plantilla_roe_alcance.md</code></td><td>2.8, 6.3, 7.7</td><td>Modelado STRIDE/DFD/ASVS y contrato operativo RoE con protocolo <em>Stop-and-Notify</em>.</td></tr>
+<tr><td><code>lab_rag_mcp_seguro.py</code></td><td>7.8</td><td>Simulador local 100 % Python de flujo RAG multi-tenant y Tool Calling/MCP con guardrails deterministas y auditoría JSON.</td></tr>
+</tbody></table></div>
 
 </main>
 <footer class="pie">
