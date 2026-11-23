@@ -35,7 +35,7 @@
 <ul><li>Puede leer y modificar el árbol DOM de la página actual.</li><li>Puede enviar peticiones HTTP (<code>fetch</code> / <code>XMLHttpRequest</code>) hacia el backend adjuntando las credenciales de la sesión activa.</li><li>Puede acceder a <code>localStorage</code>, <code>sessionStorage</code> y a cualquier cookie que no tenga activado el atributo <code>HttpOnly</code>.</li></ul>
 <h2 id="cap-2-4-2-cross-site-scripting-xss-clasificacion-y-contextos-de-salida">2. Cross-Site Scripting (XSS): clasificación y contextos de salida</h2>
 <p>El estándar <strong>OWASP</strong> clasifica los fallos de Cross-Site Scripting en tres categorías según dónde se origina y dónde se inserta el dato no confiable:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Tipo de XSS</th>
 <th>Dónde se procesa el dato sin escapar</th>
@@ -65,7 +65,7 @@ def saludo_seguro():
 <h2 id="cap-2-4-3-content-security-policy-csp-como-segunda-linea-de-defensa">3. Content Security Policy (CSP) como segunda línea de defensa</h2>
 <p>Aunque apliques escape contextual en todas tus plantillas, la arquitectura defensiva moderna exige una segunda barrera: la cabecera <strong><code>Content-Security-Policy</code> (CSP)</strong>.</p>
 <p>CSP le indica al navegador qué fuentes de contenido están autorizadas. Incluso si un desarrollador cometiera un error y olvidara escapar una variable en una página, una política CSP bien diseñada impide que el navegador ejecute scripts inline (<code>&lt;script&gt;...&lt;/script&gt;</code> o manejadores <code>onload=</code>, <code>onerror=</code>) y prohíbe enviar datos hacia dominios externos desconocidos (<code>connect-src 'self'</code>).</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Directiva CSP</th>
 <th>Valor seguro recomendado</th>

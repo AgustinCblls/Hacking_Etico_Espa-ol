@@ -35,7 +35,7 @@
 <ul><li><strong>Cadena de suministro de software (<em>Supply Chain</em>):</strong> dependencias externas, imágenes base de contenedores y paquetes de terceros pueden introducir debilidades sin modificar una sola línea de código propio. Mantener un inventario SBOM (<em>Software Bill of Materials</em>) y verificar firmas criptográficas es parte del reconocimiento defensivo.</li><li><strong>Equipos de borde y <em>Shadow IT</em> expuesto:</strong> concentradores VPN, gateways, servidores de correo y subdominios olvidados (<em>dangling DNS</em>) suelen constituir la primera superficie real detectada desde el exterior antes de alcanzar la red interna.</li></ul>
 <h2 id="cap-2-1-reconocimiento-pasivo-y-footprinting-corporativo">Reconocimiento pasivo y footprinting corporativo</h2>
 <p>El reconocimiento pasivo recopila información pública y registros abiertos sin enviar paquetes exploratorios directos hacia los sistemas objetivo. Su propósito es mapear la huella externa de una organización (<em>footprinting</em>) y detectar activos olvidados, configuraciones DNS incompletas o exposición innecesaria de infraestructura.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Fuente pasiva</th>
 <th>Protocolo o registro</th>
@@ -62,7 +62,7 @@ dig +short TXT _dmarc.example.com</code></pre>
 <p>Cuando ya contás con autorización explícita en tu red de pruebas, <strong>Nmap</strong> permite descubrir equipos activos, identificar puertos abiertos, inferir versiones de servicios y validar configuraciones mediante scripts del motor NSE (<em>Nmap Scripting Engine</em>).</p>
 <h3 id="cap-2-1-tipos-de-escaneo-temporizacion-y-formatos-de-salida">Tipos de escaneo, temporización y formatos de salida</h3>
 <p>Elegir la técnica adecuada reduce el ruido en la red y mejora la precisión de los resultados:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Opción Nmap</th>
 <th>Mecanismo técnico</th>
@@ -92,7 +92,7 @@ nmap -sT -sV --script="http-headers,http-title" -p 5050 127.0.0.1</code></pre>
 <h2 id="cap-2-1-evaluacion-y-priorizacion-de-vulnerabilidades">Evaluación y priorización de vulnerabilidades</h2>
 <p>Identificar un servicio expuesto o una versión desactualizada no alcanza: necesitás priorizar qué corregir primero. Para evitar decisiones basadas solo en intuición, combiná cuatro piezas complementarias:</p>
 <ol><li><strong>CVSS (v3.1 y v4.0):</strong> estima la severidad técnica según la facilidad de acceso, los privilegios requeridos y el impacto sobre confidencialidad, integridad y disponibilidad. La versión 4.0 incorpora métricas suplementarias y una mejor contextualización ambiental, pero sigue siendo una medida de severidad teórica, no de probabilidad real.</li><li><strong>EPSS (<em>Exploit Prediction Scoring System</em>):</strong> estima la probabilidad porcentual de que una vulnerabilidad catalogada sea observada en actividad hostil durante los próximos 30 días. Permite diferenciar fallos críticos con alta exposición real de fallos severos en papel pero raramente abusados.</li><li><strong>CISA KEV y árbol SSVC:</strong> el catálogo <strong>CISA KEV (<em>Known Exploited Vulnerabilities</em>)</strong> confirma si un CVE ya tiene explotación activa observada en el mundo real; combinado con <strong>SSVC (<em>Stakeholder-Specific Vulnerability Categorization</em>)</strong>, permite decidir objetivamente entre <strong>Act</strong> (parcheo urgente inmediato), <strong>Attend</strong>, <strong>Track\</strong>* o <strong>Track</strong>.</li><li><strong>CWE (<em>Common Weakness Enumeration</em>):</strong> clasifica la causa raíz del defecto en familias estructurales —como <em>Validación de Entrada</em> o <em>Exposición de Información Sensible</em>— para corregir patrones arquitectónicos completos y no solo síntomas aislados.</li></ol>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Prioridad</th>
 <th>Severidad (CVSS)</th>

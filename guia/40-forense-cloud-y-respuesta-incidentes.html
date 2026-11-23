@@ -34,6 +34,7 @@
 <ol><li><strong>Credenciales efímeras, sesiones STS y metadatos de ejecución:</strong> Tokens emitidos por STS, credenciales obtenidas del servicio de metadatos (IMDSv1/v2) y sesiones activas en consolas o Service Principals. Caducan o pueden ser rotados en minutos, pero permiten reconstruir el alcance del acceso.</li><li><strong>Conexiones de red activas y tablas de flujo:</strong> Sockets abiertos en la instancia, tablas ARP/conntrack y flujos recientes en VPC Flow Logs o NSG Flow Logs.</li><li><strong>Memoria RAM de instancias y contenedores:</strong> Procesos ocultos, artefactos inyectados en memoria, variables de entorno de contenedores y buffers de red.</li><li><strong>Almacenamiento efímero de instancia:</strong> Discos locales no persistentes vinculados al ciclo de vida del hipervisor físico.</li><li><strong>Discos persistentes y snapshots:</strong> Volúmenes EBS (AWS), Managed Disks (Azure) y Persistent Disks (GCP).</li><li><strong>Registros del plano de control y auditoría:</strong> CloudTrail, Cloud Audit Logs, Azure Activity Log y logs de balanceadores o WAF (menos volátiles si tienen retención e integridad habilitadas, aunque vulnerables si el atacante obtuvo permisos sobre el proyecto origen).</li></ol>
 <aside class="callout peligro"><p class="callout-titulo">Nunca modifiques el sistema de archivos original</p><p>Toda inspección profunda debe realizarse sobre una <strong>copia montada en solo lectura dentro de una cuenta o proyecto forense aislado</strong> (<em>Forensic Clean Room</em>), nunca ejecutando herramientas de análisis directamente sobre el volumen productivo comprometido. Cada artefacto adquirido debe quedar acompañado de su hash criptográfico <strong>SHA-256</strong> y marca temporal UTC para sostener la cadena de custodia.</p></aside>
 <hr>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-5-7-contencion-de-identidades-iam-comprometidas">Contención de identidades IAM comprometidas</h2>
 <p>Cuando la telemetría (CloudTrail, GuardDuty o Cloud Logging) confirma el uso anómalo de una identidad, la contención de identidad debe ejecutarse antes o en paralelo al aislamiento de red, ya que un token válido permite operar sobre APIs cloud desde cualquier punto de Internet.</p>
 <h3 id="cap-5-7-contencion-en-aws-iam-y-sts">Contención en AWS IAM y STS</h3>
@@ -127,6 +128,7 @@ aws ec2 modify-instance-attribute \
 sudo insmod /mnt/forensic-tools/lime-$(uname -r).ko "path=/mnt/forensic-dump/i-0987654321-mem.lime format=lime"
 sha256sum /mnt/forensic-dump/i-0987654321-mem.lime &gt; /mnt/forensic-dump/i-0987654321-mem.lime.sha256</code></pre>
 <p>Posteriormente, la imagen <code>.lime</code> se analiza offline en la estación forense aislada con <strong>Volatility 3</strong> (generando previamente los símbolos ISF del kernel correspondiente) para inspeccionar procesos ocultos, sockets cerrados recientemente, módulos cargados y variables de entorno.</p>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h3 id="cap-5-7-snapshots-ebs-cifrados-y-transferencia-a-cuenta-forense-aislada-aws">Snapshots EBS cifrados y transferencia a cuenta forense aislada (AWS)</h3>
 <p>Una vez asegurada la memoria RAM, capturá todos los volúmenes EBS asociados a la instancia comprometida y transferilos a una <strong>cuenta forense dedicada</strong> (<em>Clean Room</em>). Si el volumen original estaba cifrado con una llave KMS administrada por AWS (<code>aws/ebs</code>), no es posible compartir el snapshot directamente con otra cuenta: primero debés copiarlo recifrándolo con una <strong>Customer Managed Key (CMK)</strong> cuya política permita acceso a la cuenta forense.</p>
 <pre><code class="lenguaje-bash"># 1. Crear snapshot del volumen comprometido preservando etiquetas de cadena de custodia
@@ -164,7 +166,7 @@ sudo mount -o ro,noexec,noload /dev/nvme1n1p1 /mnt/evidence
 sudo sha256sum /dev/nvme1n1 &gt; /cases/INC-2026-042/vol-0123456789abcdef0.sha256</code></pre>
 <h3 id="cap-5-7-adquisicion-en-azure-y-gcp-con-flow-logs">Adquisición en Azure y GCP con Flow Logs</h3>
 <p>El flujo forense equivalente en <strong>Azure</strong> y <strong>GCP</strong> mantiene la separación estricta entre el entorno productivo y el entorno de análisis:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Plataforma</th>
 <th>Adquisición de disco</th>
@@ -192,6 +194,7 @@ gcloud compute disks create forensic-disk-inc-2026-042 \
   --zone=us-central1-a \
   --project=forensic-cleanroom-999</code></pre>
 <hr>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-5-7-automatizacion-de-respuesta-con-aws-systems-manager-e-incident-manager">Automatización de respuesta con AWS Systems Manager e Incident Manager</h2>
 <p>Ejecutar docenas de comandos manuales bajo presión humana introduce demoras y errores. <strong>AWS Systems Manager (SSM)</strong> y <strong>AWS Incident Manager</strong> permiten estandarizar tanto la recolección inicial de evidencia volátil como los playbooks completos de contención y coordinación.</p>
 <h3 id="cap-5-7-recoleccion-segura-sin-ssh-mediante-ssm-run-command-y-automation">Recolección segura sin SSH mediante SSM Run Command y Automation</h3>

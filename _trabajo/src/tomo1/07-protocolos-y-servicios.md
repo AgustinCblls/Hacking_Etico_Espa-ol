@@ -94,6 +94,8 @@ local_infile             = OFF
 secure_file_priv         = /var/lib/mysql-files
 ```
 
+<!-- salto -->
+
 ### 4.3 Otros servicios críticos en inventarios corporativos (Correo, OOB, Archivos y NoSQL)
 
 En escaneos internos y perimetrales aparecen con frecuencia ocho servicios adicionales cuyo mal endurecimiento deriva en acceso inmediato sin autenticación o robo de credenciales:
@@ -147,6 +149,8 @@ pubkeyauthentication yes          # Habilitado para llaves Ed25519/RSA modernas
 x11forwarding no                  # Reduce superficie de reenvío gráfico innecesario
 maxauthtries 3                    # Limita intentos por conexión TCP
 ```
+
+<!-- salto -->
 
 **Paso 2 (Windows PowerShell):** verificá el estado de SMBv1, la exigencia de SMB Signing y la configuración del servicio WinRM en tu máquina local:
 

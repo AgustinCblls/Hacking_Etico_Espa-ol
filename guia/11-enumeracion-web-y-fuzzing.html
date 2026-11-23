@@ -36,7 +36,7 @@
 <h2 id="cap-2-2-2-identificacion-del-stack-tecnologico-fingerprinting">2. Identificación del stack tecnológico (Fingerprinting)</h2>
 <p>Antes de lanzar cualquier diccionario de rutas conviene saber qué tecnología ejecuta el servidor. No tiene sentido buscar rutas <code>.aspx</code> en un servidor que corre Python/Flask sobre Linux, ni buscar endpoints de Spring Boot en una aplicación PHP.</p>
 <h3 id="cap-2-2-pistas-observables-en-una-peticion-estandar">Pistas observables en una petición estándar</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Fuente de observación</th>
 <th>Ejemplo de evidencia</th>
@@ -52,11 +52,12 @@ curl -sI http://127.0.0.1:5050/
 curl -i http://127.0.0.1:8080/robots.txt
 curl -i http://127.0.0.1:8080/sitemap.xml</code></pre>
 <aside class="callout nota"><p class="callout-titulo">Por qué ocultar la versión no reemplaza el parcheo</p><p>Desactivar la versión en la cabecera <code>Server</code> (por ejemplo con <code>server_tokens off;</code> en Nginx) es una buena práctica de higiene para dificultar el inventario automatizado, pero un analista siempre puede deducir el stack por el comportamiento de las cookies, el orden de las cabeceras o las respuestas ante peticiones malformadas. La seguridad real depende de mantener las dependencias actualizadas y bien configuradas.</p></aside>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-2-2-3-descubrimiento-controlado-con-ffuf-y-filtrado-de-ruido">3. Descubrimiento controlado con <code>ffuf</code> y filtrado de ruido</h2>
 <p><strong><code>ffuf</code> (Fuzz Faster U Fool)</strong> es una herramienta escrita en Go diseñada para realizar descubrimiento de contenido web reemplazando la palabra clave <code>FUZZ</code> en la URL, en las cabeceras o en el cuerpo de una petición por cada línea de un diccionario (<em>wordlist</em>).</p>
 <p>La habilidad que distingue a un profesional de alguien que ejecuta herramientas a ciegas es <strong>la calibración y el filtrado</strong>. Muchas aplicaciones modernas (especialmente las <em>Single-Page Applications</em> en React, Vue o Angular) devuelven código <code>200 OK</code> con la misma plantilla HTML de inicio para cualquier ruta inexistente (<em>soft 404</em>). Si no filtrás por tamaño, palabras o líneas, obtendrás miles de falsos positivos.</p>
 <h3 id="cap-2-2-opciones-esenciales-de-ffuf">Opciones esenciales de <code>ffuf</code></h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Opción</th>
 <th>Función técnica</th>
@@ -98,7 +99,7 @@ for r in rutas:
 <h2 id="cap-2-2-5-auditoria-de-aplicaciones-comunes-y-cms-wordpress-joomla-y-drupal">5. Auditoría de aplicaciones comunes y CMS (WordPress, Joomla y Drupal)</h2>
 <p>En evaluaciones reales es habitual encontrarse con <strong>Sistemas de Gestión de Contenidos (CMS)</strong> como <strong>WordPress</strong>, <strong>Joomla</strong> o <strong>Drupal</strong>, así como aplicaciones estándar (GitLab, Jenkins, paneles internos) que exponen rutas predecibles y suelen fallar por <strong>plugins desactualizados</strong> o <strong>configuraciones por defecto</strong> más que por el núcleo del CMS.</p>
 <h3 id="cap-2-2-superficie-critica-al-auditar-wordpress-en-laboratorio-autorizado">Superficie crítica al auditar WordPress en laboratorio autorizado</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Vector / Ruta en WordPress</th>
 <th>Qué revisar en auditoría</th>
@@ -110,6 +111,7 @@ for r in rutas:
 <tr><td><code>/wp-login.php</code> y <code>wp-config.php~</code></td><td>Falta de límite de tasa o MFA en el login, y copias de respaldo olvidadas (<code>wp-config.php.bak</code>) accesibles por HTTP.</td><td>Activar 2FA, limitar tasa de peticiones y mover/denegar copias temporales fuera del webroot.</td></tr>
 </tbody></table></div>
 <p>En un entorno autorizado, herramientas especializadas como <strong><code>wpscan</code></strong> (o enumeración dirigida con <code>ffuf</code>) agilizan la correlación de versiones de plugins contra bases de CVEs, siempre limitando la tasa de peticiones para no saturar el servidor.</p>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-2-2-6-ejemplo-paso-a-paso-mapeo-completo-de-nuestra-app-de-laboratorio">6. Ejemplo paso a paso: mapeo completo de nuestra app de laboratorio</h2>
 <p>Veamos cómo combinar la inspección manual, un micro-diccionario y el análisis de respuestas sobre <code>http://127.0.0.1:5050</code>:</p>
 <pre><code class="lenguaje-bash"># Paso 1: Crear un diccionario mínimo de prueba en el laboratorio

@@ -41,7 +41,7 @@
 
 [5. AP-REQ]  Cliente presenta el TGS directamente al servidor destino     ──► [Servidor de Aplicación (db01)]</code></pre>
 <h3 id="cap-3-7-los-tres-pares-de-mensajes-que-todo-analista-debe-dominar">Los tres pares de mensajes que todo analista debe dominar</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Paso del flujo</th>
 <th>Mensaje</th>
@@ -71,7 +71,7 @@ impacket-GetUserSPNs corp.local/usuario_lab:'ClaveLab!' -dc-ip 10.10.20.10 -requ
 impacket-ntlmrelayx -tf objetivos_lab.txt -smb2support --no-dump</code></pre>
 <aside class="callout nota"><p class="callout-titulo">Cambio estructural en Windows 11 24H2 y Windows Server 2025: SMB Signing por defecto y fin de NTLMv1</p><p>A partir de <strong>Windows 11 24H2</strong> (en todas sus ediciones <strong>salvo Home</strong>) Microsoft exige <strong>SMB Signing por defecto</strong> en conexiones <strong>entrantes y salientes</strong> (<code>RequireSecuritySignature = True</code>). En <strong>Windows Server 2025</strong>, en cambio, el cambio por defecto exige firma en las conexiones <strong>salientes</strong> (cliente SMB) —mientras que en entrantes sigue activo de fábrica solo en Controladores de Dominio y <strong>no</strong> en servidores miembro—; ambos sistemas además <strong>eliminan completamente el protocolo NTLMv1</strong>. En consecuencia, la frase <em>"el relay hacia SMB falla de fábrica"</em> <strong>no aplica a servidores miembro Windows Server 2025</strong> ni a Windows 11 Home: la <strong>GPO que obliga a firmar conexiones entrantes</strong> (<code>Microsoft network server: Digitally sign communications (always)</code>) <strong>sigue siendo imprescindible</strong> en servidores miembro y estaciones, además de auditar <strong>LDAPS/LDAP sin Channel Binding</strong> y <strong>ADCS Web Enrollment sin EPA (ESC8)</strong>.</p></aside>
 <h3 id="cap-3-7-vectores-complementarios-kerberos-relay-adidns-y-cuentas-pre-windows-2000">Vectores complementarios: Kerberos Relay, ADIDNS y cuentas Pre-Windows 2000</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Vector en AD</th>
 <th>Mecanismo técnico</th>
@@ -83,7 +83,7 @@ impacket-ntlmrelayx -tf objetivos_lab.txt -smb2support --no-dump</code></pre>
 <tr><td><strong>Cuentas Pre-Windows 2000</strong></td><td>Equipos pre-creados marcando <em>"pre-Windows 2000 computer"</em> fijan su contraseña inicial como su <strong>nombre en minúsculas sin <code>$</code></strong> (auditable con <code>nxc ldap dc01.corp.local -u usuario_lab -p 'ClaveLab!' --pre2k</code>).</td><td><strong>Event ID <code>4741</code></strong> (alta de equipo) seguida de <strong><code>4768</code> / <code>4624</code></strong> desde IP no corporativa usando la cuenta <code>$</code> pre-creada. <strong>Sigma:</strong> logon inicial de objeto <code>$</code> con <code>pwdLastSet == whenCreated</code> sin unión real al dominio.</td><td>Nunca habilitar la opción Pre-Windows 2000 al pre-crear equipos; asignar contraseñas aleatorias únicas, rotar cuentas <code>$</code> inactivas y limpiar <code>Pre-Windows 2000 Compatible Access</code>.</td></tr>
 </tbody></table></div>
 <h3 id="cap-3-7-las-cinco-defensas-que-neutralizan-por-completo-el-relay-ntlm-y-kerberos">Las cinco defensas que neutralizan por completo el Relay NTLM y Kerberos</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Control de endurecimiento</th>
 <th>Qué protege</th>
@@ -98,7 +98,7 @@ impacket-ntlmrelayx -tf objetivos_lab.txt -smb2support --no-dump</code></pre>
 <h2 id="cap-3-7-4-permisos-en-objetos-del-directorio-dacls-delegacion-y-dcsync">4. Permisos en objetos del directorio (DACLs), Delegación y DCSync</h2>
 <p>Cada objeto de Active Directory (usuario, grupo, equipo, OU y el propio nodo raíz del dominio) tiene una <strong>Lista de Control de Acceso Discrecional (<code>DACL</code>)</strong> que define quién puede modificarlo. Cuando se delegan permisos excesivos a grupos de soporte o cuentas de servicio, aparecen vectores críticos de escalada dentro del directorio:</p>
 <h3 id="cap-3-7-permisos-dacl-de-alto-riesgo-a-auditar">Permisos DACL de alto riesgo a auditar</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Permiso / Derecho Extendido en la DACL</th>
 <th>Impacto sobre el objeto destino</th>
@@ -127,7 +127,7 @@ pypykatz lsa minidump /ruta/lab/lsass_dump.dmp</code></pre>
 <aside class="callout defensa"><p class="callout-titulo">Endurecimiento obligatorio contra extracción en memoria (<code>RunAsPPL</code> y Credential Guard)</p><ol><li><strong>LSA Protection (<code>RunAsPPL</code>):</strong> configurar <code>HKLM\SYSTEM\CurrentControlSet\Control\Lsa\RunAsPPL = 1</code> obliga a <code>lsass.exe</code> a ejecutarse como proceso protegido (<em>Protected Process Light</em>), bloqueando la apertura de handles de lectura de memoria (<code>PROCESS_VM_READ</code>) incluso desde cuentas con privilegios locales de administrador sin controlador kernel firmado.</li><li><strong>Windows Defender Credential Guard (VBS):</strong> en hardware moderno con virtualización, aísla los hashes NTLM y TGTs dentro de un contenedor seguro basado en hipervisor (<code>LsaIso.exe</code>), impidiendo que herramientas en espacio de usuario accedan al material criptográfico de <code>lsass.exe</code>.</li><li><strong>Deshabilitar WDigest en claro (<code>UseLogonCredential = 0</code>)</strong> y aplicar estrictamente <strong>Tiering</strong> para impedir que administradores de Dominio inicien sesión en servidores de nivel inferior.</li></ol></aside>
 <h3 id="cap-3-7-reutilizacion-y-falsificacion-de-credenciales-pth-overpass-the-hash-ptt-y-tickets-forjados">Reutilización y falsificación de credenciales: PtH, Overpass-the-Hash, PtT y tickets forjados</h3>
 <p>Cuando una evaluación o un incidente expone hashes NT, claves AES, tickets Kerberos en memoria o el secreto de la cuenta <strong><code>krbtgt</code></strong>, el riesgo pasa del acceso inicial a la persistencia y el movimiento lateral sin necesidad de conocer contraseñas en texto claro:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Técnica</th>
 <th>Material criptográfico utilizado</th>

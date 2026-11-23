@@ -31,7 +31,7 @@
 <p><strong>Prerrequisitos:</strong> Manejo básico de consola Linux, conceptos elementales de criptografía y laboratorio local aislado. <strong>Duración sugerida:</strong> 90 a 120 minutos.</p>
 <h2 id="cap-3-2-1-codificacion-cifrado-y-hashing-diferencias-tecnicas-esenciales">1. Codificación, cifrado y hashing: diferencias técnicas esenciales</h2>
 <p>Confundir estas tres operaciones conduce a errores críticos de diseño en sistemas de autenticación. Cada mecanismo responde a un propósito distinto y ofrece propiedades matemáticas diferentes.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Mecanismo</th>
 <th>Objetivo principal</th>
@@ -49,7 +49,7 @@
 <h3 id="cap-3-2-propiedades-de-una-kdf-robusta">Propiedades de una KDF robusta</h3>
 <p>Para proteger credenciales en reposo se utilizan Funciones de Derivación de Claves (KDF) resistentes a fuerza bruta masiva:</p>
 <ul><li><strong>Salt único por usuario:</strong> Cadena aleatoria generada criptográficamente que impide el uso de tablas precalculadas (rainbow tables) y garantiza que dos usuarios con la misma contraseña produzcan hashes distintos.</li><li><strong>Factor de costo ajustable (iteraciones):</strong> Incrementa de forma controlada el tiempo de cómputo a medida que evoluciona el hardware.</li><li><strong>Dureza en memoria (<em>memory-hardness</em>):</strong> Exige una cantidad significativa de RAM por evaluación, frenando drásticamente la paralelización masiva en GPUs y ASICs.</li></ul>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Algoritmo</th>
 <th>Categoría</th>
@@ -66,7 +66,7 @@
 <h2 id="cap-3-2-3-auditoria-autorizada-de-hashes-de-prueba-con-hashcat-y-john-the-ripper">3. Auditoría autorizada de hashes de prueba con Hashcat y John the Ripper</h2>
 <p>En una auditoría interna autorizada (por ejemplo, evaluando la robustez de credenciales sintéticas o volcados de laboratorio propios), herramientas como <strong>Hashcat</strong> y <strong>John the Ripper</strong> permiten medir qué porcentaje de contraseñas incumplen criterios mínimos de entropía frente a diccionarios, reglas y máscaras acotadas.</p>
 <h3 id="cap-3-2-modos-frecuentes-de-hashcat-utilidades-2john-reglas-y-mascaras">Modos frecuentes de Hashcat, utilidades <code>*2john</code>, reglas y máscaras</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Formato / Origen</th>
 <th>Modo Hashcat (<code>-m</code>)</th>
@@ -109,6 +109,7 @@ john --wordlist=/tmp/diccionario_lab.txt /tmp/zip_hash.txt</code></pre>
 <p>La guía <strong>NIST SP 800-63B-4 (agosto 2025)</strong> actualizó las recomendaciones de autenticación digital al confirmar empíricamente que las reglas arbitrarias de composición y la rotación periódica debilitan la seguridad real en lugar de fortalecerla.</p>
 <h3 id="cap-3-2-principios-centrales-para-implementar-hoy">Principios centrales para implementar hoy</h3>
 <ol><li><strong>Priorizar la longitud sobre la complejidad arbitraria:</strong> Cuando la contraseña actúa como <strong>único factor</strong>, NIST SP 800-63B-4 exige un mínimo obligatorio de <strong>15 caracteres</strong>; cuando se combina obligatoriamente con <strong>MFA</strong>, se mantiene un mínimo de <strong>8 caracteres</strong>, admitiendo siempre al menos 64 caracteres con espacios y Unicode.</li><li><strong>Eliminar reglas de composición artificiales:</strong> No forzar combinaciones obligatorias de mayúsculas, números y símbolos que inducen patrones predecibles.</li><li><strong>Bloquear contraseñas comprometidas:</strong> Comparar cada nueva contraseña contra listas de contraseñas filtradas, palabras de diccionario comunes y términos derivados del servicio o nombre de usuario.</li><li><strong>Suprimir la rotación periódica sin evidencia de compromiso:</strong> Cambiar contraseñas cada 90 días sin indicios de filtración degrada la calidad de las claves; solo se debe forzar el cambio ante sospecha o confirmación de compromiso.</li><li><strong>Desplegar MFA resistente a phishing:</strong> Complementar las contraseñas con autenticadores criptográficos vinculados al origen (FIDO2/WebAuthn o passkeys) y aplicar limitación de tasa (<em>rate limiting</em>) en todos los puntos de acceso.</li></ol>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-3-2-ejemplo-paso-a-paso-comparacion-empirica-entre-sha-256-rapido-y-pbkdf2-scrypt-en-python">Ejemplo paso a paso: comparación empírica entre SHA-256 rápido y PBKDF2/scrypt en Python</h2>
 <p>Este script local permite observar directamente la diferencia de costo computacional entre un hash rápido sin salt y una KDF moderna en tu propia máquina.</p>
 <pre><code class="lenguaje-python">import hashlib

@@ -39,6 +39,8 @@ curl -i http://127.0.0.1:8080/sitemap.xml
 Desactivar la versión en la cabecera `Server` (por ejemplo con `server_tokens off;` en Nginx) es una buena práctica de higiene para dificultar el inventario automatizado, pero un analista siempre puede deducir el stack por el comportamiento de las cookies, el orden de las cabeceras o las respuestas ante peticiones malformadas. La seguridad real depende de mantener las dependencias actualizadas y bien configuradas.
 :::
 
+<!-- salto -->
+
 ## 3. Descubrimiento controlado con `ffuf` y filtrado de ruido
 
 **`ffuf` (Fuzz Faster U Fool)** es una herramienta escrita en Go diseñada para realizar descubrimiento de contenido web reemplazando la palabra clave `FUZZ` en la URL, en las cabeceras o en el cuerpo de una petición por cada línea de un diccionario (*wordlist*).
@@ -115,6 +117,8 @@ En evaluaciones reales es habitual encontrarse con **Sistemas de Gestión de Con
 | `/wp-login.php` y `wp-config.php~` | Falta de límite de tasa o MFA en el login, y copias de respaldo olvidadas (`wp-config.php.bak`) accesibles por HTTP. | Activar 2FA, limitar tasa de peticiones y mover/denegar copias temporales fuera del webroot. |
 
 En un entorno autorizado, herramientas especializadas como **`wpscan`** (o enumeración dirigida con `ffuf`) agilizan la correlación de versiones de plugins contra bases de CVEs, siempre limitando la tasa de peticiones para no saturar el servidor.
+
+<!-- salto -->
 
 ## 6. Ejemplo paso a paso: mapeo completo de nuestra app de laboratorio
 

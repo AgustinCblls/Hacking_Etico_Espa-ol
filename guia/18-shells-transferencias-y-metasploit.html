@@ -33,7 +33,7 @@
 <p>En sistemas tipo Unix, una shell es un intérprete de comandos que se comunica con el núcleo mediante descriptores de archivo estándar: <code>stdin</code> (0), <code>stdout</code> (1) y <code>stderr</code> (2). La experiencia operativa y el comportamiento de los programas cambian según exista o no una terminal virtual asociada.</p>
 <h3 id="cap-3-1-diferencias-entre-sesiones-con-y-sin-pty">Diferencias entre sesiones con y sin PTY</h3>
 <p>Cuando te conectás por SSH o abrís una consola local, el sistema asigna una pseudoterminal (PTY), compuesta por un extremo maestro y uno esclavo (<code>/dev/pts/N</code>). Esto habilita el control de trabajos (<code>Ctrl+C</code>, <code>Ctrl+Z</code>), el historial, el autocompletado y programas que requieren lectura directa de terminal como <code>sudo</code>, <code>su</code> o <code>less</code>. En contraste, una sesión canalizada únicamente por tuberías (pipes) o sockets sin PTY carece de disciplina de línea: las señales no se enrutan al proceso hijo y las utilidades interactivas fallan o exponen comportamiento errático.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Característica</th>
 <th>Shell no interactiva (pipe/socket)</th>
@@ -57,7 +57,7 @@ ps -o pid,ppid,tty,cmd -p $$</code></pre>
 <p>En auditorías de laboratorio sobre topologías segmentadas, el sentido de inicio de la conexión TCP determina cómo interactúa la sesión con reglas de filtrado perimetral y traducción de direcciones (NAT).</p>
 <h3 id="cap-3-1-comparativa-arquitectonica">Comparativa arquitectónica</h3>
 <p>En un modelo <strong>bind</strong>, el sistema objetivo abre un puerto TCP en escucha y espera una conexión entrante desde la estación de administración. En un modelo <strong>reverse</strong>, el flujo se invierte: la conexión TCP se inicia desde el segmento interno hacia un puerto de escucha en la estación de control. Desde el punto de vista de ingeniería de redes, esta diferencia es crítica porque los firewalls corporativos suelen bloquear conexiones entrantes no solicitadas hacia subredes internas, mientras que el tráfico saliente (egress) suele estar menos restringido si no existe filtrado estricto por proxy o lista de permitidos.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Dimensión</th>
 <th>Sesión Bind (entrante)</th>
@@ -73,7 +73,7 @@ ps -o pid,ppid,tty,cmd -p $$</code></pre>
 <p>Durante una auditoría técnica o una respuesta ante incidentes, suele ser necesario mover herramientas de diagnóstico, scripts de verificación o evidencias entre máquinas del laboratorio. Toda transferencia profesional debe ser <strong>predecible, acotada en tiempo y verificada criptográficamente</strong> mediante SHA-256.</p>
 <h3 id="cap-3-1-metodos-recomendados-en-linux-y-windows">Métodos recomendados en Linux y Windows</h3>
 <ol><li><strong>SCP sobre SSH:</strong> Cifra el canal de extremo a extremo y reutiliza autenticación estándar, ideal entre nodos Linux y servidores Windows con OpenSSH.</li><li><strong>Servidor HTTP efímero local:</strong> Útil en redes Host-Only para servir archivos de solo lectura durante pocos segundos, restringido a la interfaz del laboratorio.</li><li><strong>Codificación Base64 + verificación de hash:</strong> Adecuada para archivos pequeños de texto o configuración cuando solo disponés de una consola interactiva.</li></ol>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Método</th>
 <th>Cifrado nativo</th>
@@ -103,7 +103,7 @@ Get-FileHash -Path "C:\Lab\reporte_auditoria.txt" -Algorithm SHA256</code></pre>
 <p>Cuando un programa en C/C++ copia datos de entrada a un búfer de tamaño fijo en la pila sin validar la longitud (por ejemplo, usando funciones inseguras en lugar de variantes acotadas), la escritura desborda el espacio reservado para variables locales y puede sobrescribir el <code>EBP</code> guardado y la dirección de retorno. Al ejecutarse la instrucción <code>RET</code>, el procesador carga esa dirección corrupta en <code>EIP</code>, provocando una caída del proceso o una alteración del flujo de control.</p>
 <h3 id="cap-3-1-protecciones-modernas-contra-corrupcion-de-memoria">Protecciones modernas contra corrupción de memoria</h3>
 <p>Los compiladores y sistemas operativos contemporáneos implementan defensas en profundidad que elevan drásticamente el costo de explotar errores de memoria:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Mecanismo</th>
 <th>Plataforma</th>

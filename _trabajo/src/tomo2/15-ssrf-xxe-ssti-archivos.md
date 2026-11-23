@@ -50,6 +50,8 @@ Permitir que los usuarios suban archivos (avatares, documentos PDF, planillas CS
 | **Almacenamiento fuera del *webroot*** | Guardar los archivos en un directorio sin permisos de ejecución (o en almacenamiento de objetos separado) fuera de la carpeta pública del servidor web. | Impide que el servidor web interprete el archivo subido como un script ejecutable. |
 | **Descarga con cabeceras de aislamiento** | Servir descargas desde un dominio estático separado (`cdn-archivos.ejemplo.local`) con `Content-Disposition: attachment` y `X-Content-Type-Options: nosniff`. | Impide que un SVG o HTML subido ejecute JavaScript dentro del origen principal de la aplicación. |
 
+<!-- salto -->
+
 ## 3. Server-Side Request Forgery (SSRF)
 
 **SSRF (incorporado en `A01:2025 – Broken Access Control` del OWASP Top 10:2025)** ocurre cuando una funcionalidad de la aplicación (por ejemplo "Importar imagen desde URL", "Previsualizar enlace" o "Probar webhook") acepta una URL proporcionada por el usuario y **el propio servidor backend realiza la petición de red hacia ese destino**.

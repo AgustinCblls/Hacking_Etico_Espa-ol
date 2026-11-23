@@ -116,6 +116,8 @@ En entornos reales un analista NSM combina el análisis de paquetes con la telem
 - **Extracción automática de artefactos con *NetworkMiner*:** Frente a capturas PCAP extensas, herramientas forenses pasivas como `NetworkMiner` reconstruyen automáticamente sesiones por host, archivos transferidos por HTTP/SMB, credenciales en texto claro, certificados TLS y parámetros DNS/OS fingerprinting sin necesidad de extraer flujos manualmente.
 - **Correlación con Firewall, VPN, Proxy y WAF:** Un hallazgo de red cobra contexto completo al cruzar los tres niveles temporales: la sesión permitida/bloqueada en el **Firewall** o túnel **VPN** (usuario autenticado y origen externo), la URI completa y el código HTTP registrados por el **Proxy** corporativo o **WAF** (payload bloqueado o permitido en capa 7), y la conversación íntegra preservada en PCAP/Zeek para verificar si hubo respuesta exitosa o exfiltración.
 
+<!-- salto -->
+
 ## Ejemplo paso a paso: Correlación PCAP → Zeek → Suricata en laboratorio
 
 En este recorrido analizamos una captura local (`trafico_prueba.pcap`) donde un host de laboratorio realiza consultas periódicas a un servidor web interno de pruebas.

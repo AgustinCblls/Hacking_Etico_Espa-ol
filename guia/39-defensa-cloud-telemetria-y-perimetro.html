@@ -114,7 +114,7 @@ AND severity&gt;=NOTICE</code></pre>
 <p>Configurar reglas manuales para cada anomalía operativa resulta difícil de escalar. <strong>Amazon GuardDuty</strong> es un servicio de detección de amenazas gestionado que ingiere y correlaciona telemetría sin necesidad de instalar agentes en las instancias ni impactar el rendimiento del plano de datos:</p>
 <ul><li><strong>Fuentes base:</strong> CloudTrail Management Events, VPC Flow Logs y registros DNS internos de AWS.</li><li><strong>Planes de protección adicionales:</strong> Protección de S3 (CloudTrail Data Events), EKS Protection (registros de auditoría de Kubernetes y monitoreo en runtime de nodos), Malware Protection para volúmenes EBS y RDS/Lambda Protection.</li></ul>
 <p>Los hallazgos (<em>findings</em>) de GuardDuty se organizan por categoría de recurso afectado y severidad numérica (Baja, Media, Alta):</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Dominio</th>
 <th>Ejemplos de hallazgos representativos</th>
@@ -141,7 +141,7 @@ AND severity&gt;=NOTICE</code></pre>
 <ul><li><strong>Prowler:</strong> herramienta CLI en Python orientada inicialmente a AWS (y extendida a Azure, GCP y Kubernetes) que evalúa cientos de controles CIS, IAM, cifrado, S3, VPC e IMDSv2 generando reportes HTML, JSON-OCSF y hallazgos exportables a AWS Security Hub.</li><li><strong>ScoutSuite:</strong> auditor multi-cloud desarrollado por NCC Group que recolecta la configuración de solo lectura vía APIs de AWS, Azure y GCP y construye un informe HTML navegable offline para revisar rápidamente superficies expuestas (buckets públicos, Security Groups <code>0.0.0.0/0</code>, claves antiguas).</li><li><strong>Steampipe:</strong> motor basado en PostgreSQL + plugins que expone las APIs de AWS, Azure, GCP, Kubernetes y GitHub como tablas consultables en tiempo real mediante <strong>SQL estándar</strong> (por ejemplo, cruzar en una sola consulta instancias EC2 expuestas con <code>http_tokens = 'optional'</code> y roles IAM adjuntos).</li></ul>
 <h3 id="cap-5-6-mapa-comparativo-de-plataformas-cspm-cwpp-ciem-cdr-y-cnapp">Mapa comparativo de plataformas: CSPM, CWPP, CIEM, CDR y CNAPP</h3>
 <p>Para no confundir categorías comerciales al diseñar una arquitectura defensiva en la nube, cada sigla responde a una capa concreta del ciclo <em>prevenir → detectar → responder</em>:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Categoría</th>
 <th>Qué protege y qué analiza</th>

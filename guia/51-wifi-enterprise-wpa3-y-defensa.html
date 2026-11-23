@@ -35,7 +35,7 @@
 <ol><li><strong>Supplicant (Cliente)</strong>: la estación inalámbrica (notebook, teléfono) con un cliente 802.1X (<code>wpa_supplicant</code> en Linux, perfil MDM en Windows/macOS/iOS/Android) que presenta credenciales o certificados.</li><li><strong>Authenticator (Punto de Acceso / Controladora WLC)</strong>: actúa como guardia intermedio. Mantiene el puerto lógico bloqueado para tráfico de datos IP (permitiendo únicamente tramas <strong>EAPOL</strong> / 802.1X) hasta que el servidor central apruebe la autenticación. Encapsula los mensajes <strong>EAP</strong> (<em>Extensible Authentication Protocol</em>) recibidos por aire dentro de paquetes <strong>RADIUS</strong> (o Diameter) sobre IP hacia el backend.</li><li><strong>Authentication Server (Servidor RADIUS / NAC)</strong>: típicamente FreeRADIUS, Microsoft NPS o Cisco ISE, conectado al directorio corporativo (Active Directory / LDAP / PKI). Verifica la identidad del usuario o dispositivo y devuelve al Authenticator un mensaje <code>Access-Accept</code> (junto con la clave maestra derivada para cifrar la sesión Wi-Fi y atributos opcionales de VLAN dinámica) o <code>Access-Reject</code>.</li></ol>
 <h3 id="cap-7-4-comparativa-de-seguridad-entre-metodos-eap">Comparativa de seguridad entre métodos EAP</h3>
 <p>EAP es un marco extensible que soporta múltiples mecanismos de autenticación dentro de un túnel TLS o directamente sobre el enlace:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Método EAP</th>
 <th>Autenticación del servidor</th>

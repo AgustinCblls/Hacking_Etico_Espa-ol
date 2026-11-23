@@ -146,6 +146,8 @@ Herramientas de auditoría de red como **`mitm6`** aprovechan ese comportamiento
 3. **Cierre criptográfico del destino del Relay:** exigí **LDAP Signing + LDAP Channel Binding (CBT = Always)** en todos los Controladores de Dominio y configurá **HTTPS con Extended Protection for Authentication (EPA = Required)** en IIS / ADCS Web Enrollment, neutralizando cualquier intento de relayar la sesión NTLM aunque exista suplantación de DNS IPv6 en la subred.
 :::
 
+<!-- salto -->
+
 ## 5. Arquitectura defensiva: el Modelo de Administración por Niveles (Tiering)
 
 El hallazgo más frecuente en auditorías de Active Directory es el uso de una misma cuenta `Domain Admin` para iniciar sesión por escritorio remoto (RDP) en servidores de aplicaciones o estaciones de trabajo de usuarios para "instalar un programa rápido".

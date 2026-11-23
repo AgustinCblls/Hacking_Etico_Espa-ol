@@ -193,7 +193,8 @@ def parse_tabla(block):
         return None
     cab = _split_md_row(lineas[0])
     filas = [l for l in lineas[1:] if not re.match(r"^[\s:|-]+$", l.strip("|"))]
-    salida = ['<div class="tabla"><table>', "<thead><tr>"]
+    clase_tabla = "tabla tabla-compacta" if len(filas) <= 12 else "tabla"
+    salida = [f'<div class="{clase_tabla}"><table>', "<thead><tr>"]
     salida += [f"<th>{inline(c)}</th>" for c in cab]
     salida.append("</tr></thead><tbody>")
     for f in filas:
@@ -232,6 +233,12 @@ def md_to_html(texto, section_prefix=""):
             i += 1
             clase = f' class="lenguaje-{esc(lang)}"' if lang else ""
             out.append(f"<pre><code{clase}>" + esc("\n".join(bloque)) + "</code></pre>")
+            continue
+
+        if re.match(r"^<!--\s*(salto|pagebreak)\s*-->$", s, re.I) or s.lower() in ("::: salto", ":::salto"):
+            cerrar_parrafo()
+            out.append('<div class="salto-pagina-manual" aria-hidden="true"></div>')
+            i += 1
             continue
 
         if s.startswith(":::"):
@@ -929,9 +936,17 @@ main { max-width: none !important; padding: 0 !important; margin: 0 !important; 
 .toc-lista li { display: flex; justify-content: space-between; align-items: baseline; gap: 6mm; padding: 2.2mm 0; border-bottom: 1px dotted #c8c8c8; font-size: 10pt; }
 .toc-lista li .toc-pag { font-family: "Cascadia Mono", Consolas, monospace; font-size: 9pt; color: #0b5f6b; white-space: nowrap; font-weight: 700; }
 .print-sec { page-break-before: always; }
-.print-sec h1 { font-size: 17pt; margin-top: 0; border-bottom: 2px solid #0b5f6b; padding-bottom: 2mm; }
-.print-sec h2 { font-size: 12.5pt; margin-top: 1.3rem; break-after: avoid; }
-.print-sec h3 { font-size: 10.8pt; margin-top: 1rem; break-after: avoid; }
+.print-sec h1 { font-size: 17pt; margin-top: 0; border-bottom: 2px solid #0b5f6b; padding-bottom: 2mm; break-after: avoid; page-break-after: avoid; }
+.print-sec h2 { font-size: 12.5pt; margin-top: 1.3rem; break-after: avoid; page-break-after: avoid; }
+.print-sec h3 { font-size: 10.8pt; margin-top: 1rem; break-after: avoid; page-break-after: avoid; }
+.print-sec h4 { break-after: avoid; page-break-after: avoid; }
+p, li { orphans: 3; widows: 3; }
+.bloque-h2-compacto { break-inside: avoid; page-break-inside: avoid; }
+.bloque-h2-unido { break-inside: avoid; page-break-inside: avoid; margin-top: 1.1rem; }
+.subtema-h3-compacto { break-inside: avoid; page-break-inside: avoid; }
+.arranque-inseparable { break-inside: avoid; page-break-inside: avoid; }
+.tabla-compacta { break-inside: avoid; page-break-inside: avoid; }
+.salto-pagina-manual { break-before: page; page-break-before: always; height: 0; margin: 0; padding: 0; }
 pre {
   background: #f6f8fa !important;
   color: #111111 !important;
@@ -946,11 +961,164 @@ pre {
 }
 code { background: #eef1f4 !important; color: #111111 !important; -webkit-text-fill-color: #111111 !important; font-size: 8.6pt !important; }
 pre code { background: transparent !important; }
-table { font-size: 8.6pt !important; width: 100%; table-layout: auto; }
-th, td { padding: 4px 6px !important; word-wrap: break-word; overflow-wrap: anywhere; }
+table { font-size: 8.6pt !important; width: 100%; table-layout: auto; border-collapse: collapse; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; page-break-inside: avoid; }
+th, td { padding: 4px 6px !important; word-wrap: break-word; overflow-wrap: break-word; word-break: normal; }
+th:first-child { min-width: 85px; }
+td a, td code { overflow-wrap: anywhere; }
 .callout, .meta-nivel, .tarjeta { break-inside: avoid; page-break-inside: avoid; }
 a { color: #0b5f6b !important; text-decoration: none !important; }
 """
+
+
+def maquetar_html_impresion(body_html):
+    """Aplica paginación editorial inteligente para PDF sin desperdiciar hojas:
+    - Encapsula bloques H2 y H3 compactos (<= ~1 hoja A4 real) con break-inside: avoid para que
+      compartan hoja cuando caben enteros y bajen completos cuando no entran.
+    - En cualquier H2 o H3 extenso (> 1 hoja), agrupa la cabecera junto al arranque mínimo sustancial
+      (primer bloque de texto + primera tabla/código/lista/subtítulo) en .arranque-inseparable para
+      que ningún tema empiece con 2 o 3 renglones sueltos al pie de página.
+    - Une 'Antes de avanzar' y 'Referencias y estándares abiertos' en el cierre del capítulo.
+    """
+    partes = re.split(r"(?=<h2\b[^>]*>)", body_html)
+    if len(partes) <= 1:
+        return body_html
+
+    def peso_a4(html_seg):
+        txt = strip_html(html_seg)
+        pre_lines = sum(m.group(1).count("\n") + 1 for m in re.finditer(r"<pre><code[^>]*>(.*?)</code></pre>", html_seg, flags=re.S))
+        num_tablas = html_seg.count("<table")
+        num_filas = html_seg.count("<tr>")
+        return len(txt) + pre_lines * 52 + num_filas * 60 + num_tablas * 85, pre_lines
+
+    def es_compacto_a4(html_seg, max_peso=3200, max_pre_lines=38):
+        if "salto-pagina-manual" in html_seg:
+            return False
+        peso, pre_lines = peso_a4(html_seg)
+        return peso <= max_peso and pre_lines <= max_pre_lines
+
+    def dividir_elementos_top(html_seg):
+        """Separa elementos HTML hermanos de primer nivel (h2, h3, p, ul, ol, pre, div.tabla, salto, aside, blockquote)."""
+        pattern = re.compile(
+            r'(<h[2-6]\b[^>]*>.*?</h[2-6]>'
+            r'|<p\b[^>]*>.*?</p>'
+            r'|<pre\b[^>]*>.*?</pre>'
+            r'|<div\b[^>]*class="salto-pagina-manual"[^>]*></div>'
+            r'|<div\b[^>]*class="tabla[^"]*"[^>]*>.*?</table></div>'
+            r'|<aside\b[^>]*>.*?</aside>'
+            r'|<blockquote\b[^>]*>.*?</blockquote>'
+            r'|<ul\b[^>]*>.*?</ul>'
+            r'|<ol\b[^>]*>.*?</ol>'
+            r'|<hr\s*/?>)',
+            flags=re.S,
+        )
+        elems = [m.group(0) for m in pattern.finditer(html_seg)]
+        if not elems or "".join(elems).strip() == "":
+            return [html_seg]
+        return elems
+
+    def envolver_arranque(html_seg, min_peso=650, max_peso=2200):
+        """Para bloques extensos (>1 hoja), une cabecera + primer bloque sustancial en .arranque-inseparable."""
+        elems = dividir_elementos_top(html_seg)
+        if len(elems) <= 1:
+            return html_seg
+        head = [elems[0]]
+        tomados = 1
+        tiene_bloque_fuerte = False
+        for el in elems[1:]:
+            if "salto-pagina-manual" in el:
+                break
+            candidato = "\n".join(head + [el])
+            peso, pre_lines = peso_a4(candidato)
+            if tomados > 1 and (peso > max_peso or pre_lines > 28):
+                break
+            head.append(el)
+            tomados += 1
+            if any(tag in el for tag in ("<pre", "<table", "<ul", "<ol", "<aside")):
+                tiene_bloque_fuerte = True
+            if tiene_bloque_fuerte and peso >= min_peso:
+                break
+            if tomados >= 4 and peso >= min_peso:
+                break
+        if tomados <= 1:
+            return html_seg
+        resto = "\n".join(elems[tomados:])
+        bloque_arr = f'<div class="arranque-inseparable">\n{chr(10).join(head)}\n</div>'
+        return f"{bloque_arr}\n{resto}" if resto.strip() else bloque_arr
+
+    SALTO_RE = re.compile(r'(?:\s*<div class="salto-pagina-manual"[^>]*></div>)+\s*$')
+
+    def extraer_salto_final(html_seg):
+        m = SALTO_RE.search(html_seg)
+        if not m:
+            return html_seg, ""
+        return html_seg[: m.start()], m.group(0).strip()
+
+    def envolver_subtemas_h3(html_seg):
+        subpartes = re.split(r"(?=<h3\b[^>]*>)", html_seg)
+        if len(subpartes) <= 1:
+            return html_seg
+        # Si subpartes[0] (intro del H2 antes del 1.er H3) es solo H2 + 1 párrafo corto sin salto manual, unirlo al 1.er H3
+        if (
+            len(subpartes) >= 2
+            and "salto-pagina-manual" not in subpartes[0]
+            and peso_a4(subpartes[0])[0] < 650
+            and not any(t in subpartes[0] for t in ("<table", "<pre", "<ul", "<ol"))
+        ):
+            subpartes = [subpartes[0] + "\n" + subpartes[1]] + subpartes[2:]
+
+        res = []
+        salto_pendiente = ""
+        for sp in subpartes:
+            sp_limpio, salto_trail = extraer_salto_final(sp)
+            prefijo = f"{salto_pendiente}\n" if salto_pendiente else ""
+            if es_compacto_a4(sp_limpio, max_peso=2900, max_pre_lines=34):
+                res.append(f'{prefijo}<div class="subtema-h3-compacto">\n{sp_limpio}\n</div>')
+            else:
+                res.append(f'{prefijo}<div class="subtema-h3">\n{envolver_arranque(sp_limpio)}\n</div>')
+            salto_pendiente = salto_trail
+        if salto_pendiente:
+            res.append(salto_pendiente)
+        return "\n".join(res)
+
+    intro, salto_h2_pend = extraer_salto_final(partes[0])
+    salida = [intro]
+    h2_bloques = partes[1:]
+    i = 0
+    while i < len(h2_bloques):
+        blk, salto_trail = extraer_salto_final(h2_bloques[i])
+        prefijo = f"{salto_h2_pend}\n" if salto_h2_pend else ""
+        m_tit = re.match(r"<h2\b[^>]*>(.*?)</h2>", blk, flags=re.S)
+        tit_txt = strip_html(m_tit.group(1)).lower() if m_tit else ""
+
+        if "antes de avanzar" in tit_txt and i + 1 < len(h2_bloques):
+            nxt, nxt_trail = extraer_salto_final(h2_bloques[i + 1])
+            m_nxt = re.match(r"<h2\b[^>]*>(.*?)</h2>", nxt, flags=re.S)
+            nxt_txt = strip_html(m_nxt.group(1)).lower() if m_nxt else ""
+            if "referencias y est" in nxt_txt and not salto_trail:
+                combinado = blk + "\n" + nxt
+                if es_compacto_a4(combinado, max_peso=3300, max_pre_lines=25):
+                    salida.append(f'{prefijo}<div class="bloque-h2-unido">\n{combinado}\n</div>')
+                    salto_h2_pend = nxt_trail
+                    i += 2
+                    continue
+
+        if es_compacto_a4(blk, max_peso=3200, max_pre_lines=38):
+            contenido = envolver_subtemas_h3(blk)
+            salida.append(f'{prefijo}<div class="bloque-h2-compacto">\n{contenido}\n</div>')
+        else:
+            if "<h3" in blk:
+                contenido = envolver_subtemas_h3(blk)
+            else:
+                contenido = envolver_arranque(blk)
+            salida.append(f'{prefijo}<div class="bloque-h2-extenso">\n{contenido}\n</div>')
+        salto_h2_pend = salto_trail
+        i += 1
+
+    if salto_h2_pend:
+        salida.append(salto_h2_pend)
+    return "\n".join(salida)
 
 
 def render_chrome_pdf(html_path, pdf_path):
@@ -1124,7 +1292,8 @@ def compilar_todos_los_pdfs(data, rendered_chapters):
         secciones = []
         for c in tcaps:
             info = rendered_chapters[c["id"]]
-            sec_html = f'<h1>Capítulo {c["id"]} · {esc(c["titulo"])}</h1>\n{info["meta_bar"]}\n{info["body_html"]}'
+            body_print = maquetar_html_impresion(info["body_html"])
+            sec_html = f'<h1>Capítulo {c["id"]} · {esc(c["titulo"])}</h1>\n{info["meta_bar"]}\n{body_print}'
             secciones.append({
                 "anchor": f'cap-{c["id"].replace(".", "-")}',
                 "titulo": f'Capítulo {c["id"]} · {c["titulo"]}',
@@ -1165,7 +1334,7 @@ def compilar_todos_los_pdfs(data, rendered_chapters):
         f'<div class="tabla"><table><thead><tr><th>Ruta de referencia</th><th>Tipo</th><th>Nivel</th><th>Módulos</th></tr></thead><tbody>{paths_rows}</tbody></table></div>'
     )
     sep_secciones = [
-        {"anchor": "sep-cheatsheets", "titulo": "Hojas de Referencia Rápida (Cheat Sheets)", "html": CHEAT_SHEETS_HTML},
+        {"anchor": "sep-cheatsheets", "titulo": "Hojas de Referencia Rápida (Cheat Sheets)", "html": maquetar_html_impresion(CHEAT_SHEETS_HTML)},
         {"anchor": "sep-glosario", "titulo": f"Glosario Técnico ({len(GLOSARIO_ITEMS)} términos)", "html": glos_pdf_html},
         {"anchor": "sep-rutas", "titulo": "Mapa de 25 Rutas Públicas y Alcance Curricular", "html": paths_pdf_html},
         {"anchor": "sep-fuentes", "titulo": "Fuentes Abiertas y Límites Éticos", "html": FUENTES_LIMITES_HTML},

@@ -96,6 +96,8 @@ En evaluaciones avanzadas de endpoints Windows conviene conocer cómo operan las
 
 Sysmon (*System Monitor*, parte de Microsoft Sysinternals) complementa el registro nativo de Windows proporcionando telemetría estructurada sobre eventos de alto valor analítico: creación de procesos con línea de comandos completa y hashes, carga de imágenes y DLLs, cambios en el estado de servicios y accesos anómalos entre procesos. Integrar Sysmon con una configuración curada y reenviar los registros a un SIEM permite detectar comportamientos anómalos sin saturar el almacenamiento.
 
+<!-- salto -->
+
 ## Ejemplo paso a paso: auditoría de solo lectura de servicios y protecciones en PowerShell
 
 En este procedimiento revisamos en nuestra VM Windows de laboratorio si existen servicios con rutas potencialmente ambiguas, inspeccionamos los permisos de un directorio de aplicación y verificamos el estado de las protecciones de memoria y credenciales.

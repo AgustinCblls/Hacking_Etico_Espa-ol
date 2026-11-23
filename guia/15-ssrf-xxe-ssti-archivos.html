@@ -52,7 +52,7 @@ def obtener_ruta_segura(nombre_solicitado: str) -&gt; Path:
 <p>Permitir que los usuarios suban archivos (avatares, documentos PDF, planillas CSV) introduce riesgos graves si el servidor confía en los metadatos declarados por el navegador:</p>
 <ul><li>La cabecera <code>Content-Type: image/png</code> del bloque <code>multipart/form-data</code> la escribe el cliente y puede falsificarse trivialmente.</li><li>Si el archivo se guarda con el nombre original enviado por el usuario dentro de una carpeta pública del servidor web (<em>webroot</em>) donde el servidor ejecuta scripts (<code>.php</code>, <code>.aspx</code>, <code>.jsp</code>) o sirve <code>.html</code>/<code>.svg</code> (que pueden contener <code>&lt;script&gt;</code> activos en el mismo origen), la carga de archivos se transforma en ejecución de código en servidor o XSS almacenado.</li></ul>
 <h3 id="cap-2-6-lista-de-control-arquitectonica-para-subida-de-archivos-owasp-file-upload-cheat-sheet">Lista de control arquitectónica para subida de archivos (OWASP File Upload Cheat Sheet)</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Control defensivo</th>
 <th>Cómo implementarlo</th>
@@ -63,6 +63,7 @@ def obtener_ruta_segura(nombre_solicitado: str) -&gt; Path:
 <tr><td><strong>Almacenamiento fuera del <em>webroot</strong></em></td><td>Guardar los archivos en un directorio sin permisos de ejecución (o en almacenamiento de objetos separado) fuera de la carpeta pública del servidor web.</td><td>Impide que el servidor web interprete el archivo subido como un script ejecutable.</td></tr>
 <tr><td><strong>Descarga con cabeceras de aislamiento</strong></td><td>Servir descargas desde un dominio estático separado (<code>cdn-archivos.ejemplo.local</code>) con <code>Content-Disposition: attachment</code> y <code>X-Content-Type-Options: nosniff</code>.</td><td>Impide que un SVG o HTML subido ejecute JavaScript dentro del origen principal de la aplicación.</td></tr>
 </tbody></table></div>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-2-6-3-server-side-request-forgery-ssrf">3. Server-Side Request Forgery (SSRF)</h2>
 <p><strong>SSRF (incorporado en <code>A01:2025 – Broken Access Control</code> del OWASP Top 10:2025)</strong> ocurre cuando una funcionalidad de la aplicación (por ejemplo "Importar imagen desde URL", "Previsualizar enlace" o "Probar webhook") acepta una URL proporcionada por el usuario y <strong>el propio servidor backend realiza la petición de red hacia ese destino</strong>.</p>
 <p>¿Por qué es tan crítico aunque el servidor no muestre la respuesta completa? Porque el servidor backend se encuentra <strong>dentro de la red interna</strong>:</p>
@@ -112,7 +113,7 @@ def render_seguro(nombre_usuario):
 <h4 id="cap-2-6-identificacion-segura-de-motores-de-plantillas-en-ssti-sondas-aritmeticas-inocuas">Identificación segura de motores de plantillas en SSTI (sondas aritméticas inocuas)</h4>
 <p>Para confirmar si un parámetro es vulnerable a SSTI durante una auditoría autorizada <strong>no se deben usar payloads destructivos ni llamadas a clases del sistema operativo</strong>; basta con una secuencia breve de expresiones aritméticas inocuas:</p>
 <ol><li><strong>Detectar evaluación:</strong> enviá primero una expresión matemática simple como <code>{{7*7}}</code> o <code>${7*7}</code>. Si la aplicación devuelve <code>49</code> en lugar del texto literal, la entrada fue compilada como código de plantilla (causa raíz: concatenación previa al renderizado).</li><li><strong>Diferenciar sintaxis y motor:</strong> si <code>{{7*7}}</code> evaluó a <code>49</code>, distinguí entre motores como <strong>Jinja2</strong> y <strong>Twig</strong> con <code>{{7*'7'}}</code> (sin invocar módulos ni archivos). Si evaluó <code>${7*7}</code>, comprobá variantes específicas de <strong>Freemarker</strong> o <strong>Thymeleaf</strong>.</li><li><strong>Documentar y remediar:</strong> verificá que en alertas de WAF/logs queden bloqueadas estas expresiones en parámetros de texto y corregí el código pasando el dato dentro del diccionario de contexto de una plantilla estática.</li></ol>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Motor de plantillas</th>
 <th>Sonda aritmética inocua</th>
@@ -131,7 +132,7 @@ def render_seguro(nombre_usuario):
 <ul><li><strong>LFI con wrappers y <em>Log Poisoning</em>:</strong> en aplicaciones heredadas PHP, la inclusión insegura de archivos combinada con wrappers (<code>php://filter/convert.base64-encode/resource=...</code>) o con escritura controlada en logs locales (<code>User-Agent</code> registrado en <code>access.log</code>) permite leer código fuente o elevar LFI a ejecución de código. Por ello la remediación obliga a usar mapas de rutas fijas (<code>switch</code>/diccionario) y configurar <code>allow_url_include = Off</code>.</li><li><strong>Log4Shell (<code>CVE-2021-44228</code>), Spring4Shell (<code>CVE-2022-22965</code>) y Text4Shell (<code>CVE-2022-42889</code>):</strong> tres fallos emblemáticos del ecosistema Java donde cadenas no confiables (en cabeceras HTTP como <code>User-Agent</code>, parámetros de enlace de propiedades en Spring MVC o <code>StringSubstitutor</code> en Apache Commons Text) dispararon evaluaciones JNDI/LDAP remotas o alteración de propiedades del contenedor Tomcat. <strong>Respuesta defensiva:</strong> actualizar las bibliotecas críticas, deshabilitar resoluciones JNDI remotas (<code>log4j2.formatMsgNoLookups=true</code> en mitigación temporal + parche definitivo) y monitorear en el SIEM/WAF peticiones entrantes con marcadores <code>jndi:</code> o conexiones salientes anómalas originadas por el proceso Java hacia puertos LDAP/RMI externos.</li></ul>
 <h3 id="cap-2-6-metodologia-oast-oob-en-laboratorio-blind-ssrf-blind-xxe-y-log4shell">Metodología OAST / OOB en laboratorio (<em>Blind SSRF</em>, <em>Blind XXE</em> y Log4Shell)</h3>
 <p>Cuando el servidor procesa URLs, documentos XML o cadenas registradas en logs sin devolver el resultado de esa operación en la respuesta HTTP, la verificación controlada en un laboratorio aislado se apoya en pruebas <strong>Out-of-Band (OAST / OOB)</strong> contra un servidor de escucha local (como <code>interactsh</code> en red privada o un listener DNS/HTTP/LDAP propio en <code>127.0.0.1</code>):</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Escenario ciego (<em>Blind</em>)</th>
 <th>Causa raíz</th>

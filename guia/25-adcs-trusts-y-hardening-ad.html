@@ -49,7 +49,7 @@
 <ul><li><strong>Aprobación del administrador de CA (<em>CA certificate manager approval</em>):</strong> deja la solicitud en estado <em>Pending</em> hasta que un oficial de PKI la apruebe manualmente.</li><li><strong>Firmas autorizadas (<em>Authorized Signatures Required</em>):</strong> exige que la solicitud venga cofirmada por un Agente de Inscripción.</li></ul>
 <h2 id="cap-3-8-2-configuraciones-vulnerables-en-adcs-esc1esc8-y-su-remediacion">2. Configuraciones vulnerables en ADCS (ESC1–ESC8) y su remediación</h2>
 <p>La investigación publicada por SpecterOps sistematizó las principales configuraciones riesgosas de ADCS bajo los códigos <strong>ESC1 a ESC8</strong>. Esta tabla resume las condiciones exactas que debe buscar un auditor y cómo corregir cada una:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Código</th>
 <th>Condición de mala configuración en ADCS</th>
@@ -65,7 +65,7 @@
 </tbody></table></div>
 <h3 id="cap-3-8-evolucion-post-esc8-resumen-de-vectores-esc9-a-esc16">Evolución post-ESC8: resumen de vectores ESC9 a ESC16</h3>
 <p>Con la adopción de defensas contra ESC1–ESC8, nuevas investigaciones identificaron vectores adicionales centrados en el <strong>mapeo débil de certificados sin SID</strong>, interfaces RPC alternativas, enlaces de políticas OID y modificaciones de atributos de esquema:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Código</th>
 <th>Condición técnica o superficie afectada</th>
@@ -94,7 +94,7 @@ certipy req -u usuario_lab@corp.local -p 'ClaveLab!' -dc-ip 10.10.20.10 -ca corp
 <ul><li><strong>Detección (Event IDs + Sigma):</strong> auditar en el registro Security de los DCs el <strong>Event ID <code>5137</code></strong> (creación de objeto con <code>ObjectClass = msDS-DelegatedManagedServiceAccount</code>) y el <strong>Event ID <code>5136</code></strong> (modificación de <code>msDS-ManagedAccountPrecededByLink</code>, <code>msDS-DelegatedMSAState</code> o <code>msDS-SupersededManagedAccountLink</code>). <strong>Criterio Sigma:</strong> creación o vinculación de dMSA fuera de OUs aprobadas o ejecutada por identidades ajenas a Tier 0.</li><li><strong>Mitigación obligatoria:</strong> aplicar la actualización de seguridad de <strong><code>CVE-2025-53779</code></strong> (que exige vínculo mutuo verificado vía <code>msDS-SupersededManagedAccountLink</code>), auditar las ACLs de todas las OUs para remover <code>CreateChild</code> / <code>WriteDacl</code> / <code>GenericAll</code> sobre objetos <code>msDS-DelegatedManagedServiceAccount</code> fuera de Tier 0 y proteger cuentas críticas dentro de <code>Protected Users</code>.</li></ul></aside>
 <h2 id="cap-3-8-3-relaciones-de-confianza-entre-dominios-y-bosques-domain-forest-trusts">3. Relaciones de confianza entre dominios y bosques (Domain &amp; Forest Trusts)</h2>
 <p>En grandes corporaciones (o tras fusiones y adquisiciones de empresas) suelen coexistir múltiples dominios dentro de un mismo bosque o <strong>múltiples bosques separados</strong> vinculados mediante <strong>Relaciones de Confianza (<em>Trusts</em>)</strong>:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Propiedad de un Trust</th>
 <th>Opciones</th>
@@ -133,7 +133,7 @@ Get-ADTrust -Filter * |
     Select-Object Name, Direction, TrustType, ForestTransitive, SelectiveAuthentication, SIDFilteringQuarantined</code></pre>
 <h2 id="cap-3-8-6-plan-maestro-de-hardening-de-active-directory-lista-de-verificacion-en-10-puntos">6. Plan Maestro de Hardening de Active Directory (Lista de Verificación en 10 Puntos)</h2>
 <p>Para cerrar el <strong>Tomo III</strong>, esta matriz condensa los diez controles de mayor impacto para blindar un entorno Active Directory corporativo:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>#</th>
 <th>Pilar de Hardening</th>

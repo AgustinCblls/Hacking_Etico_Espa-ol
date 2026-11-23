@@ -75,6 +75,8 @@ En una arquitectura **RAG (*Retrieval-Augmented Generation*)**, los fragmentos r
 - **Desinformación y alucinaciones (`LLM09:2025 — Misinformation`):** los LLMs predicen tokens probables y pueden fabricar con aparente seguridad citas legales falsas, diagnósticos incorrectos o nombres inexistentes de librerías (`pip`/`npm`) y comandos. Esto origina incluso riesgos de *slopsquatting*: un atacante registra paquetes maliciosos en PyPI/npm usando nombres que los LLMs suelen inventar repetidamente. **Mitigación:** exigir *grounding* RAG con enlaces verificables al documento fuente, validar existencia y hashes antes de instalar dependencias sugeridas por IA, e imponer revisión humana en decisiones críticas.
 - **Consumo ilimitado (`LLM10:2025 — Unbounded Consumption`):** prompts gigantescos, entradas repetitivas o bucles autónomos de agentes que reintentan indefinidamente saturan GPU/CPU o generan costos financieros masivos en APIs (*Denial of Wallet*). **Mitigación:** fijar topes duros de `max_tokens` en entrada y salida, límite de pasos (`max_iterations`) en agentes, *timeouts* por petición, cuotas por usuario/tenant (`rate limiting`) y caché semántico o exacto.
 
+<!-- salto -->
+
 ## 3. OWASP Top 10 for Agentic Applications (diciembre 2025)
 
 A diferencia de un chatbot estático de un turno, los **sistemas agénticos** combinan planificación autónoma de múltiples pasos, memoria persistente, ejecución de herramientas/MCP y comunicación entre agentes. Para responder a esa superficie ampliada, OWASP publicó en **diciembre de 2025** la taxonomía específica **`ASI01` a `ASI10`**:

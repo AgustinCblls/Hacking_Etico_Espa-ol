@@ -35,7 +35,7 @@
 <aside class="callout aviso"><p class="callout-titulo">Cumplimiento no equivale a seguridad real</p><p>Superar una auditoría de cumplimiento acredita controles mínimos en una fecha puntual, pero no garantiza resiliencia frente a atacantes reales si las medidas operan solo en papel. Un programa maduro usa el cumplimiento como piso obligatorio y la gestión continua de riesgos como motor operativo.</p></aside>
 <h2 id="cap-7-7-anatomia-contractual-real-de-una-evaluacion-de-seguridad">Anatomía contractual real de una evaluación de seguridad</h2>
 <p>Antes de iniciar cualquier reconocimiento activo o campaña autorizada de <em>phishing</em>, todo servicio de hacking ético exige una cadena documental firmada por representantes legales facultados del cliente:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Documento</th>
 <th>Naturaleza</th>
@@ -56,7 +56,7 @@
 <h3 id="cap-7-7-analisis-cualitativo-vs-analisis-cuantitativo-sle-aro-ale">Análisis cualitativo vs. análisis cuantitativo (SLE / ARO / ALE)</h3>
 <ul><li><strong>Análisis cualitativo:</strong> puntúa probabilidad e impacto en escalas ordinales (1 a 4 o <em>Bajo / Medio / Alto / Crítico</em>) mediante una <strong>matriz de probabilidad × impacto</strong>. Es ágil para priorizar remediaciones técnicas diarias, aunque introduce cierta subjetividad.</li><li><strong>Análisis cuantitativo:</strong> expresa la exposición en dinero y frecuencia anual para justificar inversiones ante finanzas y directorio:</li><li><strong>AV (<em>Asset Value</em>):</strong> valor económico total del activo (reemplazo, parada y multas).</li><li><strong>EF (<em>Exposure Factor</em>):</strong> proporción del activo perdida ante el incidente (<code>0.0</code> a <code>1.0</code>).</li><li><strong>SLE (<em>Single Loss Expectancy</em>):</strong> pérdida esperada por un solo evento: <code>SLE = AV * EF</code>.</li><li><strong>ARO (<em>Annualized Rate of Occurrence</em>):</strong> frecuencia anual estimada de ocurrencia (ej. <code>0.25</code> = una vez cada 4 años).</li><li><strong>ALE (<em>Annualized Loss Expectancy</em>):</strong> pérdida anualizada esperada: <code>ALE = SLE * ARO</code>.</li></ul>
 <p>Ejemplo práctico: una plataforma de ventas tiene un valor <code>AV = USD 500.000</code>. Una brecha masiva comprometería el <code>40 %</code> de su valor (<code>EF = 0.40</code>), resultando en <code>SLE = 500.000 * 0.40 = USD 200.000</code>. Con una frecuencia estimada de una vez cada 4 años (<code>ARO = 0.25</code>), la pérdida anual esperada sin controles adicionales es <code>ALE_antes = 200.000 * 0.25 = USD 50.000</code>. Si un control (respaldo inmutable + MFA + EDR) cuesta <code>ACS = USD 18.000</code> al año y reduce el <code>ARO</code> a <code>0.05</code> (una vez cada 20 años), la pérdida baja a <code>ALE_despues = 200.000 * 0.05 = USD 10.000</code>, generando un beneficio neto anual de <code>50.000 - 10.000 - 18.000 = USD 22.000</code>.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Matriz cualitativa</th>
 <th>Impacto Bajo (1)</th>
@@ -73,7 +73,7 @@
 <ol><li><strong>Mitigar:</strong> implementar controles técnicos u organizativos para reducir probabilidad o impacto.</li><li><strong>Transferir:</strong> contratar ciberseguros o pactar SLAs con terceros (recordando que la responsabilidad legal frente al regulador nunca se transfiere).</li><li><strong>Evitar:</strong> desactivar el servicio obsoleto o eliminar el proceso riesgoso.</li><li><strong>Aceptar:</strong> asumir conscientemente el riesgo cuando mitigar cuesta más que el <code>ALE</code> o existe una excepción temporal; exige obligatoriamente <strong>firma formal de la alta dirección</strong> o dueño del riesgo con fecha de revisión.</li></ol>
 <h3 id="cap-7-7-metodologias-de-riesgo-cis-controls-v8-1-terceros-y-continuidad-de-negocio">Metodologías de riesgo, CIS Controls v8.1, terceros y Continuidad de Negocio</h3>
 <ul><li><strong>Metodologías de riesgo complementarias:</strong> junto al cálculo <code>SLE/ARO/ALE</code>, las organizaciones emplean <strong>ISO/IEC 27005</strong> (gestión formal de riesgos ligada a ISO 27001), <strong>MAGERIT</strong> (metodología abierta de referencia en administraciones públicas hispanohablantes basada en activos, amenazas y salvaguardas) y <strong>FAIR</strong> (<em>Factor Analysis of Information Risk</em>, cuantificación probabilística por rangos y frecuencia de eventos de pérdida).</li><li><strong>CIS Controls v8.1, terceros y concienciación:</strong> <strong>CIS Critical Security Controls v8.1</strong> agrupa 18 controles priorizados en tres <em>Implementation Groups</em> (<code>IG1</code> higiene básica obligatoria, <code>IG2</code> mediana complejidad e <code>IG3</code> alta madurez); la gobernanza moderna exige además evaluación continua de <strong>riesgo de terceros (TPRM / <em>supply chain</em>)</strong> y métricas continuas de <strong>concienciación</strong> (tasa de reporte al SOC).</li></ul>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Concepto de Continuidad (<strong>ISO 22301</strong>)</th>
 <th>Definición operativa</th>
@@ -90,7 +90,7 @@
 <p>Marco voluntario del NIST basado en resultados, perfiles (<em>Profiles</em>) y niveles (<em>Tiers</em>). En su versión <strong>2.0</strong> (2024) amplió su alcance a todo tipo de organizaciones e incorporó la función transversal <strong>Govern (GV)</strong> sobre las cinco funciones operativas clásicas: <strong>Identify (ID)</strong>, <strong>Protect (PR)</strong>, <strong>Detect (DE)</strong>, <strong>Respond (RS)</strong> y <strong>Recover (RC)</strong>.</p>
 <h3 id="cap-7-7-pci-dss-v4-0-1">PCI-DSS v4.0.1</h3>
 <p>Estándar contractual obligatorio para toda entidad que almacene, procese o transmita datos de tarjetas de pago dentro del <strong>CDE (<em>Cardholder Data Environment</em>)</strong>. Se estructura en <strong>12 requisitos</strong> en 6 objetivos. La versión <strong>v4.0.1</strong> introduce el <strong>Enfoque Personalizado (<em>Customized Approach</em>)</strong> y aclara los requisitos que pasaron a regir de forma obligatoria el <strong>31/03/2025</strong> (<em>future-dated requirements</em>), incluyendo <strong>MFA para todo acceso al CDE</strong> y controles estrictos de integridad y autorización de scripts JavaScript en páginas de pago web (requisitos 6.4.3 y 11.6.1) para frenar ataques de <em>e-skimming</em>.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Marco / Norma</th>
 <th>Enfoque principal</th>
@@ -103,7 +103,7 @@
 </tbody></table></div>
 <h3 id="cap-7-7-marcos-grc-complementarios-clave-en-2026">Marcos GRC complementarios clave en 2026</h3>
 <p>En entornos corporativos SaaS, financieros, europeos y basados en IA, los auditores y equipos <em>Purple Team</em> deben mapear sus controles técnicos y reportes ejecutivos contra cuatro marcos adicionales de adopción prioritaria:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Marco / Regulación</th>
 <th>Alcance y propósito</th>
@@ -120,7 +120,7 @@
 <h2 id="cap-7-7-marco-legal-privacidad-notificacion-de-brechas-y-delitos-informaticos">Marco legal, privacidad, notificación de brechas y delitos informáticos</h2>
 <h3 id="cap-7-7-privacidad-y-delitos-informaticos-en-espana-y-latinoamerica-mapa-comparativo">Privacidad y delitos informáticos en España y Latinoamérica (mapa comparativo)</h3>
 <p>El <strong>GDPR</strong> europeo fijó el estándar de referencia en privacidad con siete principios centrales: <strong>licitud, lealtad y transparencia</strong>; <strong>limitación de finalidad</strong>; <strong>minimización de datos</strong>; <strong>exactitud</strong>; <strong>limitación de conservación</strong>; <strong>integridad y confidencialidad</strong>; y <strong>responsabilidad proactiva (<em>accountability</em>)</strong>, diferenciando entre <strong>Responsable (<em>Controller</em>)</strong> y <strong>Encargado (<em>Processor</em>)</strong>. En el ámbito penal internacional coexisten el <strong>Convenio de Budapest</strong> del Consejo de Europa y la <strong>Convención de la ONU contra la Ciberdelincuencia</strong> (adoptada por la Asamblea General mediante Res. 79/243 en diciembre de 2024 y abierta a firma en Hanoi en octubre de 2025, sujeta a ratificación para su entrada en vigor).</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Jurisdicción</th>
 <th>Marco de privacidad / ciberseguridad</th>
@@ -149,7 +149,7 @@
 <p>Los selectores técnicos priorizan evidencia observable de cómo trabajás por encima de listados de herramientas en el currículum:</p>
 <ol><li><strong>Repositorio público limpio (GitHub / blog técnico):</strong> publicá utilidades defensivas o de automatización propias, reglas <strong>Sigma / YARA / Suricata</strong> probadas contra bitácoras ficticias creadas por vos y guías técnicas sobre aplicaciones intencionalmente vulnerables en laboratorio local (<em>OWASP Juice Shop</em>, <em>DVWA</em>) o máquinas <strong>retiradas</strong> (nunca publiques soluciones de máquinas o retos activos ni datos confidenciales de terceros).</li><li><strong>Muestras reales de documentación:</strong> incluí uno o dos reportes anónimos de laboratorio redactados con <a href="../laboratorios/plantilla_informe_pentest.md"><code>plantilla_informe_pentest.md</code></a> o <a href="../laboratorios/plantilla_informe_incidente.md"><code>plantilla_informe_incidente.md</code></a>, mostrando que sabés traducir un problema técnico en pasos de mitigación accionables.</li><li><strong>Resolución de tickets y trato con desarrollo:</strong> en roles corporativos (especialmente AppSec y SOC), gran parte del trabajo diario ocurre en <em>Jira/Linear</em>, revisiones de <em>Pull Requests</em> y coordinación con infraestructura; explicá cada hallazgo con empatía técnica y parches concretos en lugar de limitarte a señalar fallos.</li></ol>
 <h3 id="cap-7-7-que-evaluan-en-entrevistas-tecnicas-por-rol-guia-de-preparacion">Qué evalúan en entrevistas técnicas por rol (guía de preparación)</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Rol objetivo</th>
 <th>Escenario clásico de entrevista técnica</th>
@@ -161,7 +161,7 @@
 </tbody></table></div>
 <h3 id="cap-7-7-mapa-de-certificaciones-practicas-y-plataformas-de-practica-ctfs">Mapa de certificaciones prácticas y plataformas de práctica (CTFs)</h3>
 <p>Ningún certificado reemplaza el criterio técnico ni la experiencia verificable, pero una hoja de ruta ordenada ayuda a validar conocimientos prácticos por perfil:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Certificación</th>
 <th>Nivel y orientación</th>

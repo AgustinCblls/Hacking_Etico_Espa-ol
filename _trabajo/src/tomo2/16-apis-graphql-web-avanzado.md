@@ -132,6 +132,8 @@ resolvers GraphQL)             llamadas HTTP o deserializadores        y estados
 El flujo de análisis estático que aplicamos aquí en Python se amplía en el **Tomo VI (Caps. 6.1 a 6.4)** con metodología sistemática de ***White-Box Code Review* en 5 lenguajes**, cubriendo patrones de fuentes, sanitizadores y sumideros específicos de cada ecosistema junto con reglas SAST reproducibles.
 :::
 
+<!-- salto -->
+
 ## 5. Ejemplo paso a paso: auditoría Whitebox automatizada con un script en Python
 
 Veamos cómo escribir un auditor estático ligero en Python que inspeccione archivos `.py` buscando patrones de riesgo (como `shell=True`, `pickle.loads`, `yaml.load(` sin `safe_load` o `render_template_string(f"`) y verificar con él nuestro propio laboratorio:

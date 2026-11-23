@@ -83,6 +83,8 @@ Un volcado de memoria (`.raw`, `.dmp`, `.vmem`) conserva estado vivo que nunca e
 | `windows.netscan` | Sockets TCP/UDP abiertos, puertos locales y direcciones remotas por PID. | Sesiones `ESTABLISHED` desde procesos sin función de red (`notepad.exe`, `regsvr32.exe`). |
 | `windows.malfind` | Regiones de memoria privada con permisos `PAGE_EXECUTE_READWRITE` sin archivo PE respaldado en disco. | Indicios de inyección de código en memoria o desensamblado no respaldado por módulo legítimo. |
 
+<!-- salto -->
+
 #### Plugins de Volatility 3 para Linux (flujo complementario con `LiME`)
 
 En servidores Linux, tras capturar la memoria física en vivo con **LiME** (generando un volcado `.lime` junto con el archivo de símbolos **ISF** —*Intermediate Symbol Format*— correspondiente a la versión exacta del kernel), **Volatility 3** ofrece plugins específicos para reconstruir el estado volátil:

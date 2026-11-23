@@ -33,7 +33,7 @@
 <p>La ingeniería de detecciones (<em>Detection Engineering</em>) traslada las prácticas del desarrollo de software al centro de operaciones de seguridad (SOC). En lugar de crear alertas manuales directamente en la interfaz web de un SIEM o XDR, cada regla vive en un repositorio Git, atraviesa revisión por pares (<em>pull requests</em>), pruebas automatizadas y despliegues reproducibles.</p>
 <h3 id="cap-4-5-la-piramide-del-dolor-y-la-calidad-de-las-senales">La Pirámide del Dolor y la calidad de las señales</h3>
 <p>El modelo de David Bianco ordena los indicadores según el esfuerzo que implica para un adversario cambiarlos. Detectar hashes o direcciones IP resulta sencillo, pero ofrece vida útil mínima; detectar patrones de comportamiento y cadenas de herramientas exige mayor diseño, aunque produce alertas mucho más duraderas.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Nivel de la pirámide</th>
 <th>Ejemplo de señal</th>
@@ -109,7 +109,7 @@ rule LAB_Artefacto_Prueba_SOSPECHOSO {
 <ul><li><strong>Anclá la condición con chequeos baratos primero:</strong> validar <code>uint16(0) == 0x5A4D</code> (cabecera <code>MZ</code>) y <code>filesize</code> evita evaluar expresiones regulares sobre archivos grandes que no corresponden.</li><li><strong>Evitá cadenas cortas o genéricas:</strong> cadenas de menos de 4 bytes o palabras comunes del sistema operativo disparan falsos positivos y degradan el escaneo masivo.</li><li><strong>Usá módulos nativos con criterio:</strong> el módulo <code>pe</code> permite inspeccionar secciones o marcas temporales sin escribir patrones hexadecimales frágiles.</li></ul>
 <h2 id="cap-4-5-ciclo-de-validacion-purple-team-en-laboratorio">Ciclo de validación Purple Team en laboratorio</h2>
 <p>Escribir una regla sin probarla genera falsa sensación de seguridad. El enfoque Purple Team integra la simulación controlada de escenarios en una VM aislada con la verificación inmediata de la telemetría en tu SIEM o EDR.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Fase del ciclo</th>
 <th>Actividad principal</th>

@@ -64,7 +64,7 @@
 <p>En una arquitectura <strong>RAG (<em>Retrieval-Augmented Generation</em>)</strong>, los fragmentos recuperados desde una base vectorial se inyectan como contexto en el prompt. Los fallos más frecuentes ocurren por omisión de autorización previa o contaminación del índice:</p>
 <ul><li><strong>Fuga multi-tenant / entre roles:</strong> si el buscador vectorial busca solo por similitud semántica sin filtrar metadatos (<code>tenant_id</code>, <code>role</code>, <code>classification</code>) <strong>antes</strong> de entregar fragmentos al LLM, un empleado de Finanzas podría recuperar nóminas confidenciales de RRHH o documentos de otro cliente.</li><li><strong>Envenenamiento del corpus RAG (<em>RAG Poisoning</em>):</strong> un actor externo capaz de subir tickets, reseñas o documentos indexados puede plantar textos optimizados semánticamente para ser recuperados con alta frecuencia e inyectar respuestas falsas o enlaces de phishing.</li></ul>
 <h3 id="cap-7-8-2-5-envenenamiento-de-datos-supply-chain-de-modelos-y-system-prompts-llm03-llm04-llm07">2.5 Envenenamiento de datos, Supply Chain de modelos y System Prompts (<code>LLM03</code>, <code>LLM04</code>, <code>LLM07</code>)</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Riesgo en ciclo de vida IA</th>
 <th>Mecanismo técnico observable</th>
@@ -77,9 +77,10 @@
 <p><em>(Complemento de seguridad ML clásica: en clasificadores supervisados también existen ataques adversarios de <strong>evasión</strong> —pequeñas perturbaciones diseñadas para cruzar fronteras de decisión— e <strong>inversión/extracción de modelo</strong> mediante consultas masivas; se mitigan con limitación de tasa, redondeo de probabilidades devueltas y entrenamiento adversario).</em></p>
 <h3 id="cap-7-8-2-6-misinformation-llm09-2025-y-unbounded-consumption-llm10-2025">2.6 Misinformation (<code>LLM09:2025</code>) y Unbounded Consumption (<code>LLM10:2025</code>)</h3>
 <ul><li><strong>Desinformación y alucinaciones (<code>LLM09:2025 — Misinformation</code>):</strong> los LLMs predicen tokens probables y pueden fabricar con aparente seguridad citas legales falsas, diagnósticos incorrectos o nombres inexistentes de librerías (<code>pip</code>/<code>npm</code>) y comandos. Esto origina incluso riesgos de <em>slopsquatting</em>: un atacante registra paquetes maliciosos en PyPI/npm usando nombres que los LLMs suelen inventar repetidamente. <strong>Mitigación:</strong> exigir <em>grounding</em> RAG con enlaces verificables al documento fuente, validar existencia y hashes antes de instalar dependencias sugeridas por IA, e imponer revisión humana en decisiones críticas.</li><li><strong>Consumo ilimitado (<code>LLM10:2025 — Unbounded Consumption</code>):</strong> prompts gigantescos, entradas repetitivas o bucles autónomos de agentes que reintentan indefinidamente saturan GPU/CPU o generan costos financieros masivos en APIs (<em>Denial of Wallet</em>). <strong>Mitigación:</strong> fijar topes duros de <code>max_tokens</code> en entrada y salida, límite de pasos (<code>max_iterations</code>) en agentes, <em>timeouts</em> por petición, cuotas por usuario/tenant (<code>rate limiting</code>) y caché semántico o exacto.</li></ul>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-7-8-3-owasp-top-10-for-agentic-applications-diciembre-2025">3. OWASP Top 10 for Agentic Applications (diciembre 2025)</h2>
 <p>A diferencia de un chatbot estático de un turno, los <strong>sistemas agénticos</strong> combinan planificación autónoma de múltiples pasos, memoria persistente, ejecución de herramientas/MCP y comunicación entre agentes. Para responder a esa superficie ampliada, OWASP publicó en <strong>diciembre de 2025</strong> la taxonomía específica <strong><code>ASI01</code> a <code>ASI10</code></strong>:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Código</th>
 <th>Riesgo en aplicaciones agénticas (OWASP Dec 2025)</th>

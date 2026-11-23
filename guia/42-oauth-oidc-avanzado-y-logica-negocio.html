@@ -160,7 +160,7 @@ def transition_order_and_calculate(order_id: int, user_id: int, target_state: st
 <h3 id="cap-6-2-2-3-abuso-de-cupones-descuentos-acumulables-y-limites-de-dominio">2.3 Abuso de cupones, descuentos acumulables y límites de dominio</h3>
 <p>Incluso cuando los montos son positivos, las combinaciones de reglas de negocio suelen crear brechas:</p>
 <ul><li><strong>Acumulación no prevista</strong>: aplicar el mismo cupón dos veces si no se verifica unicidad por orden/usuario, o combinar dos cupones incompatibles cambiando el orden de aplicación (<code>CUPON_50_PORCIENTO</code> + <code>CUPON_FIJO_100</code>).</li><li><strong>Desbordamiento de límites de dominio</strong>:</li><li>Cambiar la moneda del pedido entre la cotización y la pasarela de pago (pagar en moneda de menor valor nominal manteniendo el número de monto).</li><li>Dividir una transferencia en múltiples transacciones pequeñas para evadir un límite por operación cuando el sistema no acumula un tope diario/mensual.</li><li>Abusar de la lógica de reembolso parcial tras haber aplicado un descuento por volumen: comprás 10 artículos con 30% de descuento, devolvés 9 al precio unitario lleno y conservás el restante por debajo del costo.</li></ul>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Defecto de lógica</th>
 <th>Causa raíz típica</th>
@@ -173,9 +173,10 @@ def transition_order_and_calculate(order_id: int, user_id: int, target_state: st
 <tr><td><strong>Límites evadidos</strong></td><td>Verificación por petición aislada sin agregación temporal.</td><td>Contadores atómicos por ventana (<code>user_id + fecha</code>) en DB o Redis.</td></tr>
 </tbody></table></div>
 <hr>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-6-2-3-checklists-practicas-owasp-wstg">3. Checklists prácticas OWASP WSTG</h2>
 <p>Para evitar auditorías improvisadas que solo buscan payloads obvios, el <strong>OWASP Web Security Testing Guide (WSTG)</strong> provee códigos de prueba estandarizados. A continuación tenés una matriz operativa enfocada en autorización (<code>WSTG-ATHZ</code>), gestión de sesiones/federación (<code>WSTG-SESS</code>) y lógica de negocio (<code>WSTG-BUSL</code>) para aplicar en cualquier flujo web completo.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Código WSTG</th>
 <th>Nombre de la prueba</th>

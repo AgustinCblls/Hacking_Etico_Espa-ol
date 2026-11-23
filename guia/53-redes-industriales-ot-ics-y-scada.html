@@ -32,7 +32,7 @@
 <h2 id="cap-7-6-inversion-de-la-triada-y-fragilidad-de-los-dispositivos-de-campo">Inversión de la tríada y fragilidad de los dispositivos de campo</h2>
 <p>En seguridad informática corporativa (IT), la tríada clásica suele priorizar <strong>Confidencialidad -&gt; Integridad -&gt; Disponibilidad</strong> según el valor de los datos protegidos. En sistemas industriales OT/ICS, esa escala se invierte de forma tajante:</p>
 <ol><li><strong>Seguridad física humana y ambiental (<em>Safety</em>):</strong> ninguna acción técnica o de respuesta a incidentes puede comprometer la integridad física de las personas, el ambiente o la contención de materiales peligrosos.</li><li><strong>Disponibilidad:</strong> los procesos físicos operan en tiempo real determinista, las 24 horas del día durante años sin ventanas de parada. Perder la comunicación durante milisegundos puede disparar paradas de emergencia (<em>trips</em>) con daños mecánicos o pérdidas productivas enormes.</li><li><strong>Integridad:</strong> asegurar que las mediciones de los sensores y las consignas enviadas hacia válvulas, bombas o disyuntores no sean alteradas ni suplantadas en tránsito.</li><li><strong>Confidencialidad:</strong> aunque importa resguardar secretos de fabricación o topologías de planta, en la operación del piso de planta ocupa el último lugar frente a la estabilidad del proceso físico.</li></ol>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Criterio operativo</th>
 <th>Entorno IT corporativo</th>
@@ -53,7 +53,7 @@
 <ul><li><strong>PLC (<em>Programmable Logic Controller</em>):</strong> computadora industrial endurecida que recibe señales de sensores (temperatura, presión, caudal), ejecuta lógica determinista en tiempo real (lenguajes IEC 61131-3 como <em>Ladder</em> o <em>Texto Estructurado</em>) y acciona actuadores locales (válvulas, motores, relés).</li><li><strong>RTU (<em>Remote Terminal Unit</em>):</strong> dispositivo con propósito equivalente al PLC pero optimizado para emplazamientos geográficamente dispersos (subestaciones eléctricas, estaciones de bombeo, gasoductos), con almacenamiento en búfer local ante cortes y enlaces por radio, satélite, celular o fibra hacia el centro SCADA.</li><li><strong>HMI (<em>Human-Machine Interface</em>):</strong> panel táctil en máquina o estación gráfica de operador que muestra variables de proceso en tiempo real, alarmas activas y controles para ajustar consignas (<em>setpoints</em>) o iniciar secuencias.</li><li><strong>Historian:</strong> servidor especializado en bases de datos de series temporales de alta velocidad que registra miles de mediciones por segundo para trazabilidad regulatoria, calidad y analítica. Suele ser el puente de datos clave entre OT e IT.</li><li><strong>Engineering Workstation (EWS):</strong> estación de trabajo donde corren los entornos de ingeniería propietarios (como TIA Portal o Studio 5000) usados para programar lógica, actualizar firmware y descargar proyectos hacia los PLCs. Comprometer la EWS equivale a controlar el proceso físico completo.</li></ul>
 <h2 id="cap-7-6-el-modelo-purdue-isa-95-iec-62443-y-la-dmz-industrial">El Modelo Purdue (ISA-95 / IEC 62443) y la DMZ Industrial</h2>
 <p>El <strong>Modelo Purdue (PERA)</strong>, adoptado por <strong>ISA-95</strong> e integrado como referencia de segmentación en <strong>IEC 62443</strong>, organiza la frontera entre el proceso físico y la red corporativa en niveles jerárquicos separados por una zona desmilitarizada intermedia indispensable.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Nivel Purdue</th>
 <th>Denominación</th>
@@ -84,7 +84,7 @@
 <p><strong>Análisis de seguridad:</strong> en S7-300/400, <strong>S7comm</strong> clásico viaja sin cifrado y su protección opcional por contraseña resultó vulnerable a captura y repetición (<em>replay</em>). Los modelos modernos S7-1200/1500 introdujeron <strong>S7commPlus</strong> con integridad criptográfica y protección <em>anti-replay</em>, aunque habilitar modos de compatibilidad heredados (<em>PUT/GET</em>) vuelve a exponer el PLC.</p>
 <h3 id="cap-7-6-opc-ua-unified-architecture-puerto-tcp-4840">OPC UA (<em>Unified Architecture</em>, Puerto TCP 4840)</h3>
 <p>Sucesor multiplataforma de OPC Classic (que dependía de RPC/DCOM inseguro en Windows), <strong>OPC UA</strong> sí incorpora seguridad robusta nativa: certificados X.509 mutuos, firma y cifrado AES/SHA-256 (<code>Basic256Sha256</code>). Su falla frecuente en planta es operativa: por simplicidad de puesta en marcha, muchos integradores lo degradan a <code>SecurityPolicy: None</code> y acceso anónimo, anulando el cifrado.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Protocolo</th>
 <th>Puerto típico</th>
@@ -99,7 +99,7 @@
 </tbody></table></div>
 <p>Otros tres protocolos habituales en auditorías de campo son <strong><code>BACnet</code></strong> (<code>UDP/47808</code>, automatización de edificios y climatización HVAC), <strong><code>EtherNet/IP</code></strong> (<code>TCP/44818</code> y <code>UDP/2222</code>, manufactura industrial) e <strong><code>IEC 60870-5-104</code></strong> (<code>TCP/2404</code>, telecontrol en subestaciones eléctricas), todos mapeados en la matriz especializada <strong>MITRE ATT&amp;CK for ICS</strong> (tácticas propias de planta como <em>Inhibit Response Function</em> e <em>Impair Process Control</em>).</p>
 <h3 id="cap-7-6-incidentes-historicos-ot-ics-que-explican-la-defensa-actual">Incidentes históricos OT/ICS que explican la defensa actual</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Incidente / Malware OT</th>
 <th>Año</th>

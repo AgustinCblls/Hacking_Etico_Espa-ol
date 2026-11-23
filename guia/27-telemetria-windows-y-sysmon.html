@@ -34,7 +34,7 @@
 <p>Las plataformas <strong>EDR</strong> (<em>Endpoint Detection and Response</em>) recopilan telemetría del kernel y del espacio de usuario en cada host para detectar comportamientos anómalos y aislar equipos. <strong>XDR</strong> (<em>Extended Detection and Response</em>) amplía esa correlación uniendo señales del endpoint con red, identidad y correo bajo una misma línea de tiempo. En un laboratorio propio, combinar la auditoría nativa de Windows/Linux con <strong>Sysmon</strong> reproduce gran parte de la visibilidad base de un agente EDR moderno.</p>
 <h2 id="cap-4-2-2-auditoria-avanzada-en-windows-y-registros-nativos">2. Auditoría avanzada en Windows y registros nativos</h2>
 <p>Windows organiza sus eventos en canales (como <code>Security</code>, <code>System</code> y <code>Microsoft-Windows-PowerShell/Operational</code>). Para evitar volúmenes inmanejables de ruido, conviene agrupar la visibilidad en <strong>tres dominios padre</strong> prioritarios:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Dominio de telemetría</th>
 <th>Qué permite detectar</th>
@@ -104,7 +104,7 @@ Set-ItemProperty -Path $path -Name "EnableScriptBlockLogging" -Value 1 -Type DWo
 .\Sysmon64.exe -c .\sysmon-lab.xml</code></pre>
 <h2 id="cap-4-2-4-telemetria-equivalente-en-linux-auditd-y-journald">4. Telemetría equivalente en Linux: auditd y journald</h2>
 <p>En sistemas Linux, la visibilidad equivalente se logra combinando <strong>journald</strong> (registros de servicios y autenticación del sistema) con el subsistema de auditoría del kernel <strong>auditd</strong>.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Componente</th>
 <th>Rol principal</th>

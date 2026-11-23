@@ -32,7 +32,7 @@
 <hr>
 <h2 id="cap-6-3-1-threat-modeling-sistematico-las-4-preguntas-clave">1. Threat Modeling sistemático: las 4 preguntas clave</h2>
 <p>El <em>Threat Modeling Manifesto</em> y el marco de referencia popularizado por Adam Shostack estructuran cualquier sesión de modelado de amenazas alrededor de cuatro preguntas iterativas que todo equipo de ingeniería y seguridad debe responder de manera continua:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Pregunta</th>
 <th>Objetivo operativo</th>
@@ -83,7 +83,7 @@
 <hr>
 <h2 id="cap-6-3-3-metodologia-stride-aplicada-por-elemento">3. Metodología STRIDE aplicada por elemento</h2>
 <p>Creada originalmente en Microsoft, <strong>STRIDE</strong> es una mnemotecnia de seis categorías de amenazas que se contraponen directamente a seis propiedades fundamentales de seguridad:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Letra</th>
 <th>Amenaza</th>
@@ -99,7 +99,7 @@
 </tbody></table></div>
 <h3 id="cap-6-3-stride-por-elemento-stride-per-element">STRIDE por elemento (<em>STRIDE-per-element</em>)</h3>
 <p>En lugar de aplicar las seis letras al azar a todo el sistema, la variante profesional <strong>STRIDE-per-element</strong> asocia a cada tipo de elemento del DFD exactamente las amenazas que tienen sentido físico sobre él:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Elemento del DFD</th>
 <th>S</th>
@@ -124,7 +124,7 @@
 <aside class="callout aviso"><p class="callout-titulo">¿Cuándo usar STRIDE y cuándo PASTA?</p><p>Usá <strong>STRIDE</strong> en el día a día de desarrollo (sprints, diseño de nuevas funcionalidades y microservicios) por su rapidez y exhaustividad técnica. Reservá <strong>PASTA</strong> para plataformas críticas de alto impacto financiero o regulatorio donde la gerencia de riesgo necesita priorizar inversiones en base a escenarios adversos concretos.</p></aside>
 <h3 id="cap-6-3-aplicacion-concreta-de-pasta-sobre-la-api-de-pagos">Aplicación concreta de PASTA sobre la API de Pagos</h3>
 <p>Para visualizar cómo PASTA conecta la estrategia del negocio con el detalle técnico, observá los entregables de las siete etapas aplicadas a nuestra plataforma de checkout y pagos:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Etapa PASTA</th>
 <th>Entregable concreto en la API de Pagos</th>
@@ -164,7 +164,7 @@
 <p>Un error clásico del modelado de amenazas es terminar con recomendaciones vagas como <em>"asegurar la API"</em> o <em>"agregar monitoreo"</em>. Todo hallazgo priorizado debe traducirse en un <strong>requisito verificable</strong> que QA o seguridad puedan comprobar objetivamente.</p>
 <p>El estándar <strong>OWASP ASVS 5.0 (Application Security Verification Standard, mayo 2025 — 17 capítulos V1–V17)</strong> ofrece el catálogo exacto de controles divididos en niveles (L1 básico, L2 estándar para la mayoría de apps con datos sensibles, L3 crítico como banca/salud).</p>
 <p>A continuación tenés el mapeo completo para nuestra <strong>API de Pagos y Login</strong>:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Componente DFD</th>
 <th>Amenaza STRIDE identificada</th>
@@ -185,7 +185,7 @@
 <ul><li><strong>Pruebas de contrato e integración</strong>: verificar que toda llamada al endpoint de órdenes sin JWT válido devuelva <code>401</code>, que intentar leer la orden de otro usuario devuelva <code>403</code>/<code>404</code> (<strong><code>V8</code></strong>) y que un webhook con firma HMAC inválida sea rechazado (<strong><code>V4</code> / <code>V12</code></strong>).</li><li><strong>Pruebas de concurrencia y aritmética</strong>: ejecutar tests paralelos contra <code>POST /checkout/confirm</code> verificando que solo una transacción avance y que montos negativos sean rechazados (<strong><code>V2</code></strong>).</li><li><strong>Antipatrones que debés evitar</strong>: considerar que "estar dentro de la misma VPC" elimina la necesidad de autenticación entre servicios (ignorando la <em>Frontera de Confianza 2</em>), copiar un DFD genérico sin actualizarlo cuando se agrega un nuevo webhook o almacenamiento S3, y redactar amenazas sin asignar un responsable ni un criterio de verificación ASVS.</li></ul>
 <h3 id="cap-6-3-escalar-a-un-programa-appsec-medible-owasp-samm-bsimm-y-nist-ssdf">Escalar a un programa AppSec medible: <code>OWASP SAMM</code>, <code>BSIMM</code> y <code>NIST SSDF</code></h3>
 <p>El <em>Threat Modeling</em> rinde su máximo valor cuando forma parte de un <strong>programa formal de Seguridad de Aplicaciones (AppSec)</strong> y no de esfuerzos aislados por proyecto:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Marco de programa AppSec</th>
 <th>Naturaleza y estructura</th>

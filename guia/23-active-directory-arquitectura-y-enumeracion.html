@@ -42,7 +42,7 @@
   │
   └── [Subdominio / Dominio Hijo: lab.corp.local]</code></pre>
 <h3 id="cap-3-6-componentes-estructurales-esenciales">Componentes estructurales esenciales</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Componente de AD</th>
 <th>Qué es técnicamente</th>
@@ -64,7 +64,7 @@
 <ul><li><strong><code>DC</code> (<em>Domain Component</em>):</strong> cada parte del nombre DNS del dominio (<code>DC=corp,DC=local</code>).</li><li><strong><code>OU</code> (<em>Organizational Unit</em>):</strong> carpeta organizativa donde reside el objeto.</li><li><strong><code>CN</code> (<em>Common Name</em>):</strong> nombre común del objeto individual o contenedor estándar (<code>CN=Users</code>).</li></ul>
 <h3 id="cap-3-6-atributos-ldap-criticos-durante-una-auditoria-de-directorio">Atributos LDAP críticos durante una auditoría de directorio</h3>
 <p>Por diseño, cualquier usuario o equipo autenticado en el dominio necesita consultar LDAP para resolver nombres de grupos, ubicar impresoras, aplicar GPOs y validar permisos. Durante una auditoría de higiene del directorio, estos son los atributos clave que se inspeccionan:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Atributo LDAP</th>
 <th>Qué almacena</th>
@@ -121,6 +121,7 @@ nxc ldap dc01.corp.local -u usuario_lab -p 'ClaveLab!' --users --pass-pol</code>
 <p>Incluso cuando una organización ya deshabilitó correctamente <code>LLMNR</code>, <code>NBT-NS</code> y <code>mDNS</code>, las estaciones de trabajo Windows conservan la pila <strong>IPv6 habilitada de forma predeterminada con prioridad sobre IPv4</strong> para la resolución DNS. Si la red corporativa opera solo en IPv4 y no existe un servidor DHCPv6 autorizado, los equipos continúan solicitando configuración por <strong>DHCPv6</strong> y escuchando anuncios <strong>ICMPv6 Router Advertisement (RA)</strong> en el enlace local.</p>
 <p>Herramientas de auditoría de red como <strong><code>mitm6</code></strong> aprovechan ese comportamiento respondiendo a las solicitudes DHCPv6/RA para asignarse como servidor DNS IPv6 preferido de la víctima y resolver selectivamente peticiones internas (por ejemplo <code>WPAD</code> o nombres corporativos) hacia el equipo del auditor. Cuando el cliente intenta autenticarse automáticamente sobre HTTP o SMB, esa autenticación NetNTLMv2 se combina con <strong>NTLM Relay hacia LDAPS</strong> (para modificar DACLs, crear objetos de máquina o configurar RBCD) o hacia <strong>ADCS Web Enrollment</strong> para emitir certificados de usuario o equipo.</p>
 <aside class="callout defensa"><p class="callout-titulo">Remediación integral contra el abuso de IPv6 en Active Directory</p><ol><li><strong>Controles en switches de acceso (Capa 2):</strong> habilitá <strong>RA Guard</strong> (RFC 6105) y <strong>DHCPv6 Guard</strong> (RFC 7610) en todos los puertos de usuario final para descartar anuncios RA y respuestas DHCPv6 originados desde puertos no autorizados.</li><li><strong>Hardening de pila IPv6 en endpoints:</strong> si IPv6 no se utiliza en producción, deshabilitá los componentes innecesarios mediante la clave de registro <code>DisabledComponents</code> en <code>HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters</code> (siguiendo la matriz oficial de Microsoft y evitando <code>0xFF</code> si rompe servicios internos dependientes de loopback IPv6), y desactivá la detección automática de proxy <strong>WPAD</strong> por GPO cuando no se requiera.</li><li><strong>Cierre criptográfico del destino del Relay:</strong> exigí <strong>LDAP Signing + LDAP Channel Binding (CBT = Always)</strong> en todos los Controladores de Dominio y configurá <strong>HTTPS con Extended Protection for Authentication (EPA = Required)</strong> en IIS / ADCS Web Enrollment, neutralizando cualquier intento de relayar la sesión NTLM aunque exista suplantación de DNS IPv6 en la subred.</li></ol></aside>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-3-6-5-arquitectura-defensiva-el-modelo-de-administracion-por-niveles-tiering">5. Arquitectura defensiva: el Modelo de Administración por Niveles (Tiering)</h2>
 <p>El hallazgo más frecuente en auditorías de Active Directory es el uso de una misma cuenta <code>Domain Admin</code> para iniciar sesión por escritorio remoto (RDP) en servidores de aplicaciones o estaciones de trabajo de usuarios para "instalar un programa rápido".</p>
 <p>Cada vez que un administrador inicia sesión interactivamente en un equipo, una credencial o ticket de esa sesión se carga en la memoria del proceso <strong><code>lsass.exe</code></strong> de ese equipo. Si un administrador del dominio inicia sesión en una estación de trabajo de usuario final comprometida, el atacante puede reutilizar esa sesión para comprometer todo el Bosque.</p>
@@ -142,7 +143,7 @@ nxc ldap dc01.corp.local -u usuario_lab -p 'ClaveLab!' --users --pass-pol</code>
 <aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><ol><li><strong>Separación de cuentas administrativas:</strong> ningún administrador debe leer el correo ni navegar por internet con su cuenta privilegiada. Debe tener una cuenta estándar sin privilegios para sus tareas diarias y cuentas separadas específicas de su nivel (<code>admin_t0_...</code>, <code>admin_t1_...</code>, <code>admin_t2_...</code>) usadas desde estaciones de trabajo de administración endurecidas (<strong>PAW — Privileged Access Workstations</strong>).</li><li><strong>Deshabilitar el anidamiento descontrolado y auditar <code>AdminSDHolder</code>:</strong> ejecutá periódicamente consultas que listen todas las cuentas con <code>adminCount=1</code> y verificá que correspondan únicamente a administradores activos reales.</li><li><strong>Monitorear consultas LDAP masivas en el SOC:</strong> una ráfaga inusual de consultas LDAP que enumeran todos los objetos <code>user</code>, <code>group</code>, <code>computer</code> y sus listas de control de acceso (<code>nTSecurityDescriptor</code>) desde una estación de trabajo no administrativa se detecta habilitando la telemetría de <strong>Event ID <code>1644</code></strong> en el registro <code>Directory Service</code> de los Controladores de Dominio (o mediante Sysmon / sensores MDI).</li></ol></aside>
 <h2 id="cap-3-6-anexo-como-armar-un-laboratorio-reproducible-de-active-directory">Anexo: Cómo armar un laboratorio reproducible de Active Directory</h2>
 <p>Para ejecutar las prácticas de este bloque (Caps. 3.6–3.8) sin depender de plataformas externas, elegí una de tres arquitecturas aisladas según la memoria RAM de tu equipo:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Opción</th>
 <th>Componentes mínimos</th>

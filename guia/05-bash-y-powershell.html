@@ -33,7 +33,7 @@
 <p>En entornos Unix y Linux, casi toda la telemetría de seguridad —registros de autenticación, trazas de servicios web, listas de sockets abiertos o volcados de configuración— se representa como <strong>flujos de texto plano</strong>. La potencia de Bash reside en encadenar utilidades pequeñas y especializadas mediante descriptores de archivo y tuberías (<code>|</code>), sin necesidad de escribir programas complejos para tareas de triaje diario.</p>
 <h3 id="cap-1-5-1-1-descriptores-estandar-y-control-de-salida">1.1 Descriptores estándar y control de salida</h3>
 <p>Todo proceso en Linux inicia con tres descriptores de archivo abiertos: entrada estándar (<code>stdin</code>, descriptor <code>0</code>), salida estándar (<code>stdout</code>, descriptor <code>1</code>) y salida de error estándar (<code>stderr</code>, descriptor <code>2</code>). Separar los datos útiles (<code>stdout</code>) de los avisos o permisos denegados (<code>stderr</code>) evita contaminar reportes automatizados o romper tuberías posteriores.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Operador</th>
 <th>Descriptor afectado</th>
@@ -57,7 +57,7 @@ IFS=$'\n\t'</code></pre>
 <p>Durante una investigación de incidentes o una revisión de superficie expuesta, raramente vas a leer un archivo de registro línea por línea. Necesitás extraer campos precisos, normalizar formatos y agregar frecuencias en segundos.</p>
 <h3 id="cap-1-5-2-1-expresiones-regulares-y-busqueda-con-grep">2.1 Expresiones regulares y búsqueda con <code>grep</code></h3>
 <p><code>grep</code> filtra líneas que coinciden con un patrón. Usar <code>-E</code> activa expresiones regulares extendidas (ERE), evitando escapar metacaracteres como <code>+</code>, <code>?</code>, <code>|</code> o <code>()</code>. Conviene conocer los modificadores esenciales: <code>-i</code> (insensible a mayúsculas), <code>-v</code> (invierte la coincidencia para excluir ruido conocido), <code>-o</code> (imprime solo la subcadena coincidente, útil para extraer direcciones IP) y <code>-n</code> (muestra el número de línea).</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Herramienta</th>
 <th>Especialidad principal</th>
@@ -137,7 +137,7 @@ echo "Reporte guardado en: ${REPORTE}"</code></pre>
 <h2 id="cap-1-5-4-powershell-moderno-arquitectura-orientada-a-objetos">4. PowerShell moderno: arquitectura orientada a objetos</h2>
 <p>A diferencia de Bash, donde cada herramienta debe volver a interpretar texto plano según separadores o posiciones de columna, <strong>PowerShell</strong> (tanto Windows PowerShell 5.1 como PowerShell 7+ multiplataforma) transporta <strong>objetos .NET tipados</strong> a través de la tubería. Cada objeto conserva sus propiedades y métodos originales hasta el instante en que se renderiza en consola o se serializa a JSON o CSV.</p>
 <h3 id="cap-1-5-4-1-comparativa-operativa-bash-frente-a-powershell">4.1 Comparativa operativa: Bash frente a PowerShell</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Capacidad</th>
 <th>Enfoque en Bash (Linux)</th>
@@ -219,6 +219,7 @@ END {
 <p>Salida esperada comentada:</p>
 <pre><code class="lenguaje-text">192.168.56.20    3 fallos   # Agrupa intentos sobre usuarios válidos e inexistentes
 10.10.0.15       1 fallos   # Evento aislado; útil para comparar contra umbral definido</code></pre>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <p><strong>Paso 2 (Windows PowerShell):</strong> verificá el estado de seguridad de los servicios en ejecución automática que corren fuera de <code>C:\Windows\System32</code> y las políticas activas de ejecución:</p>
 <pre><code class="lenguaje-powershell">Get-ExecutionPolicy -List
 

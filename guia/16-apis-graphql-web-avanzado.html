@@ -50,7 +50,7 @@ def actualizar_perfil_seguro(datos_json: dict) -&gt; dict:
 <p>Si un endpoint de listado (<code>GET /api/registros?limite=10000000</code>) acepta el parámetro <code>limite</code> sin tope máximo, una sola petición puede agotar la memoria RAM y la CPU de la base de datos. <strong>Mitigación:</strong> imponer en el servidor un tope duro (<code>limite = min(int(request.args.get("limite", 20)), 100)</code>), limitar el tamaño máximo del cuerpo HTTP (<code>MAX_CONTENT_LENGTH</code>) y aplicar <em>rate limiting</em> por token y por IP.</p>
 <h2 id="cap-2-7-2-seguridad-en-apis-graphql">2. Seguridad en APIs GraphQL</h2>
 <p><strong>GraphQL</strong> reemplaza múltiples rutas REST por un único endpoint (usualmente <code>POST /graphql</code>) donde el cliente especifica exactamente qué objetos y campos desea consultar (<em>Queries</em>) o modificar (<em>Mutations</em>). Esta flexibilidad exige cuatro controles defensivos específicos en el servidor GraphQL:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Riesgo en GraphQL</th>
 <th>Por qué ocurre</th>
@@ -96,6 +96,7 @@ resolvers GraphQL)             llamadas HTTP o deserializadores        y estados
 <ul><li>Base de datos: <code>cursor.execute()</code>, <code>.raw()</code>, <code>text()</code>.</li><li>Sistema operativo: <code>subprocess.run()</code>, <code>os.system()</code>, <code>os.popen()</code>.</li><li>Archivos: <code>open()</code>, <code>Path()</code>, <code>send_file()</code>.</li><li>Plantillas / HTML: <code>render_template_string()</code>, <code>Markup()</code>, <code>|safe</code>.</li><li>Red saliente: <code>requests.get()</code>, <code>urllib.request.urlopen()</code>.</li><li>Deserialización: <code>pickle.loads()</code>, <code>yaml.load()</code>.</li></ul>
 <ol start="3"><li><strong>Verificar el Sanitizador o Parametrización en el camino:</strong> comprobar que entre cada <em>Source</em> y cada <em>Sink</em> exista parametrización estricta, validación por lista blanca o codificación contextual.</li></ol>
 <aside class="callout nota"><p class="callout-titulo">Profundización en el Tomo VI (Caps. 6.1 a 6.4)</p><p>El flujo de análisis estático que aplicamos aquí en Python se amplía en el <strong>Tomo VI (Caps. 6.1 a 6.4)</strong> con metodología sistemática de <strong><em>White-Box Code Review</em> en 5 lenguajes</strong>, cubriendo patrones de fuentes, sanitizadores y sumideros específicos de cada ecosistema junto con reglas SAST reproducibles.</p></aside>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-2-7-5-ejemplo-paso-a-paso-auditoria-whitebox-automatizada-con-un-script-en-python">5. Ejemplo paso a paso: auditoría Whitebox automatizada con un script en Python</h2>
 <p>Veamos cómo escribir un auditor estático ligero en Python que inspeccione archivos <code>.py</code> buscando patrones de riesgo (como <code>shell=True</code>, <code>pickle.loads</code>, <code>yaml.load(</code> sin <code>safe_load</code> o <code>render_template_string(f"</code>) y verificar con él nuestro propio laboratorio:</p>
 <pre><code class="lenguaje-python"># Auditor estático educativo de sumideros riesgosos en archivos Python

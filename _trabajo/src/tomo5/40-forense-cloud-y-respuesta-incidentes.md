@@ -21,6 +21,8 @@ Toda inspección profunda debe realizarse sobre una **copia montada en solo lect
 
 ---
 
+<!-- salto -->
+
 ## Contención de identidades IAM comprometidas
 
 Cuando la telemetría (CloudTrail, GuardDuty o Cloud Logging) confirma el uso anómalo de una identidad, la contención de identidad debe ejecutarse antes o en paralelo al aislamiento de red, ya que un token válido permite operar sobre APIs cloud desde cualquier punto de Internet.
@@ -151,6 +153,8 @@ sha256sum /mnt/forensic-dump/i-0987654321-mem.lime > /mnt/forensic-dump/i-098765
 
 Posteriormente, la imagen `.lime` se analiza offline en la estación forense aislada con **Volatility 3** (generando previamente los símbolos ISF del kernel correspondiente) para inspeccionar procesos ocultos, sockets cerrados recientemente, módulos cargados y variables de entorno.
 
+<!-- salto -->
+
 ### Snapshots EBS cifrados y transferencia a cuenta forense aislada (AWS)
 
 Una vez asegurada la memoria RAM, capturá todos los volúmenes EBS asociados a la instancia comprometida y transferilos a una **cuenta forense dedicada** (*Clean Room*). Si el volumen original estaba cifrado con una llave KMS administrada por AWS (`aws/ebs`), no es posible compartir el snapshot directamente con otra cuenta: primero debés copiarlo recifrándolo con una **Customer Managed Key (CMK)** cuya política permita acceso a la cuenta forense.
@@ -225,6 +229,8 @@ gcloud compute disks create forensic-disk-inc-2026-042 \
 ```
 
 ---
+
+<!-- salto -->
 
 ## Automatización de respuesta con AWS Systems Manager e Incident Manager
 

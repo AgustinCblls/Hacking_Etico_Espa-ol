@@ -107,6 +107,8 @@ La guía **NIST SP 800-63B-4 (agosto 2025)** actualizó las recomendaciones de a
 4. **Suprimir la rotación periódica sin evidencia de compromiso:** Cambiar contraseñas cada 90 días sin indicios de filtración degrada la calidad de las claves; solo se debe forzar el cambio ante sospecha o confirmación de compromiso.
 5. **Desplegar MFA resistente a phishing:** Complementar las contraseñas con autenticadores criptográficos vinculados al origen (FIDO2/WebAuthn o passkeys) y aplicar limitación de tasa (*rate limiting*) en todos los puntos de acceso.
 
+<!-- salto -->
+
 ## Ejemplo paso a paso: comparación empírica entre SHA-256 rápido y PBKDF2/scrypt en Python
 
 Este script local permite observar directamente la diferencia de costo computacional entre un hash rápido sin salt y una KDF moderna en tu propia máquina.

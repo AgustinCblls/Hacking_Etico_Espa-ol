@@ -65,7 +65,7 @@ def buscar_seguro(db, q):
 <ol><li><strong>Preparación (<code>PREPARE</code>):</strong> el motor de base de datos recibe <code>SELECT id, nombre FROM productos WHERE categoria = ?</code>, analiza la gramática SQL, valida las tablas y construye el árbol de ejecución. En este punto la estructura lógica de la consulta queda <strong>congelada</strong>.</li><li><strong>Ejecución (<code>EXECUTE</code>):</strong> el backend envía el valor del parámetro en un paquete de datos separado. Aunque el valor contenga comillas simples, palabras como <code>OR</code> o <code>UNION</code>, el motor lo almacena literalmente dentro del nodo de datos del parámetro <code>?</code> sin volver a invocar al parser SQL.</li></ol>
 <h3 id="cap-2-3-clasificacion-tecnica-de-escenarios-sqli-durante-una-auditoria">Clasificación técnica de escenarios SQLi durante una auditoría</h3>
 <p>Cuando auditás código o probás una aplicación en un entorno autorizado, los fallos de inyección SQL se clasifican según cómo responde la aplicación:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Clasificación</th>
 <th>Comportamiento de la aplicación</th>

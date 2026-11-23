@@ -31,7 +31,7 @@
 <p><strong>Prerrequisitos:</strong> Capítulo 1.6 (Python 3), Capítulo 1.7 (Protocolos de red) y Capítulo 1.8 (HTTP y TLS introductorio). <strong>Duración sugerida:</strong> 6 a 8 horas.</p>
 <h2 id="cap-1-9-1-tres-garantias-distintas-confidencialidad-integridad-y-autenticidad">1. Tres garantías distintas: Confidencialidad, Integridad y Autenticidad</h2>
 <p>Uno de los errores de arquitectura más frecuentes al diseñar software seguro consiste en confundir <strong>para qué sirve cada primitiva criptográfica</strong>: aplicar un hash para proteger un secreto, cifrar sin autenticar la integridad del texto cifrado o inventar algoritmos propios en lugar de usar estándares auditados.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Primitiva criptográfica</th>
 <th>Qué garantiza</th>
@@ -48,7 +48,7 @@
 <h2 id="cap-1-9-2-cifrado-simetrico-y-errores-clasicos-de-implementacion">2. Cifrado simétrico y errores clásicos de implementación</h2>
 <p>En el cifrado simétrico, emisor y receptor comparten una misma clave secreta (<code>K</code> de 128 o 256 bits en AES). Sin embargo, un cifrador de bloques como AES solo cifra bloques fijos de <strong>16 bytes (128 bits)</strong>. La forma en que se encadenan múltiples bloques se denomina <strong>Modo de Operación</strong>, y elegir un modo incorrecto destruye por completo la seguridad del cifrado:</p>
 <h3 id="cap-1-9-comparativa-de-modos-de-operacion-simetricos">Comparativa de modos de operación simétricos</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Modo de operación</th>
 <th>Comportamiento técnico</th>
@@ -76,7 +76,7 @@
         ▼
 [Certificado del Servidor (Leaf): SAN = portal.empresa.local, Valid From/To, Key Usage]</code></pre>
 <h3 id="cap-1-9-campos-criticos-que-debes-revisar-al-auditar-un-certificado-x-509">Campos críticos que debés revisar al auditar un certificado X.509</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Campo X.509</th>
 <th>Qué verifica el cliente / auditor</th>
@@ -92,7 +92,7 @@
 <p>A lo largo de la última década, numerosas vulnerabilidades públicas en TLS obligaron a retirar versiones y algoritmos heredados. Al auditar cualquier servicio HTTPS, LDAPS o SMTP con TLS, el estándar mínimo aceptable (Mozilla SSL Configuration Guidelines / NIST SP 800-52 Rev. 2) exige:</p>
 <ul><li><strong>Protocolos permitidos:</strong> únicamente <strong>TLS 1.2</strong> (con suites AEAD + ECDHE) y <strong>TLS 1.3</strong>. Deben estar deshabilitados por completo <strong>SSLv2, SSLv3, TLS 1.0 y TLS 1.1</strong>.</li><li><strong>Suites de cifrado:</strong> solo suites con <strong>Forward Secrecy (<code>ECDHE</code>)</strong> y <strong>cifrado autenticado (<code>AES_128_GCM</code>, <code>AES_256_GCM</code>, <code>CHACHA20_POLY1305</code>)</strong>. Prohibir <code>RC4</code>, <code>3DES</code>, <code>CBC</code> heredado cuando haya alternativa GCM, <code>NULL</code> y algoritmos <code>EXPORT</code>.</li><li><strong>Verificación de certificados en clientes propios (Python/Go/curl):</strong> nunca dejar <code>verify=False</code> en <code>requests.get()</code> ni <code>-k</code> / <code>--insecure</code> en scripts de producción; en laboratorios internos con CA privada, exportá el certificado raíz de tu CA e indicalo explícitamente con <code>verify="/ruta/ca_lab.pem"</code>.</li></ul>
 <h3 id="cap-1-9-ataques-historicos-y-debilidades-clasicas-en-tls-que-explican-la-configuracion-moderna">Ataques históricos y debilidades clásicas en TLS que explican la configuración moderna</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Debilidad / Ataque TLS</th>
 <th>Qué componente fallaba</th>

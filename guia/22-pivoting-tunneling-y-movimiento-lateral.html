@@ -46,7 +46,7 @@
 <p>Desde la perspectiva de la administración de sistemas y de las pruebas de penetración autorizadas en entornos segmentados, el <strong>reenvío de puertos (<em>Port Forwarding</em>)</strong> y el <strong>encapsulamiento (<em>Tunneling / Pivoting</em>)</strong> permiten encaminar conexiones técnicas a través de un host intermedio autorizado hacia una subred interna que no tiene ruta directa desde el exterior. Desde la perspectiva de la defensa (<strong>Blue Team / Arquitectura de Red</strong>), comprender exactamente cómo funcionan estos túneles es indispensable para diseñar reglas de microsegmentación y detectar flujos laterales anómalos.</p>
 <h2 id="cap-3-5-2-reenvio-de-puertos-y-tuneles-con-openssh">2. Reenvío de puertos y túneles con OpenSSH</h2>
 <p>El cliente y servidor <strong>OpenSSH</strong> (presente de forma nativa tanto en Linux como en Windows 10/11 y Windows Server modernos) incluye tres modos de reenvío cifrado sobre una única conexión TCP/22 autenticada:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Modo OpenSSH</th>
 <th>Sintaxis del comando</th>
@@ -79,7 +79,7 @@ netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=8080<
 <ol><li><strong>Túneles TCP/UDP encapsulados sobre HTTP/WebSockets (como <em>Chisel</em>, <code>socat</code> y <code>plink.exe</code> en Windows):</strong> útiles en laboratorios para comprender cómo redirigir puertos o cómo una conexión WebSocket persistente (<code>HTTP/1.1 101 Switching Protocols</code>) puede multiplexar un canal SOCKS5, y por qué los proxies corporativos deben inspeccionar conexiones WebSockets de larga duración.</li><li><strong>Túneles basados en interfaz virtual TUN/TAP (como <em>Ligolo-ng</em> o WireGuard/OpenVPN):</strong> en lugar de usar un proxy SOCKS en capa de aplicación con <code>proxychains</code>, crean una interfaz de red virtual <code>tun0</code> en el sistema operativo local y agregan una ruta (<code>ip route add 10.10.20.0/24 dev tun0</code>), permitiendo que el kernel enrute paquetes de forma nativa.</li><li><strong>Frameworks de Comando y Control modulares (ej. <em>Sliver C2</em>) y detección de <em>beaconing</em> con <code>RITA</code>:</strong> en ejercicios de Red Team autorizados, los operadores estudian canales cifrados (HTTPS/mTLS/DNS) con intervalos de comunicación (<em>jitter</em>) para validar si los controles NSM los detectan. Desde el lado defensivo (<strong>Blue Team</strong>), herramientas abiertas como <strong><code>RITA</code> (<em>Real Intelligence Threat Analysis</em>)</strong> ingieren logs de <strong>Zeek</strong> (<code>conn.log</code>, <code>dns.log</code>) para identificar automáticamente conexiones periódicas (<em>beaconing</em>) y canales DNS encubiertos.</li></ol>
 <h2 id="cap-3-5-4-protocolos-de-administracion-remota-y-movimiento-lateral-en-redes-corporativas">4. Protocolos de administración remota y movimiento lateral en redes corporativas</h2>
 <p>En una red empresarial Windows/Linux, los administradores —y los auditores durante ejercicios autorizados— interactúan entre equipos utilizando cinco protocolos estándar que debés conocer tanto en su operación legítima como en su telemetría defensiva:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Protocolo / Servicio</th>
 <th>Puertos estándar</th>
@@ -94,7 +94,7 @@ netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=8080<
 </tbody></table></div>
 <h3 id="cap-3-5-suite-impacket-y-huella-operativa-en-movimiento-lateral">Suite <code>Impacket</code> y huella operativa en movimiento lateral</h3>
 <p>En evaluaciones prácticas de infraestructura y Active Directory (como <strong>PEN-200 / OSCP</strong>), la suite en Python <strong>Impacket</strong> permite probar movimiento lateral desde una estación Linux utilizando contraseñas, hashes NT (<strong>Pass-the-Hash</strong> con <code>-hashes LM:NT</code>) o tickets Kerberos en caché (<code>-k -no-pass</code> con <code>KRB5CCNAME</code>):</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Herramienta Impacket</th>
 <th>Canal utilizado</th>

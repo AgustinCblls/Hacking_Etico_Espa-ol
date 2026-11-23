@@ -61,7 +61,7 @@
 <ul><li><strong>Ventanas de expiración excesivas:</strong> Emitir SAS válidos por años sin mecanismo de revocación individual (si se compromete un <em>Account SAS</em>, se debe rotar la clave de la cuenta o revocar la <em>Stored Access Policy</em> asociada).</li><li><strong>Ausencia de restricción TLS (<code>spr=https</code>) o IP (<code>sip</code>):</strong> Permitir que el token viaje por HTTP plano o sea utilizable desde cualquier dirección en Internet.</li><li><strong>Permisos excedidos:</strong> Incluir el permiso de listado (<code>l</code>) o escritura (<code>w</code>) cuando la aplicación cliente solo requería descargar un objeto puntual (<code>r</code>).</li></ul>
 <h3 id="cap-5-2-google-cloud-storage-gcs">Google Cloud Storage (GCS)</h3>
 <p>En <strong>GCP</strong>, Cloud Storage ofrece dos modos de control: <strong>Fine-grained</strong> (ACLs por objeto más IAM) y <strong>Uniform bucket-level access (UBLA)</strong>, que desactiva las ACLs individuales para centralizar toda la autorización exclusivamente mediante políticas IAM y condiciones de proyecto. Además, el control organizacional <strong>Public Access Prevention (PAP)</strong> cumple una función equivalente a <em>Block Public Access</em> en S3, impidiendo otorgar permisos a los identificadores especiales <code>allUsers</code> o <code>allAuthenticatedUsers</code>.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Característica</th>
 <th>AWS S3</th>
@@ -80,7 +80,7 @@
 <ul><li><strong>Subred pública:</strong> Su tabla de ruteo posee una ruta por defecto (<code>0.0.0.0/0</code>) apuntando hacia un <strong>Internet Gateway (IGW)</strong>. Los recursos allí ubicados que tengan IP pública asignada pueden recibir tráfico entrante directo desde Internet y responder hacia afuera. Se reserva para balanceadores de carga (ALB), bastiones o <strong>NAT Gateways</strong>.</li><li><strong>Subred privada:</strong> Carece de ruta directa hacia un IGW. Sus instancias (bases de datos RDS, servidores de aplicación, nodos internos) no son alcanzables directamente desde Internet. Si requieren descargar actualizaciones salientes, su tabla de ruteo dirige <code>0.0.0.0/0</code> hacia un <strong>NAT Gateway</strong> ubicado en la subred pública, o bien utilizan <strong>VPC Endpoints</strong> (Gateway o Interface/PrivateLink) para consumir servicios como S3 o Secrets Manager sin atravesar jamás la red pública.</li></ul>
 <h3 id="cap-5-2-security-groups-stateful-vs-network-acls-stateless">Security Groups (Stateful) vs Network ACLs (Stateless)</h3>
 <p>AWS ofrece dos capas complementarias de filtrado de red dentro de la VPC cuyo comportamiento debes distinguir con exactitud:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Propiedad</th>
 <th>Security Group (SG)</th>
@@ -136,7 +136,7 @@ curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
 }</code></pre>
 <h3 id="cap-5-2-comparativa-multi-cloud-proteccion-del-plano-de-metadatos-imds">Comparativa Multi-Cloud: Protección del Plano de Metadatos (IMDS)</h3>
 <p>Cuando auditás o defendés instancias y contenedores frente a vulnerabilidades <strong>SSRF</strong>, verificá las defensas nativas específicas de cada servicio de metadatos en <strong>AWS</strong>, <strong>Azure</strong> y <strong>GCP</strong>:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Proveedor</th>
 <th>Protección nativa del servicio de metadatos (IMDS)</th>

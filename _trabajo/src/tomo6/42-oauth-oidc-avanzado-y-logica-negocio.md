@@ -214,6 +214,8 @@ Incluso cuando los montos son positivos, las combinaciones de reglas de negocio 
 
 ---
 
+<!-- salto -->
+
 ## 3. Checklists prácticas OWASP WSTG
 
 Para evitar auditorías improvisadas que solo buscan payloads obvios, el **OWASP Web Security Testing Guide (WSTG)** provee códigos de prueba estandarizados. A continuación tenés una matriz operativa enfocada en autorización (`WSTG-ATHZ`), gestión de sesiones/federación (`WSTG-SESS`) y lógica de negocio (`WSTG-BUSL`) para aplicar en cualquier flujo web completo.

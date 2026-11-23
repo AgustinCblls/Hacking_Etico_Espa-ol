@@ -37,7 +37,7 @@
 <aside class="callout aviso"><p class="callout-titulo">Protocolo ante confrontación en pruebas físicas</p><p>Si durante una auditoría autorizada el personal de vigilancia o un empleado te detiene e interroga, detené de inmediato la maniobra, mantené la calma y presentá la carta de autorización según lo acordado en el RoE. Nunca escales una discusión ni fuerces el paso físico.</p></aside>
 <h3 id="cap-7-5-cerraduras-ubicacion-de-racks-y-videovigilancia">Cerraduras, ubicación de racks y videovigilancia</h3>
 <p>Un lector biométrico o de proximidad pierde efectividad si la mecánica de la puerta o la disposición de salas técnicas presenta fallas elementales:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Componente</th>
 <th>Falla frecuente en auditorías</th>
@@ -59,7 +59,7 @@
 <p>En 13.56 MHz (ISO/IEC 14443 Tipo A/B, compatible con NFC) existen chips con capacidades criptográficas muy dispares:</p>
 <ul><li><strong>MIFARE Classic (1K / 4K):</strong> utiliza el cifrado propietario <strong>Crypto-1</strong> con claves de 48 bits y un generador pseudoaleatorio (PRNG) débil. Los ataques criptoanalíticos públicos (<em>Darkside</em>, <em>Nested</em>, <em>Hardnested</em>) recuperan todas las claves de los sectores en segundos o minutos, permitiendo leer la memoria completa y duplicarla en tarjetas <em>Magic</em> con bloque 0 (UID) regrabable. Se considera obsoleta.</li><li><strong>MIFARE DESFire (EV2 / EV3):</strong> implementa un sistema de archivos por aplicaciones con <strong>autenticación mutua basada en AES-128</strong> estándar. La clave secreta nunca sale del chip: lector (mediante módulo SAM) y tarjeta ejecutan un protocolo desafío-respuesta de tres pasos con números aleatorios frescos, derivando una clave de sesión efímera para cifrar y autenticar cada comando con CMAC (<em>Secure Messaging</em>).</li></ul>
 <p>¿Por qué <strong>DESFire EV2/EV3 con AES</strong> mitiga la clonación? Porque la verificación no depende del UID público: incluso activando <strong>Random UID</strong> (que impide rastrear usuarios por su identificador fijo) o copiando el UID físico, un clon sin la clave AES almacenada en el chip original no puede resolver el desafío criptográfico del lector. Además, soporta <strong>diversificación de claves</strong> (derivando una clave única por tarjeta desde una clave maestra mediante AES-CMAC), de modo que comprometer una credencial individual no compromete al resto del edificio.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Tecnología</th>
 <th>Frecuencia</th>
@@ -86,7 +86,7 @@ ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c31c"
 <h3 id="cap-7-5-ataques-dma-via-thunderbolt-pcie-y-mitigacion-iommu">Ataques DMA vía Thunderbolt/PCIe y mitigación IOMMU</h3>
 <p>Los puertos <strong>Thunderbolt 3/4</strong>, <strong>USB4</strong> (con túnel PCIe) y ranuras <strong>M.2 / PCIe</strong> permiten <strong>Acceso Directo a Memoria (DMA)</strong>, transfiriendo datos hacia y desde la RAM sin intervención de la CPU ni controles del sistema operativo. Un atacante con hardware FPGA (como placas de prueba tipo <em>PCILeech</em>) conectado brevemente a un puerto Thunderbolt sin protección puede volcar la RAM para extraer claves de cifrado activas o inyectar código en el kernel y sortear la pantalla de bloqueo.</p>
 <p>La defensa estructural reside en la <strong>IOMMU</strong> (<strong>Intel VT-d</strong> / <strong>AMD-Vi</strong>), que interpone tablas de traducción de direcciones entre dispositivos PCIe externos y la RAM física, restringiendo cada periférico únicamente a sus páginas asignadas.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Capa</th>
 <th>Control defensivo contra DMA</th>
@@ -123,7 +123,7 @@ binwalk -E firmware_router.bin
 # 3. Extraer de forma recursiva en un directorio de trabajo sin privilegios de root
 binwalk -eM firmware_router.bin</code></pre>
 <p>Sobre el sistema de archivos extraído (<code>squashfs-root/</code>), la inspección pasiva busca hallazgos de alto impacto: <strong>credenciales hardcodeadas</strong> en <code>/etc/shadow</code>, scripts de inicio <code>/etc/init.d/*</code> o archivos de configuración; <strong>claves privadas TLS/SSH</strong> compartidas por toda la línea de producto; y <strong>servicios expuestos</strong> al arranque como <code>telnetd</code>, servidores web obsoletos o scripts CGI que invoquen <code>system()</code> con entradas no sanitizadas.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Comando de inspección pasiva</th>
 <th>Objetivo dentro de <code>squashfs-root/</code></th>

@@ -70,7 +70,7 @@
 <p>Mientras que el lanzamiento tradicional escribe un ejecutable en disco y llama a <code>CreateProcess</code>, la ejecución <em>in-memory</em> busca evitar el <em>mini-filter driver</em> de archivos cargando lógica directamente en memoria virtual: carga reflectiva de DLLs (mapear manualmente cabeceras PE y resolver importaciones sin usar <code>LoadLibrary</code>), ejecución de ensamblados .NET en memoria mediante <code>System.Reflection.Assembly.Load</code>, o <em>Module Stomping</em> (cargar una DLL legítima poco usada desde disco y sobrescribir su sección de código para que la memoria ejecutada figure respaldada por un archivo firmado en lugar de ser memoria privada anónima).</p>
 <h2 id="cap-6-6-senales-defensivas-que-hoy-los-detectan">Señales defensivas que hoy los detectan</h2>
 <p>Lejos de ser "indetectables", las técnicas anteriores desplazan el punto de observación desde firmas estáticas en disco hacia <strong>anomalías estructurales de memoria, pila de llamadas y telemetría de kernel</strong> mucho más difíciles de falsificar.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Técnica conceptual</th>
 <th>Lo que intenta evitar</th>

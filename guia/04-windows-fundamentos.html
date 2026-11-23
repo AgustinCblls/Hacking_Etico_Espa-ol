@@ -33,7 +33,7 @@
 <p>El diseño de seguridad de Windows NT se apoya en dos planos protegidos por hardware (anillos x86-64): <strong>modo usuario</strong> (Ring 3), donde corren aplicaciones y servicios, y <strong>modo kernel</strong> (Ring 0), donde operan <code>ntoskrnl.exe</code>, el HAL y los controladores. Ningún proceso de usuario puede leer memoria del kernel ni tocar el hardware directamente; debe invocar llamadas al sistema mediante <code>ntdll.dll</code>. Desde Windows Vista rige además el <strong>aislamiento de Sesión 0</strong>: todos los servicios corren en la Sesión 0 sin escritorio interactivo, mientras las sesiones humanas comienzan en la Sesión 1, bloqueando inyecciones clásicas de mensajes entre ventanas (<em>shatter attacks</em>).</p>
 <h3 id="cap-1-4-sids-cuentas-integradas-y-anatomia-del-token">SIDs, cuentas integradas y anatomía del token</h3>
 <p>Windows identifica cada entidad de seguridad mediante un <strong>Security Identifier (SID)</strong> inmutable con formato <code>S-1-5-21-&lt;dominio&gt;-&lt;RID&gt;</code>. Al iniciar sesión vía LSASS (<code>lsass.exe</code>), se crea un <strong>token de acceso</strong> heredado por cada proceso hijo que almacena: SID del usuario, SIDs de grupos, lista de <strong>privilegios</strong> (<code>SeImpersonatePrivilege</code>, <code>SeDebugPrivilege</code>, <code>SeBackupPrivilege</code>) y el <strong>Nivel de Integridad</strong> (<em>Mandatory Integrity Control</em>, MIC: Untrusted, Low, Medium, High o System). Con <strong>UAC</strong> activo, un miembro de <code>Administrators</code> recibe un token filtrado <em>Medium</em> hasta aprobar una elevación explícita a <em>High</em>.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Cuenta o entidad</th>
 <th>SID característico</th>
@@ -67,7 +67,7 @@ SeIncreaseWorkingSetPrivilege Increase a process working set  Disabled</code></p
 <p>A diferencia del esquema POSIX <code>rwx</code>, NTFS asigna a cada archivo y carpeta un <strong>Descriptor de Seguridad</strong> con propietario (<em>Owner</em>), una <strong>DACL</strong> (<em>Discretionary Access Control List</em>, qué SIDs pueden acceder y con qué permisos) y una <strong>SACL</strong> (<em>System Access Control List</em>, qué eventos se auditan). Cada lista agrupa entradas <strong>ACE</strong> (<em>Access Control Entry</em>). El Monitor de Referencia de Seguridad (SRM, en kernel) evalúa la DACL de arriba hacia abajo: cualquier <strong>Deny explícito</strong> prevalece sobre un <strong>Allow</strong>, y si ninguna ACE coincide con el token, el acceso se deniega por defecto.</p>
 <h3 id="cap-1-4-inspeccion-practica-con-icacls-y-powershell">Inspección práctica con icacls y PowerShell</h3>
 <p>NTFS soporta además flujos alternativos de datos (<strong>ADS</strong>, visibles con <code>dir /R</code> o <code>Get-Item -Stream *</code>), como <code>Zone.Identifier</code> para marcar archivos descargados de internet. Sin embargo, el vector más habitual en auditoría local son permisos NTFS demasiado permisivos sobre carpetas de aplicaciones o binarios de servicios.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Código <code>icacls</code></th>
 <th>Significado técnico</th>
@@ -96,7 +96,7 @@ Get-ChildItem "C:\Program Files\LabApp" -Recurse | ForEach-Object {
 }</code></pre>
 <h2 id="cap-1-4-el-registro-de-windows-como-mapa-de-configuracion-y-persistencia">El Registro de Windows como mapa de configuración y persistencia</h2>
 <p>El <strong>Registro</strong> es una base de datos jerárquica que centraliza parámetros del kernel, controladores, políticas, servicios y perfiles de usuario. Presenta cinco colmenas raíz (<em>hives</em>), de las cuales solo <code>HKLM</code> y <code>HKU</code> corresponden a almacenamiento físico directo; el resto son enlaces simbólicos dinámicos.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Colmena raíz</th>
 <th>Alcance</th>
@@ -137,7 +137,7 @@ Get-ScheduledTask | Where-Object { $_.TaskPath -notlike "\Microsoft\*" -and $_.S
     Select-Object TaskName, TaskPath, @{N='Usuario';E={$_.Principal.UserId}}</code></pre>
 <h3 id="cap-1-4-cmd-esencial-y-suite-sysinternals-para-visibilidad-en-vivo">CMD esencial y suite Sysinternals para visibilidad en vivo</h3>
 <p>Comandos nativos como <code>systeminfo</code>, <code>net user</code>, <code>net localgroup Administrators</code>, <code>tasklist /svc</code> y <code>netstat -ano</code> brindan contexto inmediato. La suite oficial <strong>Microsoft Sysinternals</strong> profundiza esa visibilidad en tiempo real y reduce falsos positivos mediante verificación de firmas digitales.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Herramienta Sysinternals</th>
 <th>Equivalente nativo</th>

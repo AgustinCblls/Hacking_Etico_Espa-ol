@@ -55,7 +55,7 @@ Accept: application/json
 Connection: close
 </code></pre>
 <h3 id="cap-1-8-semantica-de-los-metodos-y-codigos-de-estado">Semántica de los métodos y códigos de estado</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Método HTTP</th>
 <th>Propósito arquitectónico</th>
@@ -73,7 +73,7 @@ Connection: close
 <p>Los <strong>códigos de estado</strong> en la respuesta se agrupan en cinco familias:</p>
 <ul><li><strong><code>1xx</code> (Informativos):</strong> <code>101 Switching Protocols</code> (usado al actualizar una conexión HTTP a WebSockets).</li><li><strong><code>2xx</code> (Éxito):</strong> <code>200 OK</code> (operación correcta), <code>201 Created</code> (recurso creado), <code>204 No Content</code> (éxito sin cuerpo).</li><li><strong><code>3xx</code> (Redirección):</strong> <code>301 Moved Permanently</code>, <code>302 Found</code> (redirección temporal, frecuente tras iniciar sesión), <code>304 Not Modified</code> (uso de caché).</li><li><strong><code>4xx</code> (Error del cliente):</strong> <code>400 Bad Request</code> (sintaxis inválida), <code>401 Unauthorized</code> (falta autenticación válida), <code>403 Forbidden</code> (autenticado pero sin permisos sobre el recurso), <code>404 Not Found</code>, <code>405 Method Not Allowed</code>, <code>429 Too Many Requests</code> (control de tasa activo).</li><li><strong><code>5xx</code> (Error del servidor):</strong> <code>500 Internal Server Error</code> (excepción no controlada en el backend), <code>502 Bad Gateway</code>, <code>503 Service Unavailable</code>.</li></ul>
 <h3 id="cap-1-8-evolucion-http-1-1-vs-http-2-vs-http-3">Evolución: HTTP/1.1 vs. HTTP/2 vs. HTTP/3</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Característica</th>
 <th>HTTP/1.1 (RFC 9112)</th>
@@ -88,7 +88,7 @@ Connection: close
 <h2 id="cap-1-8-3-estado-cookies-y-cabeceras-de-seguridad">3. Estado, cookies y cabeceras de seguridad</h2>
 <p>Como HTTP no guarda memoria entre peticiones, las aplicaciones mantienen sesiones emitiendo una cookie mediante la cabecera <code>Set-Cookie</code>. La seguridad de esa cookie depende de tres atributos críticos que siempre debés auditar:</p>
 <pre><code class="lenguaje-http">Set-Cookie: id_sesion=9f8e7d6c5b4a3210...; Path=/; Secure; HttpOnly; SameSite=Lax</code></pre>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Atributo de Cookie</th>
 <th>Qué protege</th>
@@ -100,7 +100,7 @@ Connection: close
 </tbody></table></div>
 <h3 id="cap-1-8-cabeceras-http-de-endurecimiento-defensivo">Cabeceras HTTP de endurecimiento defensivo</h3>
 <p>Todo servicio web moderno debe responder con un conjunto base de cabeceras defensivas verificables con <code>curl -I</code>:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Cabecera HTTP</th>
 <th>Valor recomendado de referencia</th>

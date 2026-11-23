@@ -246,6 +246,8 @@ Salida esperada comentada:
 10.10.0.15       1 fallos   # Evento aislado; útil para comparar contra umbral definido
 ```
 
+<!-- salto -->
+
 **Paso 2 (Windows PowerShell):** verificá el estado de seguridad de los servicios en ejecución automática que corren fuera de `C:\Windows\System32` y las políticas activas de ejecución:
 
 ```powershell

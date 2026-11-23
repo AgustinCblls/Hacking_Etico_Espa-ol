@@ -38,7 +38,7 @@
 <p>Toda evidencia recolectada (imagen de RAM, disco o paquete de triage) debe ir acompañada de su <strong>Acta de Cadena de Custodia</strong> registrando: identificador del equipo, fecha y hora exacta en <strong>UTC</strong>, persona que adquirió la muestra, herramienta utilizada y <strong>hash criptográfico SHA-256</strong> calculado en el instante de la adquisición. Nunca trabajes sobre el disco original ni montes imágenes de disco en modo lectura-escritura: analizá siempre copias verificadas montadas como solo lectura (<code>-o ro</code>).</p>
 <h2 id="cap-4-7-2-mapa-completo-de-artefactos-forenses-en-windows">2. Mapa completo de artefactos forenses en Windows</h2>
 <p>Incluso si alguien borra un archivo ejecutable o limpia parte de los logs visibles, Windows conserva decenas de huellas cruzadas en el sistema de archivos NTFS y en los ficheros de colmena (<em>hives</em>) del Registro:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Pregunta forense</th>
 <th>Artefacto clave de Windows</th>
@@ -59,7 +59,7 @@
 <ul><li><strong>Sesiones e historial:</strong> <code>/var/log/wtmp</code> (accesos exitosos leídos con <code>last</code>), <code>/var/log/btmp</code> (intentos fallidos leídos con <code>lastb</code>), <code>/var/log/lastlog</code>, <code>/var/log/auth.log</code> o <code>/var/log/secure</code> y historiales <code>~/.bash_history</code> / <code>~/.zsh_history</code>.</li><li><strong>Mecanismos de persistencia:</strong> unidades de servicio en <code>/etc/systemd/system/</code> y <code>/lib/systemd/system/</code>, tareas cron en <code>/etc/crontab</code>, <code>/etc/cron.*</code>, <code>/var/spool/cron/crontabs/</code>, claves autorizadas en <code>~/.ssh/authorized_keys</code> y scripts de perfil (<code>/etc/profile.d/</code>).</li><li><strong>Marcas temporales MACB en inodos (<code>stat</code>):</strong> <em>Modified</em> (contenido), <em>Accessed</em> (última lectura), <em>Changed</em> (cambio de metadatos/permisos del inodo) y <em>Birth</em> (creación en <code>ext4</code> moderno).</li></ul>
 <p>En entornos <strong>macOS</strong>, la estructura equivalente combina los <strong>Unified Logs</strong> (<code>log show</code>), <strong>FSEvents</strong> (historial de cambios del sistema de archivos APFS), <strong><code>LaunchAgents</code> / <code>LaunchDaemons</code></strong> (<code>.plist</code> de persistencia), cuarentena (<code>com.apple.quarantine</code> / base SQLite de descargas) y bases SQLite de navegadores y TCC.</p>
 <aside class="callout nota"><p class="callout-titulo">Superficie de ataque y DFIR detallado en macOS (visibilidad corporativa)</p><p>En flotas corporativas híbridas con <strong>macOS</strong> (APFS), el análisis forense se apoya en artefactos específicos y portabilidad vía <strong><code>osquery</code></strong>:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Artefacto / Fuente DFIR en macOS</th>
 <th>Ubicación o comando de consulta</th>
@@ -77,7 +77,7 @@
 <ul><li><strong>KAPE (<em>Kroll Artifact Parser and Extractor</em>):</strong> recolecta y analiza selectivamente en menos de 3 minutos los artefactos críticos (<code>$MFT</code>, hives del Registro, Prefetch, EVTX, SRUM, LNK), reduciendo 1 TB de disco a un paquete de triage de ~300 MB.</li><li><strong>Velociraptor:</strong> plataforma cliente-servidor de código abierto que permite lanzar consultas <strong>VQL (<em>Velociraptor Query Language</em>)</strong> en tiempo real sobre toda la flota para recolectar artefactos, inspeccionar procesos y cazar indicadores simultáneamente en Windows, Linux y macOS.</li><li><strong>Análisis rápido sin SIEM (<code>Hayabusa</code>, <code>Chainsaw</code> y <code>Eric Zimmerman Tools</code>):</strong> sobre paquetes recolectados de Windows, <strong><code>Hayabusa</code></strong> y <strong><code>Chainsaw</code></strong> aplican cientos de reglas Sigma directamente sobre archivos <code>.evtx</code> offline para generar líneas temporales en segundos, mientras la suite abierta de <strong>Eric Zimmerman</strong> (<code>MFTECmd</code>, <code>EvtxECmd</code>, <code>PECmd</code>, <code>RECmd</code>, <code>AmcacheParser</code>) convierte artefactos binarios en CSV normalizados listos para correlación.</li></ul>
 <h3 id="cap-4-7-plugins-esenciales-de-volatility-3-para-memoria-ram">Plugins esenciales de Volatility 3 para memoria RAM</h3>
 <p>Un volcado de memoria (<code>.raw</code>, <code>.dmp</code>, <code>.vmem</code>) conserva estado vivo que nunca existió en disco o que ya fue eliminado:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Plugin de Volatility 3</th>
 <th>Qué extrae de la RAM</th>
@@ -90,9 +90,10 @@
 <tr><td><code>windows.netscan</code></td><td>Sockets TCP/UDP abiertos, puertos locales y direcciones remotas por PID.</td><td>Sesiones <code>ESTABLISHED</code> desde procesos sin función de red (<code>notepad.exe</code>, <code>regsvr32.exe</code>).</td></tr>
 <tr><td><code>windows.malfind</code></td><td>Regiones de memoria privada con permisos <code>PAGE_EXECUTE_READWRITE</code> sin archivo PE respaldado en disco.</td><td>Indicios de inyección de código en memoria o desensamblado no respaldado por módulo legítimo.</td></tr>
 </tbody></table></div>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h4 id="cap-4-7-plugins-de-volatility-3-para-linux-flujo-complementario-con-lime">Plugins de Volatility 3 para Linux (flujo complementario con <code>LiME</code>)</h4>
 <p>En servidores Linux, tras capturar la memoria física en vivo con <strong>LiME</strong> (generando un volcado <code>.lime</code> junto con el archivo de símbolos <strong>ISF</strong> —<em>Intermediate Symbol Format</em>— correspondiente a la versión exacta del kernel), <strong>Volatility 3</strong> ofrece plugins específicos para reconstruir el estado volátil:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Plugin de Volatility 3 (Linux)</th>
 <th>Qué extrae de la imagen <code>.lime</code></th>

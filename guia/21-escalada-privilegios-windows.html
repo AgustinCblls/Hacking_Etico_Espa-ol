@@ -38,7 +38,7 @@ whoami /all</code></pre>
 <h2 id="cap-3-4-2-auditoria-de-servicios-tareas-programadas-y-orden-de-busqueda-de-dlls">2. Auditoría de servicios, tareas programadas y orden de búsqueda de DLLs</h2>
 <p>Gran parte de las debilidades locales en endpoints Windows surgen de software de terceros instalado con permisos heredados inseguros o rutas mal definidas.</p>
 <h3 id="cap-3-4-superficies-principales-y-su-causa-raiz">Superficies principales y su causa raíz</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Superficie</th>
 <th>Causa técnica de la vulnerabilidad</th>
@@ -55,7 +55,7 @@ whoami /all</code></pre>
 <p>Cuando un servicio se registra con una ruta como <code>C:\Program Files\App Interna\servicio.exe</code> sin comillas dobles, el administrador de servicios interpreta los espacios de forma ambigua y evalúa rutas intermedias antes de alcanzar el binario real. Si algún directorio intermedio otorga permisos de escritura a usuarios no privilegiados, un archivo colocado allí podría ejecutarse con los privilegios del servicio.</p>
 <p>De manera similar, el <strong>secuestro de DLL (DLL hijacking)</strong> aprovecha el orden de búsqueda de bibliotecas dinámicas de Windows cuando una aplicación solicita una DLL por nombre simple sin especificar la ruta completa y la biblioteca no reside en el directorio protegido de la aplicación ni en <code>System32</code>. Si el proceso continúa buscando en directorios incluidos en la variable <code>PATH</code> donde un usuario común puede escribir, la integridad del proceso queda comprometida.</p>
 <h3 id="cap-3-4-vectores-criticos-adicionales-alwaysinstallelevated-y-byovd-vision-defensiva">Vectores críticos adicionales: <code>AlwaysInstallElevated</code> y BYOVD (visión defensiva)</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Vector / Superficie</th>
 <th>Mecanismo técnico</th>
@@ -67,7 +67,7 @@ whoami /all</code></pre>
 </tbody></table></div>
 <h3 id="cap-3-4-grupos-integrados-privilegiados-credenciales-residuales-seimpersonate-y-parches">Grupos integrados privilegiados, credenciales residuales, <code>SeImpersonate</code> y parches</h3>
 <p>Además de servicios mal configurados, en auditorías Windows aparecen cuatro vectores de alto impacto que exigen revisión y detección específica:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Vector en host Windows</th>
 <th>Riesgo técnico real</th>
@@ -83,7 +83,7 @@ whoami /all</code></pre>
 <p>El hardening efectivo en Windows reduce drásticamente el impacto de credenciales expuestas y corta las vías habituales de elevación local.</p>
 <h3 id="cap-3-4-controles-prioritarios-recomendados-por-microsoft-y-cis">Controles prioritarios recomendados por Microsoft y CIS</h3>
 <ol><li><strong>Principio de mínimo privilegio:</strong> Retirar a los usuarios cotidianos del grupo <code>Administrators</code> local y separar las tareas administrativas en cuentas dedicadas.</li><li><strong>Windows LAPS (<em>Local Administrator Password Solution</em>):</strong> Genera, rota automáticamente y almacena de forma cifrada contraseñas únicas para la cuenta administrativa local de cada equipo, eliminando el riesgo de reutilización lateral.</li><li><strong>LSA Protection (<code>RunAsPPL</code>):</strong> Configura el proceso de autoridad de seguridad local (<code>lsass.exe</code>) como proceso protegido (<em>Protected Process Light</em>), bloqueando la lectura o inyección de memoria desde procesos no firmados adecuadamente.</li><li><strong>Windows Defender Credential Guard:</strong> Utiliza seguridad basada en virtualización (VBS) para aislar secretos derivados de autenticación en un contenedor protegido por hipervisor, inaccesible incluso para procesos con privilegios elevados en el sistema operativo principal.</li><li><strong>Control de aplicaciones (WDAC / AppLocker):</strong> Restringe la ejecución a binarios firmados o ubicados en rutas aprobadas, mitigando la ejecución de ejecutables y DLLs no autorizados.</li></ol>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Control defensivo</th>
 <th>Riesgo principal mitigado</th>
@@ -102,6 +102,7 @@ whoami /all</code></pre>
 <ul><li><strong>Auto-elevación de UAC (<em>UAC Bypasses</em>):</strong> binarios firmados por Microsoft configurados para auto-elevarse consultando rutas de registro bajo <code>HKCU\Software\Classes</code> (por ejemplo <code>ms-settings\Shell\Open\command</code> asociada a <code>fodhelper.exe</code> o interfaces COM privilegiadas) permiten a una cuenta que ya es miembro de <code>Administrators</code> abrir un proceso elevado sin cuadro de diálogo. <strong>Detección SOC:</strong> monitorear creaciones de subclaves bajo <code>HKCU\Software\Classes\ms-settings</code> (Sysmon Event ID <code>12/13</code>) y procesos <code>cmd.exe</code>/<code>powershell.exe</code> nacidos con nivel <em>High</em> directamente desde <code>fodhelper.exe</code> o <code>computerdefaults.exe</code> (Sysmon <code>1</code>). <strong>Mitigación real:</strong> usar cuentas estándar sin derechos administrativos en el uso diario.</li><li><strong>Verificación de AMSI y Microsoft Defender:</strong> toda política de endurecimiento debe exigir protección contra alteraciones (<strong>Tamper Protection</strong>) en Defender, <strong>Controlled Folder Access</strong> y bloqueo de modificaciones en exclusiones del antivirus, registrando cambios de exclusiones en Event Log <code>Microsoft-Windows-Windows Defender/Operational</code> (Event ID <strong><code>5007</code></strong>).</li></ul>
 <h2 id="cap-3-4-4-monitoreo-de-endpoints-con-sysmon">4. Monitoreo de endpoints con Sysmon</h2>
 <p>Sysmon (<em>System Monitor</em>, parte de Microsoft Sysinternals) complementa el registro nativo de Windows proporcionando telemetría estructurada sobre eventos de alto valor analítico: creación de procesos con línea de comandos completa y hashes, carga de imágenes y DLLs, cambios en el estado de servicios y accesos anómalos entre procesos. Integrar Sysmon con una configuración curada y reenviar los registros a un SIEM permite detectar comportamientos anómalos sin saturar el almacenamiento.</p>
+<div class="salto-pagina-manual" aria-hidden="true"></div>
 <h2 id="cap-3-4-ejemplo-paso-a-paso-auditoria-de-solo-lectura-de-servicios-y-protecciones-en-powershell">Ejemplo paso a paso: auditoría de solo lectura de servicios y protecciones en PowerShell</h2>
 <p>En este procedimiento revisamos en nuestra VM Windows de laboratorio si existen servicios con rutas potencialmente ambiguas, inspeccionamos los permisos de un directorio de aplicación y verificamos el estado de las protecciones de memoria y credenciales.</p>
 <pre><code class="lenguaje-powershell"># 1. Identificar servicios de terceros con espacios en la ruta y sin comillas dobles

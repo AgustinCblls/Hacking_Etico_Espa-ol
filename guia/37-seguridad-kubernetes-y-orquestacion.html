@@ -50,7 +50,7 @@
 <h2 id="cap-5-4-rbac-role-based-access-control-y-riesgos-de-autorizacion">RBAC (Role-Based Access Control) y Riesgos de Autorización</h2>
 <p>Kubernetes utiliza <strong>RBAC</strong> como mecanismo estándar de autorización sobre los recursos de la API. Todo permiso es <strong>denegado por defecto</strong> y únicamente existen reglas aditivas (<code>allow</code>); a diferencia de AWS IAM, <strong>RBAC de Kubernetes no posee reglas explícitas de <code>Deny</code></strong>.</p>
 <h3 id="cap-5-4-objetos-fundamentales-de-rbac">Objetos Fundamentales de RBAC</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Objeto RBAC</th>
 <th>Ámbito</th>
@@ -124,7 +124,7 @@ spec:
       port: 5432</code></pre>
 <h2 id="cap-5-4-pod-security-standards-pss-y-control-de-admision">Pod Security Standards (PSS) y Control de Admisión</h2>
 <p>Tras la eliminación definitiva de <em>PodSecurityPolicy (PSP)</em> en Kubernetes 1.25, el estándar nativo incorporado en el plano de control es <strong>Pod Security Admission (PSA)</strong> aplicando los <strong>Pod Security Standards (PSS)</strong> mediante etiquetas directamente en cada <code>Namespace</code>.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Perfil PSS</th>
 <th>Nivel de Restricción</th>

@@ -31,7 +31,7 @@
 <p><strong>Prerrequisitos:</strong> Capítulo 1.1 completado y contenedor de laboratorio <code>lab_web</code> accesible en <code>127.0.0.1:8080</code>. <strong>Duración sugerida:</strong> 2,5 horas.</p>
 <h2 id="cap-1-2-modelo-osi-frente-a-tcp-ip-y-proceso-de-encapsulacion">Modelo OSI frente a TCP/IP y proceso de encapsulación</h2>
 <p>Cada mensaje que atraviesa una red viaja envuelto en capas sucesivas de encabezados (encapsulación en origen) que el destino retira en orden inverso (desencapsulación). El modelo <strong>OSI</strong> (7 capas) sirve como lenguaje común para diagnosticar fallas y ubicar controles de seguridad, mientras que la pila <strong>TCP/IP</strong> (4 capas) describe la arquitectura efectivamente implementada en Internet y en redes locales.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Capa OSI</th>
 <th>Equivalente TCP/IP</th>
@@ -53,7 +53,7 @@
 <h3 id="cap-1-2-rangos-reservados-clave">Rangos reservados clave</h3>
 <ul><li><strong>Redes privadas (RFC 1918):</strong> <code>10.0.0.0/8</code>, <code>172.16.0.0/12</code> (<code>172.16.0.0</code> → <code>172.31.255.255</code>) y <code>192.168.0.0/16</code>. No son enrutables en Internet público y son la base de toda LAN y laboratorio local.</li><li><strong>Loopback:</strong> <code>127.0.0.0/8</code> (usualmente <code>127.0.0.1</code>), tráfico que nunca abandona el host local.</li><li><strong>Link-Local (APIPA):</strong> <code>169.254.0.0/16</code>, asignado automáticamente cuando falla DHCP.</li></ul>
 <h3 id="cap-1-2-tabla-de-referencia-rapida-cidr">Tabla de referencia rápida CIDR</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Prefijo</th>
 <th>Máscara decimal</th>
@@ -80,7 +80,7 @@
 <p>TCP (RFC 9293) es un protocolo <strong>orientado a conexión</strong> y confiable. Antes de intercambiar datos de aplicación, cliente y servidor sincronizan sus números de secuencia iniciales (<strong>ISN</strong>) mediante el <strong>3-way handshake</strong>:</p>
 <ol><li><strong>Cliente → Servidor (<code>SYN</code>):</strong> propone su número de secuencia inicial <code>SEQ = x</code>.</li><li><strong>Servidor → Cliente (<code>SYN, ACK</code>):</strong> acepta la conexión, envía su propio <code>SEQ = y</code> y confirma el del cliente con <code>ACK = x + 1</code>.</li><li><strong>Cliente → Servidor (<code>ACK</code>):</strong> confirma el <code>SEQ</code> del servidor con <code>ACK = y + 1</code>. La sesión queda en estado <code>ESTABLISHED</code>.</li></ol>
 <p>El cierre ordenado usa un intercambio de 4 pasos con paquetes <code>FIN</code> y <code>ACK</code>, mientras que un cierre abrupto o el rechazo de un puerto cerrado se señala con <code>RST</code>.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Bandera TCP</th>
 <th>Notación en <code>tcpdump</code></th>
@@ -99,7 +99,7 @@
 <h2 id="cap-1-2-captura-y-analisis-con-tcpdump-y-wireshark">Captura y análisis con <code>tcpdump</code> y Wireshark</h2>
 <p>Capturar paquetes permite ver la verdad exacta de la red sin depender de lo que afirme una aplicación. Es fundamental distinguir dos lenguajes de filtrado distintos:</p>
 <ul><li><strong>Filtros de captura BPF (<em>Berkeley Packet Filter</em>):</strong> usados por <code>tcpdump</code> y por el cuadro <em>Capture Filter</em> de Wireshark. Se ejecutan en el kernel <strong>antes</strong> de escribir a disco para no saturar almacenamiento ni CPU.</li><li><strong>Filtros de visualización (<em>Display Filters</em>):</strong> usados por Wireshark y <code>tshark -Y</code> para inspeccionar paquetes ya capturados con granularidad de capa 7.</li></ul>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Objetivo de filtrado</th>
 <th>Filtro de captura BPF (<code>tcpdump</code>)</th>
@@ -114,7 +114,7 @@
 </tbody></table></div>
 <h2 id="cap-1-2-5-conmutacion-vlans-enrutamiento-nat-e-ipv6-en-redes-modernas">5. Conmutación (VLANs), Enrutamiento, NAT e IPv6 en redes modernas</h2>
 <p>Las redes corporativas raramente funcionan como una única red plana: combinan conmutación de Capa 2 segmentada mediante VLANs, enrutamiento dinámico/estático en Capa 3, traducción de direcciones NAT y convivencia <em>dual-stack</em> con IPv6.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Tecnología / Protocolo</th>
 <th>Función en la red</th>
@@ -132,7 +132,7 @@
 <ol><li><strong>Visibilidad y paridad de firewall:</strong> inventariá interfaces y reglas activas con <code>ip -6 addr</code>, <code>ip -6 route</code> y <code>sudo nft list ruleset</code> (o <code>sudo ip6tables -L -v -n</code>). Si un servicio no usa IPv6, vinculalo explícitamente a la interfaz IPv4 o aplicá políticas <code>DROP</code> simétricas en IPv6.</li><li><strong>Mitigación en Capa 2:</strong> habilitá <strong>RA Guard (RFC 6105)</strong> y <strong>DHCPv6 Guard</strong> en los switches de acceso para descartar mensajes ICMPv6 Type 134 (RA) provenientes de puertos de usuario final, junto con detección en IDS/NDR de paquetes ICMPv6 Type 134 no autorizados.</li></ol></aside>
 <h3 id="cap-1-2-capa-2-corporativa-mas-alla-de-arp-y-dhcp-stp-port-security-y-vlan-hopping">Capa 2 corporativa más allá de ARP y DHCP: STP, Port Security y VLAN Hopping</h3>
 <p>En redes Ethernet conmutadas existen tres vectores clásicos de Capa 2 que complementan al ARP Spoofing y al servidor DHCP falso:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Vector L2</th>
 <th>Mecanismo del abuso en red local</th>

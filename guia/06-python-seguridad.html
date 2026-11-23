@@ -36,7 +36,7 @@
 <ul><li><strong>Entornos virtuales (<code>venv</code>):</strong> aislá librerías externas como <code>requests</code> con <code>python3 -m venv .venv</code> para no contaminar el Python del sistema operativo.</li><li><strong>Manejadores de contexto (<code>with</code>):</strong> garantizan el cierre automático de archivos y sockets incluso cuando ocurre una excepción.</li><li><strong>Anotaciones de tipo (<em>type hints</em>):</strong> documentan qué entra y qué sale de cada función (<code>def verificar_puerto(host: str, puerto: int) -&gt; tuple[bool, str]:</code>), reduciendo errores en tiempo de mantenimiento.</li><li><strong>Tiempos de espera explícitos (<code>timeout</code>):</strong> ninguna llamada de red o subproceso debe quedar bloqueada indefinidamente.</li></ul>
 <h3 id="cap-1-6-1-2-criterio-de-eleccion-shell-python-3-y-go">1.2 Criterio de elección: Shell, Python 3 y Go</h3>
 <p>En equipos de seguridad modernos suele combinarse el scripting de sistema con Python 3 y, para utilidades compiladas de alto rendimiento, <strong>Go (Golang)</strong>. Conviene entender cuándo elegir cada herramienta:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Criterio</th>
 <th>Bash / PowerShell</th>
@@ -138,7 +138,7 @@ def verificar_integridad(ruta: Path, hash_esperado: str) -&gt; bool:
     return hmac.compare_digest(calculado.lower(), hash_esperado.strip().lower())</code></pre>
 <h2 id="cap-1-6-4-automatizacion-segura-del-sistema-con-subprocess">4. Automatización segura del sistema con <code>subprocess</code></h2>
 <p>En ocasiones un script Python necesita invocar binarios del sistema operativo (<code>ss</code>, <code>openssl</code>, <code>git</code>, <code>ip</code>). La regla de oro en Python moderno es usar <code>subprocess.run()</code> pasando el comando como <strong>lista de argumentos</strong> y manteniendo <code>shell=False</code> (el valor por defecto).</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Práctica</th>
 <th>Ejemplo</th>
@@ -175,7 +175,7 @@ def inspeccionar_ruta_local(ip_texto: str) -&gt; str:
 <ol><li><strong>Dos patrones compilados:</strong> <code>PATRON_SSH_FAIL</code> extrae <code>user</code> e <code>ip</code> de líneas <code>Failed password for</code> de OpenSSH; <code>PATRON_HTTP_4XX</code> captura <code>ip</code>, <code>metodo</code>, <code>ruta</code> y <code>codigo</code> (<code>401</code>, <code>403</code>, <code>404</code>) en registros de acceso web.</li><li><strong>Estructuras de acumulación eficientes:</strong> emplea <code>collections.Counter()</code> para contabilizar eventos por IP y <code>collections.defaultdict(set)</code> para registrar qué usuarios distintos intentó cada origen sin duplicados.</li><li><strong>Emisión de alertas en JSON estructurado:</strong> genera la regla <code>SOC-AUTH-001</code> cuando una IP alcanza o supera <code>umbral</code> fallos SSH (severidad <code>media</code> si es <code>&lt; 20</code>, <code>alta</code> si es <code>&gt;= 20</code>, acotando <code>usuarios_distintos</code> a 10 elementos) y la regla <code>SOC-WEB-002</code> cuando las respuestas <code>4xx</code> alcanzan <code>umbral * 3</code>. La salida JSON facilita la integración directa con dashboards, scripts posteriores o sistemas SIEM.</li></ol>
 <h2 id="cap-1-6-6-panorama-complementario-go-golang-y-c-net-en-ciberseguridad">6. Panorama complementario: Go (Golang) y C# (.NET) en ciberseguridad</h2>
 <p>Aunque Python es el lenguaje principal para automatización ágil, muchas herramientas de auditoría, agentes defensivos y aplicaciones empresariales están escritas en <strong>Go</strong> o <strong>C#</strong>, por lo que conviene reconocer ambos ecosistemas desde el inicio:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Lenguaje</th>
 <th>Dónde aparece en ciberseguridad</th>

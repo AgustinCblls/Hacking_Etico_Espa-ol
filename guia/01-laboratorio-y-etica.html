@@ -31,7 +31,7 @@
 <p><strong>Prerrequisitos:</strong> Conocimientos básicos de uso de sistema operativo (Windows, Linux o macOS) y familiaridad mínima con la terminal. <strong>Duración sugerida:</strong> 2 horas.</p>
 <h2 id="cap-1-1-fundamentos-de-seguridad-de-la-informacion-y-enfoque-integral">Fundamentos de seguridad de la información y enfoque integral</h2>
 <p>La seguridad de la información protege activos digitales y procesos de negocio frente a accesos no autorizados, alteraciones indebidas o interrupciones de servicio. Todo análisis técnico riguroso parte de la <strong>tríada CIA</strong> y de una ecuación práctica de riesgo: un riesgo se materializa cuando una amenaza explota una vulnerabilidad sobre un activo con impacto medible.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Propiedad</th>
 <th>Definición operativa</th>
@@ -51,7 +51,7 @@
 <p>Un hipervisor <strong>Tipo 1</strong> (<em>bare-metal</em>, como <strong>Hyper-V</strong>, KVM/QEMU o VMware ESXi) se ejecuta directamente sobre el hardware físico o mediante un núcleo de hipervisión propio, mientras que un hipervisor <strong>Tipo 2</strong> (<em>hosted</em>, como VirtualBox o VMware Workstation Pro) corre como aplicación sobre tu sistema operativo anfitrión. Antes de instalar herramientas o modificar configuraciones críticas en una máquina virtual (VM), creá siempre un <strong>snapshot limpio</strong> (estado base): esto te permite revertir cualquier experimento fallido en segundos sin reinstalar el sistema.</p>
 <h3 id="cap-1-1-topologias-de-red-en-hipervisores">Topologías de red en hipervisores</h3>
 <p>La elección del adaptador de red virtual determina si tus máquinas vulnerables quedan expuestas a tu red local (LAN) o contenidas en un segmento privado.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Modo de red</th>
 <th>Acceso VM → VM</th>
@@ -81,7 +81,7 @@
 <ul><li><strong>Alcance estricto (In-Scope / Out-of-Scope):</strong> rangos CIDR exactos, dominios, aplicaciones y exclusiones explícitas (por ejemplo, sistemas críticos de soporte vital o proveedores externos de terceros).</li><li><strong>Ventanas horarias y restricciones técnicas:</strong> horarios aprobados, límite de concurrencia para evitar denegación de servicio involuntaria y técnicas prohibidas (como ingeniería social o pruebas de estrés).</li><li><strong>Contactos de emergencia y escalamiento:</strong> canal seguro para reportar de inmediato hallazgos críticos o evidencia de una intrusión real ya existente.</li><li><strong>Manejo de evidencias y confidencialidad:</strong> cifrado de reportes, período de retención y destrucción segura tras el cierre.</li></ul>
 <h3 id="cap-1-1-ptes-y-nist-sp-800-115">PTES y NIST SP 800-115</h3>
 <p>Las pruebas profesionales siguen estándares abiertos verificables para garantizar cobertura consistente y repetibilidad:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Fase lógica</th>
 <th>Estándar PTES</th>

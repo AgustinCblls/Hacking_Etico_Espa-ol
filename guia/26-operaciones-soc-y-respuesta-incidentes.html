@@ -32,7 +32,7 @@
 <h2 id="cap-4-1-1-arquitectura-de-un-soc-niveles-y-metricas-operativas">1. Arquitectura de un SOC, niveles y métricas operativas</h2>
 <p>Un Centro de Operaciones de Seguridad (SOC) centraliza el monitoreo continuo, el triage de alertas y la coordinación frente a incidentes. Su eficacia depende de separar responsabilidades por complejidad técnica para evitar la fatiga de alertas y garantizar tiempos de respuesta predecibles.</p>
 <h3 id="cap-4-1-niveles-operativos-l1-l2-y-l3">Niveles operativos: L1, L2 y L3</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Nivel</th>
 <th>Rol principal</th>
@@ -92,7 +92,7 @@ def verificar_integridad_artefactos(carpeta: str) -&gt; list[str]:
 <ul><li><strong>Resumen ejecutivo:</strong> Impacto en negocio, activos afectados y estado actual (contenido / resuelto).</li><li><strong>Línea de tiempo (UTC):</strong> Secuencia breve de hitos principales con marca horaria normalizada.</li><li><strong>Causa raíz y alcance:</strong> Vector inicial identificado, sistemas tocados y datos expuestos.</li><li><strong>Acciones correctivas:</strong> Contención aplicada, parches, rotaciones de credenciales y mejoras de monitoreo.</li></ul>
 <h2 id="cap-4-1-3-modelos-analiticos-y-uso-operativo-de-mitre-att-ck">3. Modelos analíticos y uso operativo de MITRE ATT&amp;CK</h2>
 <p>Los modelos analíticos permiten estructurar observaciones dispersas y detectar brechas de cobertura defensiva.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Modelo</th>
 <th>Enfoque principal</th>
@@ -104,7 +104,7 @@ def verificar_integridad_artefactos(carpeta: str) -&gt; list[str]:
 </tbody></table></div>
 <h3 id="cap-4-1-mapeo-operativo-de-brechas-con-mitre-att-ck">Mapeo operativo de brechas con MITRE ATT&amp;CK</h3>
 <p>En lugar de intentar cubrir toda la matriz en un día, un SOC maduro agrupa sus prioridades en pocas tácticas padre de alto impacto y mide si posee telemetría suficiente en cada una:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Táctica padre (MITRE ATT&amp;CK)</th>
 <th>Comportamiento de alto nivel a vigilar</th>
@@ -124,7 +124,7 @@ def verificar_integridad_artefactos(carpeta: str) -&gt; list[str]:
 <h3 id="cap-4-1-ciclo-del-programa-de-gestion-de-vulnerabilidades">Ciclo del programa de Gestión de Vulnerabilidades</h3>
 <p>Mientras el pentesting evalúa escenarios puntuales en profundidad, la <strong>Gestión de Vulnerabilidades (<em>Vulnerability Management</em>)</strong> mantiene inventario y remediación continua en todo el parque mediante cuatro etapas cerradas:</p>
 <ol><li><strong>Descubrir:</strong> inventario actualizado de activos y escaneo periódico con motores como <strong>OpenVAS (Greenbone)</strong> o <strong>Nessus</strong> (combinando <strong>escaneo autenticado</strong> mediante credenciales SSH/WMI de solo lectura para detectar paquetes faltantes con <strong>escaneo externo no autenticado</strong> para verificar lo expuesto), complementado por telemetría continua de agentes EDR/TVM.</li><li><strong>Priorizar:</strong> cruzar <strong>CVSS v4.0</strong>, <strong>EPSS</strong>, catálogo <strong>CISA KEV</strong> y criticidad del activo (exposición externa/Tier 0 vs. laboratorio aislado) mediante árbol SSVC.</li><li><strong>Remediar dentro de SLAs acordados:</strong> parches de seguridad, mitigaciones compensatorias (regla WAF/segmentación) o excepciones formales firmadas con fecha de vencimiento.</li><li><strong>Verificar:</strong> re-escaneo dirigido tras el despliegue del parche para confirmar el cierre efectivo (métricas clave: <strong>MTTR por severidad</strong>, <strong>cobertura de escaneo autenticado %</strong> y <strong>tasa de reincidencia</strong>).</li></ol>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Nivel / Criterio</th>
 <th>SLA de remediación sugerido</th>

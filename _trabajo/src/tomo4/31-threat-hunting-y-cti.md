@@ -74,6 +74,8 @@ Antes de pegar cualquier URL, dominio, IP o correo sospechoso en un informe, tic
 - `198.51.100.42` → `198[.]51[.]100[.]42`
 - `soporte@dominio.invalid` → `soporte[@]dominio[.]invalid`
 
+<!-- salto -->
+
 ### Caza de amenazas especializadas: Beaconing, Ransomware, RMM y *Deception*
 
 Además de buscar indicadores estáticos conocidos, el *Threat Hunting* proactivo formula hipótesis sobre comportamientos difíciles de ocultar incluso cuando el atacante cambia dominios o recompila binarios:
@@ -111,6 +113,8 @@ El correo electrónico sigue siendo una de las principales vías de acceso inici
 3. **Detectar discrepancias en `From:`, `Return-Path:` y `Reply-To:`:** es habitual en campañas de suplantación mostrar una dirección corporativa en `From:` o un *Display Name* engañoso mientras `Reply-To:` apunta a un dominio externo distinto.
 4. **Extraer e inspeccionar URLs con *defanging*:** comparar el texto visible del enlace en HTML frente a su atributo `href=` real, buscando acortadores, dominios recién creados o *typosquatting* (`empresaa.example`).
 5. **Triage pasivo de adjuntos:** calcular únicamente su hash **SHA-256**, revisar el tipo real por *magic bytes* (por ejemplo distinguir un `.html` disfrazado o un archivo `.iso`/`.lnk`/`.zip`), sin ejecutarlo nunca en el equipo del analista.
+
+<!-- salto -->
 
 ## 4. Ejemplo paso a paso: análisis completo de `laboratorios/muestras/correo_phishing_simulado.eml`
 

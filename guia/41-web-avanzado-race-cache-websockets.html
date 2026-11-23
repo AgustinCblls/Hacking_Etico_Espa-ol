@@ -68,7 +68,7 @@ def redeem_promo(user_id: int, code: str):
 <ul><li><strong>Inicialización de sesión con privilegios temporales</strong>: un flujo de login crea primero el registro de sesión en Redis con estado predeterminado y luego consulta el rol o bloquea la cuenta si falló el MFA. Durante unos milisegundos existe una sesión válida previa a la verificación secundaria.</li><li><strong>Restablecimiento de contraseña y cambio de correo</strong>: si un endpoint genera un token de recuperación y tarda algunos milisegundos en asociarlo al usuario correcto en una tabla auxiliar, una petición paralela de actualización de perfil puede alterar el destinatario antes de que se envíe la notificación.</li><li><strong>Carga y validación de archivos</strong>: guardar un archivo en el directorio público temporal y ejecutar el análisis antivirus o la verificación de formato después, borrándolo solo si falla.</li></ul>
 <h3 id="cap-6-1-1-4-mitigacion-transaccional-y-atomica">1.4 Mitigación transaccional y atómica</h3>
 <p>Deshabilitar HTTP/2 no soluciona una condición de carrera: solo dificulta ligeramente la sincronización externa, mientras que el problema sigue presente bajo tráfico legítimo concurrente. La remediación debe ocurrir en la capa de datos y coordinación.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Mecanismo defensivo</th>
 <th>Cómo funciona</th>
@@ -221,7 +221,7 @@ fetch(`/api/v1/items/${itemId}/details`, {
   .then((data) =&gt; renderItem(data));</code></pre>
 <p>Cuando el navegador ejecuta <code>fetch("/api/v1/items/123/../../admin/export-tokens/details")</code>, <strong>normaliza automáticamente</strong> los segmentos <code>..</code> antes de enviar la petición HTTP al servidor, convirtiéndola en <code>GET /api/v1/admin/export-tokens/details</code>. Si ese otro endpoint responde datos sensibles que el cliente luego renderiza en pantalla o envía a un <em>sink</em> secundario (como un <em>webhook</em> o parámetro <code>redirect</code>), el flujo del cliente queda desviado hacia acciones no previstas.</p>
 <h3 id="cap-6-1-4-3-mitigaciones-en-el-frontend">4.3 Mitigaciones en el Frontend</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Riesgo</th>
 <th>Estrategia de mitigación</th>
@@ -285,7 +285,7 @@ window.addEventListener("message", (event) =&gt; {
 <h2 id="cap-6-1-5-http-request-smuggling">5. HTTP Request Smuggling</h2>
 <p>El <strong>HTTP Request Smuggling</strong> (contrabando de peticiones HTTP) explota discrepancias en cómo dos servidores encadenados —un <em>Front-End</em> (CDN, WAF o balanceador Nginx/HAProxy) y un <em>Back-End</em> (servidor de aplicación)— determinan <strong>dónde termina una petición HTTP y empieza la siguiente</strong> dentro de una misma conexión TCP persistente (<code>Keep-Alive</code>). Como el <em>Front-End</em> suele multiplexar conexiones de distintos usuarios hacia un mismo socket backend, cualquier byte sobrante envenena la petición del próximo usuario legítimo.</p>
 <h3 id="cap-6-1-5-1-desincronizacion-clasica-en-http-1-1-cl-te-y-te-cl">5.1 Desincronización clásica en HTTP/1.1 (<code>CL.TE</code> y <code>TE.CL</code>)</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Variante</th>
 <th>Regla del <em>Front-End</em></th>

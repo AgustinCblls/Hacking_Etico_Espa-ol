@@ -54,7 +54,7 @@
 <ol start="3"><li><strong>Signature (Firma):</strong> garantiza la <strong>integridad y autenticidad</strong> del Header y del Payload.</li></ol>
 <aside class="callout peligro"><p class="callout-titulo">Recordatorio crítico: un JWT firmado (JWS) NO está cifrado</p><p>La codificación Base64URL de un JWT estándar es 100 % reversible por cualquiera que vea el token. La firma impide que alguien <strong>modifique</strong> el contenido sin conocer la clave secreta o privada, pero no oculta los datos. Nunca guardes secretos, contraseñas ni datos personales sensibles dentro del payload de un JWT.</p></aside>
 <h3 id="cap-2-5-fallos-criticos-en-implementaciones-de-jwt-y-como-corregirlos">Fallos críticos en implementaciones de JWT y cómo corregirlos</h3>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Defecto de implementación</th>
 <th>Por qué ocurre</th>

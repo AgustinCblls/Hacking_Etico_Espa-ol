@@ -32,7 +32,7 @@
 <p>Este capítulo consolida la base conceptual y operativa necesaria para auditar identidades en la nube, cubriendo el recorrido de los módulos <em>Virtualization and Cloud Security</em>, <em>AWS Identity and Access Management</em> e <em>Identity and Access Management</em>.</p>
 <h2 id="cap-5-1-arquitectura-multi-cloud-y-modelo-de-responsabilidad-compartida">Arquitectura Multi-Cloud y Modelo de Responsabilidad Compartida</h2>
 <p>Las organizaciones modernas raramente dependen de un único proveedor. Adoptan estrategias <strong>multi-cloud</strong> (combinando <strong>Amazon Web Services (AWS)</strong>, <strong>Microsoft Azure</strong> y <strong>Google Cloud Platform (GCP)</strong>) para evitar el bloqueo de proveedor (<em>vendor lock-in</em>), cumplir normativas de residencia de datos o aprovechar servicios especializados de analítica e inteligencia artificial. Sin embargo, operar múltiples nubes multiplica la complejidad del plano de control porque cada plataforma nombra, agrupa y delega sus recursos con jerarquías distintas.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Capa o Concepto</th>
 <th>AWS</th>
@@ -123,7 +123,7 @@
 <p>Un rol define una <strong>Trust Policy</strong> (política de confianza) que especifica qué identidades pueden invocar <code>sts:AssumeRole</code>. Si una política de confianza declara un principal demasiado amplio (por ejemplo, toda la raíz de la cuenta <code>arn:aws:iam::123456789012:root</code> sin condiciones adicionales, o un comodín hacia cuentas externas sin <code>sts:ExternalId</code>), cualquier identidad con permiso genérico de <code>sts:AssumeRole</code> podrá pivotar hacia ese rol. El riesgo se agrava cuando existen cadenas transitivas: el Rol A asume al Rol B, y este al Rol C administrativo.</p>
 <h3 id="cap-5-1-4-creacion-de-credenciales-de-acceso-para-terceros">4. Creación de credenciales de acceso para terceros</h3>
 <p>Permisos como <code>iam:CreateAccessKey</code>, <code>iam:CreateLoginProfile</code> o <code>iam:UpdateLoginProfile</code> sin restricción estricta a la propia identidad (<code>${aws:username}</code>) habilitan que un operador genere credenciales nuevas sobre cuentas de servicio o usuarios administrativos preexistentes.</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Permiso IAM Auditado</th>
 <th>Riesgo Arquitectónico Principal</th>
@@ -137,7 +137,7 @@
 </tbody></table></div>
 <h3 id="cap-5-1-comparativa-multi-cloud-primitivas-de-escalada-iam">Comparativa Multi-Cloud: Primitivas de Escalada IAM</h3>
 <p>Aunque cada proveedor utiliza su propia nomenclatura, los patrones de abuso y escalada de privilegios en el plano de identidad presentan equivalencias directas en <strong>AWS</strong>, <strong>Azure / Entra ID</strong> y <strong>GCP</strong>:</p>
-<div class="tabla"><table>
+<div class="tabla tabla-compacta"><table>
 <thead><tr>
 <th>Proveedor</th>
 <th>Primitivas frecuentes de escalada IAM</th>
