@@ -26,8 +26,8 @@ nmap -sn 192.168.56.0/24
 # Escaneo TCP SYN rápido de los 1000 puertos más comunes + guardado en 3 formatos (requiere privilegios)
 sudo nmap -sS -T4 --open -oA escaneo_inicial 192.168.56.10
 
-# Escaneo completo de puertos TCP + detección de versiones y scripts seguros por defecto
-nmap -p- --min-rate 1500 -sV -sC -oA escaneo_completo 192.168.56.10
+# Escaneo completo de puertos TCP sin ping (-Pn) con control de tasa, versiones y scripts seguros
+nmap -Pn -p- --min-rate 1500 -sV -sC --open -oA escaneo_completo 192.168.56.10
 
 # Top 50 puertos UDP críticos (DNS 53, SNMP 161, NTP 123, DHCP 67/68)
 sudo nmap -sU --top-ports 50 --open 192.168.56.10
@@ -102,8 +102,11 @@ pypykatz lsa minidump /ruta/lab/lsass_dump.dmp</code></pre>
 <pre><code class="lenguaje-text"># Consulta rápida Splunk (SPL) — Top IPs con más de 10 fallos 4625 en 15 min
 index=windows EventCode=4625 | stats count dc(TargetUserName) as usuarios by IpAddress | where count &gt; 10 | sort - count
 
-# Consulta rápida Elastic (KQL) — PowerShell codificado lanzado por aplicaciones de Office
+# Consulta rápida Elastic (KQL — solo filtro) — PowerShell codificado lanzado por aplicaciones de Office
 event.code: "1" and process.name: ("powershell.exe" or "pwsh.exe") and process.parent.name: ("winword.exe" or "excel.exe")
+
+# Consulta rápida Elastic ES|QL (tuberías desde 8.14+) — Top IPs con fallos 4625
+FROM winlogbeat-* | WHERE event.code == "4625" | STATS fallos = COUNT(*) BY source.ip | WHERE fallos &gt; 10 | SORT fallos DESC
 
 # Regla Suricata didáctica — Detectar User-Agent de prueba en HTTP interno
 alert http $HOME_NET any -&gt; any any (msg:"LAB SEC User-Agent de Auditoria Detectado"; flow:to_server,established; http.user_agent; content:"Lab-Audit-Probe"; sid:9000001; rev:1;)</code></pre>
@@ -319,7 +322,7 @@ GLOSARIO_ITEMS = [
     ("JWT", "JSON Web Token. Estándar abierto (RFC 7519) para transmitir claims firmados (header.payload.signature) usado en autenticación stateless y OAuth/OIDC."),
     ("Kerberoasting", "Técnica de auditoría en AD que solicita tickets de servicio (TGS) para cuentas con SPN registrado; si la cuenta usa cifrado débil o contraseña corta, puede exponerse offline."),
     ("Kerberos", "Protocolo de autenticación mutua basado en tickets (TGT y TGS) emitidos por el Key Distribution Center (KDC) en Active Directory, diseñado para evitar enviar contraseñas por la red."),
-    ("KQL / SPL", "Kibana Query Language (Elastic) y Search Processing Language (Splunk). Lenguajes de consulta usados por analistas SOC e ingenieros de detección para investigar eventos en el SIEM."),
+    ("KQL / ES|QL / SPL", "Kibana Query Language (solo filtrado en Elastic), ES|QL (Elasticsearch Piped Query Language con tuberías desde 2024), Kusto KQL (Microsoft Sentinel/Defender) y Search Processing Language (Splunk)."),
     ("LDAP / LDAPS", "Lightweight Directory Access Protocol (389) y su variante cifrada sobre TLS (636). Protocolo estándar para consultar y administrar objetos en Active Directory."),
     ("LFI / Path Traversal", "Local File Inclusion / Traversal de rutas. Debilidad donde una entrada no saneada con secuencias como ../ permite leer archivos del sistema fuera del directorio previsto."),
     ("LOLBins", "Living-off-the-Land Binaries. Herramientas legítimas y firmadas del propio sistema operativo (como certutil, powershell, mshta o curl) que los atacantes reutilizan para pasar desapercibidos."),
@@ -418,6 +421,17 @@ GLOSARIO_ITEMS = [
     ("SAML", "Security Assertion Markup Language. Estándar XML con firma digital usado en federación e inicio de sesión único (SSO) entre un proveedor de identidad (IdP) y aplicaciones (SP)."),
     ("SOAR", "Security Orchestration, Automation, and Response. Plataforma que automatiza playbooks de respuesta en el SOC (enriquecimiento de IOCs, aislamiento de endpoints y gestión de alertas)."),
     ("Zero Trust", "Modelo arquitectónico que elimina la confianza implícita basada en la red interna y verifica continuamente identidad, cumplimiento del dispositivo y mínimo privilegio en cada acceso."),
+    ("BPDU Guard / Root Guard", "Controles de Capa 2 en switches Ethernet frente a secuestro de Spanning Tree (STP): BPDU Guard bloquea puertos de acceso si reciben BPDUs y Root Guard impide que puertos no autorizados asuman el rol de Root Bridge."),
+    ("Bus CAN / SecOC", "Controller Area Network. Bus broadcast automotriz (accesible vía OBD-II) sin cifrado ni autenticación nativa entre ECUs; SecOC añade autenticación MAC por trama junto a Central Gateways de aislamiento."),
+    ("ClickFix / HTML Smuggling", "Vectores modernos de acceso inicial: ClickFix engaña al usuario con un CAPTCHA/error falso para pegar un comando en Win+R/terminal; HTML Smuggling ensambla payloads localmente con JavaScript (Blob/atob) evadiendo gateways."),
+    ("CSPM / CWPP / CNAPP", "Categorías de seguridad Cloud: CSPM audita configuración del plano de control (Prowler), CWPP protege cargas en ejecución (VMs/pods), CIEM gobierna permisos y CNAPP unifica todas junto al código IaC."),
+    ("DLP (Data Loss Prevention)", "Controles y políticas en endpoint, correo y proxy/CASB para detectar, etiquetar y bloquear la exfiltración o fuga accidental de datos sensibles y PII."),
+    ("IRSA / Workload Identity", "Mecanismo federado OIDC en Kubernetes gestionado (EKS IRSA, GKE y AKS Workload Identity) que otorga credenciales temporales cloud a ServiceAccounts sin almacenar llaves estáticas."),
+    ("ITDR", "Identity Threat Detection and Response. Capacidad enfocada en detectar y contener abusos en tiempo real sobre planos de identidad (AD, Entra ID, Okta), tokens robados y escaladas de permisos."),
+    ("PAM (Privileged Access Management)", "Gestión de accesos privilegiados mediante bóveda con rotación automática, acceso Just-In-Time (JIT), mínimo privilegio y grabación de sesiones administrativas."),
+    ("SIM Swapping / SS7", "Transferencia fraudulenta de una línea móvil a una SIM/eSIM del atacante e interceptación sobre señalización SS7/Diameter; vuelve vulnerable al SMS como 2FA y obliga a migrar a FIDO2/Passkeys."),
+    ("TLP 2.0 (Traffic Light Protocol)", "Estándar FIRST (TLP:RED, AMBER+STRICT, AMBER, GREEN y CLEAR) que regula con precisión hasta dónde puede compartirse información de incidentes o inteligencia CTI."),
+    ("Zip Slip", "Vulnerabilidad de Path Traversal al extraer archivos comprimidos (.zip/.tar) con rutas relativas ../ sin validar que el destino resuelto permanezca dentro del directorio base."),
 ]
 
 LABORATORIOS_HTML = """
@@ -504,8 +518,8 @@ FUENTES_LIMITES_HTML = """
 <tr><td><strong>Inteligencia Artificial, LLMs y Agentes</strong></td><td>OWASP Top 10 for LLM Applications 2025, OWASP Top 10 for Agentic Applications (2025), MITRE ATLAS, NIST AI RMF 1.0 / AI 600-1, ISO/IEC 42001 y especificaciones MCP.</td></tr>
 </tbody></table></div>
 
-<h2 id="puente-cls-guia">Puente curricular con la obra hermana: Curso de Reversing en Windows</h2>
-<p>Los módulos orientados a ensamblador x86/x64, formato ejecutable PE, depuración de binarios, ingeniería inversa con IDA/Ghidra, análisis profundo de WinDbg/ETW e internos del kernel de Windows se encuentran desarrollados de forma exhaustiva en nuestro manual hermano <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><strong>Curso de Reversing en Windows</strong></a>, permitiendo estudiar ambos proyectos como una suite complementaria sin duplicar material:</p>
+<h2 id="puente-cls-guia">Puente curricular opcional con la obra hermana: Curso de Reversing en Windows</h2>
+<p>Esta Hiper Biblioteca es <strong>100 % autocontenida</strong> para estudiar ciberseguridad ofensiva y defensiva (incluyendo el resumen operativo de PE, <code>_EPROCESS</code> y <code>VAD</code> en el Capítulo 4.8). De forma <strong>opcional</strong>, si ubicás junto a este paquete la carpeta hermana <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><strong>Curso de Reversing en Windows</strong></a> (en PDFs independientes ese enlace externo relativo no resuelve), podés ampliar allí ensamblador x86/x64, depuración y kernel en Ring 0 sin duplicar material:</p>
 <div class="tabla"><table>
 <thead><tr><th>Temática en el catálogo (10 mód. puente)</th><th>Cobertura recomendada en la suite hermano <code>Curso de Reversing</code></th></tr></thead>
 <tbody>

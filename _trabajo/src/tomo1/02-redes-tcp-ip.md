@@ -129,6 +129,24 @@ En entornos corporativos configurados "solo para IPv4", la causa raíz del riesg
 2. **Mitigación en Capa 2:** habilitá **RA Guard (RFC 6105)** y **DHCPv6 Guard** en los switches de acceso para descartar mensajes ICMPv6 Type 134 (RA) provenientes de puertos de usuario final, junto con detección en IDS/NDR de paquetes ICMPv6 Type 134 no autorizados.
 :::
 
+### Capa 2 corporativa más allá de ARP y DHCP: STP, Port Security y VLAN Hopping
+
+En redes Ethernet conmutadas existen tres vectores clásicos de Capa 2 que complementan al ARP Spoofing y al servidor DHCP falso:
+
+| Vector L2 | Mecanismo del abuso en red local | Telemetría de detección (Blue Team) | Endurecimiento obligatorio en switch |
+|---|---|---|---|
+| **Secuestro de STP (*Spanning Tree Protocol*)** | Un host emite tramas **BPDU** falsas con prioridad `0` para proclamarse *Root Bridge* en STP/RSTP y atraer tráfico entre switches o provocar reconvergencias DoS. | Traps SNMP de cambio de topología STP (`Topology Change Notification`), alertas de puerto en estado *err-disabled* y monitoreo L2 en NDR. | Activar **`BPDU Guard`** en todo puerto de acceso (*PortFast*) y **`Root Guard`** en enlaces donde jamás deba aparecer un *Root Bridge*. |
+| **Inundación MAC (*CAM Overflow*)** | El envío masivo de tramas con direcciones MAC origen aleatorias llena la tabla CAM del switch, degradándolo temporalmente a reenviar tramas unicast hacia todos los puertos. | Picos abruptos de mac-flapping o violaciones en interfaces de acceso registradas por syslog/SNMP del switch. | Configurar **Port Security** fijando un límite estricto por boca (`switchport port-security maximum 1` o `2`, direcciones *sticky* y acción `restrict`/`shutdown`). |
+| **Salto de VLAN (*VLAN Hopping*)** | Vía **DTP spoofing** (negociar un enlace *trunk* desde un puerto de acceso) o **Double Tagging 802.1Q** (apilar dos etiquetas cuando el tráfico coincide con la VLAN nativa sin etiquetar). | Alertas de negociación DTP inesperada o tramas con doble etiqueta `802.1Q` capturadas en sensor de red. | Deshabilitar DTP (`switchport mode access` + `switchport nonegotiate`), mover la **VLAN nativa** a un ID dedicado sin uso (`999`) y etiquetar explícitamente troncales. |
+
+### VPN, túneles cifrados y perímetro de borde (IPsec y WireGuard)
+
+Como el acceso remoto suele ser la puerta principal hacia la red interna, los protocolos VPN merecen evaluación específica tanto en configuración como en monitoreo:
+
+- **IPsec (`IKEv1` / `IKEv2`, `UDP 500/4500`, protocolos `AH` y `ESP`):** estándar corporativo de túneles sitio-a-sitio y cliente remoto. `AH` (*Authentication Header*) autentica sin cifrar; **`ESP`** (*Encapsulating Security Payload*) cifra y autentica en **modo túnel** (oculta el paquete IP original completo en VPN) o **modo transporte** (protege solo la carga IP entre dos hosts). En auditorías se rechaza **IKEv1 en *Aggressive Mode*** con clave precompartida (PSKs recuperables offline tras capturar el intercambio inicial), exigiendo **IKEv2** con certificados X.509 o PSKs de alta entropía, suites AEAD (`AES-GCM`) y grupos DH/ECDH fuertes o híbridos post-cuánticos.
+- **WireGuard (`UDP/51820`):** protocolo VPN moderno basado en criptografía fija (**Curve25519**, ChaCha20-Poly1305, BLAKE2s) y superficie de código mínima. Cada par (*peer*) se identifica por clave pública estática y no responde a paquetes no autenticados (*stealth* frente a escaneos sin clave), reduciendo la exposición a fallos previos a la autenticación. Su operación segura requiere gestionar rotación de llaves, asignar bloques `AllowedIPs` mínimos por par y complementar con identidad/MFA centralizada en acceso corporativo.
+- **Detección y hardening de acceso remoto:** centralizá logs de negociación IKE/SSL-VPN y alta de sesiones (`IP origen`, usuario, país/ASN), exigí **MFA resistente a phishing** antes de entregar IP interna y aplicá microsegmentación para que un túnel VPN no otorgue acceso plano a toda la red interna.
+
 ## Ejemplo paso a paso: Captura de un 3-way handshake HTTP y consulta DNS en loopback
 
 En esta práctica vas a capturar tráfico real contra el contenedor `lab_web` del Capítulo 1.1 (`127.0.0.1:8080`) usando dos terminales en tu máquina Linux de laboratorio.

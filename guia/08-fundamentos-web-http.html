@@ -42,7 +42,7 @@
        │  Consultas parametrizadas
        ▼
 [Base de Datos SQLite / PostgreSQL]</code></pre>
-<p>Comprender qué valida cada capa es la base de toda auditoría web. Un error habitual de diseño consiste en delegar validaciones de seguridad al JavaScript del navegador olvidando que cualquier cliente HTTP (como <code>curl</code>, un script de Python o un proxy local) puede hablar directamente con el servidor enviando cabeceras y parámetros arbitrarios.</p>
+<p>Comprender qué valida cada capa es la base de toda auditoría web. Un error habitual de diseño consiste en delegar validaciones de seguridad al navegador o a clientes locales (como aplicaciones de escritorio, móviles o videojuegos): en cualquier arquitectura cliente-servidor, todo dato o control que viva exclusivamente del lado cliente puede ser inspeccionado o alterado enviando peticiones directas con <code>curl</code>, un script en Python o un proxy local. De ahí nace una regla universal de seguridad: <strong>nunca confíes en validaciones ejecutadas solo del lado del cliente</strong>.</p>
 <h2 id="cap-1-8-2-anatomia-de-una-peticion-y-respuesta-http">2. Anatomía de una petición y respuesta HTTP</h2>
 <p>HTTP es un protocolo de capa de aplicación <strong>sin estado inherente</strong> (<em>stateless</em>): cada par petición/respuesta es independiente del anterior a menos que el servidor y el cliente intercambien un identificador explícito (cookie o token).</p>
 <h3 id="cap-1-8-estructura-de-la-peticion-request">Estructura de la petición (Request)</h3>

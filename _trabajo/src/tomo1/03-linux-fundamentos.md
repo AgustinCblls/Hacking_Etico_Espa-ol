@@ -184,6 +184,17 @@ Endurecer un servidor Linux se basa en reducir superficie y aumentar trazabilida
 3. **Auditoría del kernel con `auditd` y logs centralizados:** registrá cambios en `/etc/passwd`, `/etc/shadow`, `/etc/sudoers` y ejecuciones privilegiadas mediante reglas de `auditd`, y reenviá logs en tiempo real a un servidor externo (`rsyslog`/SIEM) para impedir que un atacante borre sus huellas localmente.
 :::
 
+### Endurecimiento esencial en macOS (entornos corporativos híbridos)
+
+En flotas de desarrollo o estaciones ejecutivas, **macOS** comparte raíces POSIX/UNIX con Linux (kernel híbrido XNU y herramientas CLI similares), pero implementa controles propios que un auditor debe verificar:
+
+| Control nativo macOS | Propósito de seguridad | Verificación rápida / Endurecimiento |
+|---|---|---|
+| **SIP (*System Integrity Protection*)** | Impide incluso a `root` modificar rutas protegidas (`/System`, `/usr`, `/sbin`) o inyectar librerías en binarios del sistema. | Verificar con `csrutil status` (`enabled` obligatorio fuera de entornos de investigación kernel dedicados). |
+| **Gatekeeper, Notarización y XProtect** | Valida firmas de desarrollador, notarización ante Apple y firmas de malware antes de ejecutar binarios descargados (`com.apple.quarantine`). | Confirmar `spctl --status` (`assessments enabled`) y mantener XProtect/MRT actualizados automáticamente. |
+| **FileVault 2** | Cifrado completo de volumen APFS ligado al enclave seguro (*Secure Enclave*) frente a robo físico o acceso offline al disco. | Comprobar con `fdesetup status` (`FileVault is On`) y custodiar la clave de recuperación institucional vía MDM. |
+| **TCC (*Transparency, Consent, and Control*)** | Regula permisos granulares de privacidad (*Full Disk Access*, cámara, micrófono, automatización AppleEvents y grabación de pantalla). | Auditar excepciones otorgadas en `System Settings` o vía perfiles **PPPC** gestionados por MDM para evitar abusos de accesibilidad o captura. |
+
 ## Práctica en laboratorio local
 
 1. En tu VM Linux aislada, creá un directorio de pruebas `/tmp/lab_permisos` y un archivo interno `secreto.txt`. Aplicá permisos `0640`, probá asignarle una ACL puntual con `setfacl` y verificá el resultado con `ls -la` y `getfacl`.

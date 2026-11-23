@@ -142,6 +142,13 @@ Java.perform(function () {
 });
 ```
 
+### Seguridad del canal celular: `SIM Swapping`, `SS7` y fragilidad del SMS como 2FA
+
+En Latinoamérica y servicios financieros digitales, el **SMS como segundo factor de autenticación (2FA)** constituye un riesgo operativo severo que no depende de vulnerar la aplicación móvil sino la red telefónica subyacente:
+- **SIM Swapping (portabilidad o duplicación fraudulenta):** mediante ingeniería social en centros de atención o abuso interno en operadoras móviles, un atacante transfiere la línea de la víctima a una nueva SIM/eSIM bajo su control. Al recibir llamadas y códigos SMS OTP, logra restablecer accesos bancarios, billeteras virtuales y correos de recuperación.
+- **Debilidades estructurales de SS7 y Diameter:** las redes celulares heredadas intercambian señalización mediante **SS7** (y **Diameter** en 4G) con escasa autenticación mutua entre operadoras internacionales, permitiendo históricamente a nodos comprometidos desviar SMS de autenticación o geolocalizar líneas sin interacción del usuario.
+- **Defensa y mitigación recomendada:** **abandonar el SMS como 2FA** para cuentas críticas o bancarias y migrar hacia **FIDO2 / Passkeys**, aprobaciones criptográficas vinculadas a dispositivo (*in-app signing* con llave en Keystore/Secure Enclave) o TOTP local; en entidades financieras y plataformas móviles, consultar señales antifraude de operadora (*SIM Swap Check* / antigüedad de activación de SIM) antes de autorizar cambios de clave o transferencias de alto valor.
+
 ## Fundamentos de forense móvil en Android e iOS
 
 En una investigación de respuesta a incidentes o análisis forense digital (DFIR), la prioridad absoluta es preservar la integridad de la evidencia y mantener la cadena de custodia: documentá cada acción, aislá el dispositivo de la red (modo avión, desactivación de Wi-Fi/Bluetooth o bolsa Faraday para evitar borrado remoto) y calculá hashes SHA-256 de toda extracción obtenida.

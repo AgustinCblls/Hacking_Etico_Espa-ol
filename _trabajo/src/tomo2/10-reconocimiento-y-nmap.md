@@ -11,8 +11,7 @@ Toda evaluación técnica seria comienza con un alcance formalmente autorizado (
 Adoptar una mentalidad orientada a amenazas (*threat-informed*) implica ir más allá de tildar listas de control: buscás entender cómo interactúan los activos expuestos, los controles preventivos y la telemetría defensiva. En una planificación moderna de superficie de ataque, conviene contemplar tanto los servicios de red tradicionales como vectores adyacentes que suelen quedar fuera de foco:
 
 - **Cadena de suministro de software (*Supply Chain*):** dependencias externas, imágenes base de contenedores y paquetes de terceros pueden introducir debilidades sin modificar una sola línea de código propio. Mantener un inventario SBOM (*Software Bill of Materials*) y verificar firmas criptográficas es parte del reconocimiento defensivo.
-- **Protocolos heredados e inalámbricos:** comprender por qué protocolos obsoletos como **WEP** (*Wired Equivalent Privacy*) fallaron por diseño —reutilización de vectores de inicialización cortos sobre RC4 que degrada la confidencialidad— explica por qué la auditoría de configuraciones busca eliminar cifrados débiles antes que intentar repararlos.
-- **Integridad en clientes locales (aplicaciones y videojuegos):** en arquitectura cliente-servidor, cualquier dato o lógica que viva exclusivamente en la memoria del cliente puede ser inspeccionado o alterado por el usuario local. Ese principio, evidente al analizar mecánicas básicas de ingeniería inversa en clientes locales, sustenta una regla universal de seguridad: nunca confíes en validaciones que ocurren solo del lado del cliente.
+- **Equipos de borde y *Shadow IT* expuesto:** concentradores VPN, gateways, servidores de correo y subdominios olvidados (*dangling DNS*) suelen constituir la primera superficie real detectada desde el exterior antes de alcanzar la red interna.
 
 ## Reconocimiento pasivo y footprinting corporativo
 
@@ -20,10 +19,14 @@ El reconocimiento pasivo recopila información pública y registros abiertos sin
 
 | Fuente pasiva | Protocolo o registro | Qué revela en una auditoría | Utilidad defensiva |
 | :--- | :--- | :--- | :--- |
-| **DNS público** | A, AAAA, MX, NS, TXT | Servidores de correo, proveedores cloud y subdominios conocidos | Detectar registros huérfanos (*dangling DNS*) |
-| **Transparencia de Certificados (CT)** | Logs públicos RFC 6962 | Subdominios con certificados TLS emitidos históricamente | Descubrir entornos de pruebas expuestos por error |
+| **DNS público y subdominios pasivos** | A, AAAA, MX, NS, TXT + fuentes pasivas (`subfinder`, `amass -passive`) | Servidores de correo, proveedores cloud y subdominios conocidos sin tocar el objetivo | Detectar registros huérfanos (*dangling DNS*) y activos sombra |
+| **Transparencia de Certificados (CT)** | Logs públicos RFC 6962 (`crt.sh`) | Subdominios con certificados TLS emitidos históricamente | Descubrir entornos de pruebas expuestos por error |
+| **Buscadores de activos expuestos** | Indexadores pasivos (**Shodan**, **Censys**, **FOFA**) | Puertos abiertos, banners, versiones, certificados SSL y paneles expuestos a Internet | Auditar qué ve Internet de tu perímetro antes de que un atacante lo aproveche |
+| **Archivos históricos web** | **Wayback Machine** / **Common Crawl** (`waybackurls`, `gau`) | Endpoints retirados, rutas administrativas olvidadas, `.bak` y parámetros legados | Retirar de producción rutas antiguas y rotar secretos expuestos históricamente |
 | **RDAP / WHOIS** | HTTP/JSON (RFC 7480) | Bloques ASN, rangos IP asignados y fechas de vencimiento | Validar propiedad de activos y contactos de abuso |
 | **Autenticación de correo** | Registros TXT (SPF, DMARC, DKIM) | Política frente a suplantación de dominio y terceros autorizados | Endurecer entregas y reducir riesgo de *phishing* |
+
+*(Nota: en el Capítulo 2.8 integraremos estas fuentes pasivas dentro del flujo estructurado de *Bug Bounty* y validación de alcance continuo).*
 
 ### Consultas DNS y verificación de postura de correo
 
@@ -59,9 +62,12 @@ Elegir la técnica adecuada reduce el ruido en la red y mejora la precisión de 
 | `-sV` | Sondas de protocolo para identificar servicio y versión | Usuario / Root | Correlacionar banners con versiones instaladas |
 | `-sC` | Ejecuta scripts NSE de la categoría `default` (seguros) | Usuario / Root | Obtener metadatos TLS, cabeceras HTTP o banners estándar |
 | `-O` | Huella de pila TCP/IP para estimar sistema operativo | Root / Admin | Validar homogeneidad del parque de VMs |
+| `-Pn` | Omite el descubrimiento previo (*host discovery* / ping) y asume el host vivo | Usuario / Root | Indispensable cuando un firewall filtra ICMP/sondas iniciales |
+| `-p-` | Escanea el rango completo de los `65.535` puertos TCP (`1-65535`) | Usuario / Root | Inventario real: evita omitir servicios en puertos altos (`8080`, `9200`, etc.) |
+| `--open` | Filtra la salida para mostrar solo puertos `open` | Usuario / Root | Reduce ruido en reportes sobre segmentos con miles de puertos |
 | `-oA base` | Guarda simultáneamente `.nmap`, `.xml` y `.gnmap` | Usuario / Root | Preservar evidencia reproducible para informes |
 
-Las plantillas de temporización van de `-T0` (extremadamente lento) a `-T5` (agresivo). En laboratorios locales, `-T3` (valor por defecto) o `-T4` ofrecen un buen equilibrio entre velocidad y fiabilidad sin saturar servicios livianos ni provocar pérdidas de paquetes.
+**Control de velocidad y precisión en inventario real:** las plantillas de temporización van de `-T0` (muy lento/evasivo) a `-T5` (agresivo). En producción o laboratorio realista, combiná `-Pn -p-` con `-T3` o `-T4` y parámetros explícitos de ritmo como `--min-rate 300 --max-retries 2` (o `--scan-delay` en equipos sensibles OT/legacy) para completar inventarios extensos sin saturar enlaces ni provocar pérdida de respuestas (*drops*). Recordá que las tasas altas aumentan la visibilidad inmediata en alertas IDS/IPS y firewalls perimetrales.
 
 ### Uso responsable del motor NSE
 

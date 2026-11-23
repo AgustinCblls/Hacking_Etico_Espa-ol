@@ -27,8 +27,8 @@ Para analizar por qué ciertas técnicas existen y por qué hoy resultan mucho m
 +-----------------------------------------------------------------------+
 ```
 
-::: nota Profundización en internos y kernel de Windows
-El análisis detallado de la transición Ring 3 a Ring 0, las estructuras del kernel (`EPROCESS`, `ETHREAD`, `PEB`), los descriptores de servicio y el ciclo completo de llamadas del sistema en Windows se desarrolla en el material de referencia de la obra hermana: [Curso de Reversing en Windows (Rama 2D · Internos y kernel de Windows)](../../CLS_Guia/2d.html). Te conviene consultarlo antes de diseñar pruebas de telemetría en kernel en tu laboratorio.
+::: nota Profundización opcional en internos y kernel de Windows
+El análisis arquitectónico completo aquí incluido es autocontenido para Purple Team y detección. Si además disponés localmente de la carpeta hermana opcional [`CLS_Guia`](../../CLS_Guia/2d.html), su **Rama 2D · Internos y kernel de Windows** profundiza a nivel binario sobre `EPROCESS`, `ETHREAD`, `PEB` y llamadas del sistema (enlace externo no disponible en PDFs independientes).
 :::
 
 Los cinco pilares arquitectónicos que debés conocer son:
@@ -239,4 +239,4 @@ Antes de pasar al capítulo 6.7 sobre Ingeniería Social y acceso inicial, confi
 - Microsoft Learn — *Sysmon v15+ Documentation* (Event ID `8`, `10` y `25`).
 - MITRE ATT&CK — `T1055` (*Process Injection*), `T1134.004` (*Parent PID Spoofing*), `T1562.001` (*Impair Defenses*), `T1620` (*Reflective Code Loading*).
 - Proyecto abierto **Moneta** y **Hunt-Sleeping-Beacons** — Referencias educativas sobre detección de memoria privada ejecutable y *call stack anomalies*.
-- Material complementario de arquitectura: [Curso de Reversing en Windows (Rama 2D · Internos y kernel de Windows)](../../CLS_Guia/2d.html).
+- Material complementario opcional (requiere carpeta hermana `../CLS_Guia/`): [Curso de Reversing en Windows (Rama 2D · Internos y kernel de Windows)](../../CLS_Guia/2d.html).

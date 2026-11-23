@@ -49,12 +49,17 @@ En servidores Linux (`ext4` / `xfs`), la investigación se concentra en registro
 
 En entornos **macOS**, la estructura equivalente combina los **Unified Logs** (`log show`), **FSEvents** (historial de cambios del sistema de archivos APFS), **`LaunchAgents` / `LaunchDaemons`** (`.plist` de persistencia), cuarentena (`com.apple.quarantine` / base SQLite de descargas) y bases SQLite de navegadores y TCC.
 
-::: nota Superficie de ataque y DFIR en macOS (visibilidad corporativa)
-En flotas corporativas híbridas con macOS, los analistas priorizan cuatro puntos de control sin salir del triage estándar:
-- **Gatekeeper y cuarentena:** verificar firmas/notarización (`spctl -a -vv`) y el atributo extendido `com.apple.quarantine` junto a la base `LSQuarantine` para identificar binarios o `.dmg` ejecutados fuera de canales aprobados.
-- **TCC (*Transparency, Consent, and Control*):** auditar `TCC.db` (permisos granulares de cámara, micrófono, pantalla y *Full Disk Access*) ante posibles abusos o solicitudes engañosas hacia el usuario.
-- **Persistencia (`LaunchAgents` / `LaunchDaemons`):** revisar archivos `.plist` añadidos en `~/Library/LaunchAgents/`, `/Library/LaunchAgents/` y `/Library/LaunchDaemons/`.
-- **Telemetría DFIR (`Unified Logs` y `osquery`):** correlacionar eventos históricos mediante `log show --predicate ...` y consultas SQL portables con **`osquery`** sobre procesos, sockets, extensiones del sistema y `launchd` en tiempo real.
+::: nota Superficie de ataque y DFIR detallado en macOS (visibilidad corporativa)
+En flotas corporativas híbridas con **macOS** (APFS), el análisis forense se apoya en artefactos específicos y portabilidad vía **`osquery`**:
+
+| Artefacto / Fuente DFIR en macOS | Ubicación o comando de consulta | Qué evidencia reconstruye |
+|---|---|---|
+| **Unified Logs** | `log show --last 24h --predicate 'process == "sudo" OR subsystem == "com.apple.securityd"'` | Ejecuciones de procesos, autenticaciones, Gatekeeper, conexiones y fallos de seguridad unificados. |
+| **FSEvents** | `/.fseventsd/` (archivos comprimidos gzip del volumen) | Registro histórico continuo de creación, modificación y borrado de archivos en el volumen APFS. |
+| **Persistencia (`LaunchAgents` / `LaunchDaemons`)** | `~/Library/LaunchAgents/`, `/Library/LaunchAgents/`, `/Library/LaunchDaemons/` | Archivos `.plist` configurados para arrancar binarios o scripts en inicio de sesión o arranque del sistema. |
+| **Cuarentena y origen de descargas** | `~/Library/Preferences/com.apple.LaunchServices.QuarantineEventsV2` (SQLite) + `xattr -l` (`com.apple.quarantine`) | Marca temporal, aplicación que descargó el archivo (Safari, Chrome, Slack) y URL de origen exacto. |
+| **Base de privacidad `TCC.db`** | `~/Library/Application Support/com.apple.TCC/TCC.db` y `/Library/Application Support/com.apple.TCC/TCC.db` | Qué binarios obtuvieron permisos de *Full Disk Access*, grabación de pantalla, cámara o automatización. |
+| **Snapshots locales APFS** | `tmutil listlocalsnapshots /` | Instantáneas locales que conservan versiones previas de archivos modificados o eliminados recientemente. |
 :::
 
 ## 4. Triage a escala (KAPE / Velociraptor) y memoria RAM con Volatility 3
@@ -90,7 +95,7 @@ En servidores Linux, tras capturar la memoria física en vivo con **LiME** (gene
 | `linux.lsmod` | Módulos del kernel (`LKM`) cargados y enlazados en memoria. | Módulos no firmados o desconocidos cargados tras el compromiso (*rootkits* de kernel). |
 | `linux.sockstat` | Descriptores de sockets abiertos (TCP, UDP, Unix) asociados a cada PID. | *Reverse shells* activas o conexiones salientes desde servicios que no deberían iniciar tráfico externo. |
 
-*(Puente con la obra hermana: si querés profundizar en cómo Windows representa internamente los objetos `_EPROCESS`, el VAD (*Virtual Address Descriptor*), las colmenas del Registro, servicios, COM/RPC y ETW en el kernel, consultá la **Rama 2D · Windows Internals y Virtualización** de [Curso de Reversing en Windows](../../CLS_Guia/2d.html) dentro del paquete hermano).*
+*(Nota de portabilidad: el núcleo esencial de `_EPROCESS` y `VAD` se resume directamente en el Capítulo 4.8; solo si deseás profundizar a nivel de kernel y disponés de la carpeta hermana opcional [`CLS_Guia`](../../CLS_Guia/2d.html) junto a esta biblioteca, consultá su **Rama 2D · Windows Internals y Virtualización**).*
 
 ### Adquisición forense, artefactos de navegador y detección de antiforense
 
@@ -202,4 +207,4 @@ Avanzá al último capítulo del Tomo IV (**Capítulo 4.8 · Triage estático de
 - **RFC 3227 (*Guidelines for Evidence Collection and Archiving*):** orden de volatilidad y preservación de evidencia digital.
 - **NIST SP 800-86 (*Guide to Integrating Forensic Techniques into Incident Response*).**
 - **Volatility Foundation — Documentación oficial de Volatility 3** y **Velociraptor VQL Docs.**
-- **Obra hermana [`Curso de Reversing en Windows`](../../CLS_Guia/2d.html):** Rama 2D de *Windows Internals* (VAD, Registro, Servicios, Objetos y ETW).
+- **Recurso complementario opcional ([`Curso de Reversing en Windows`](../../CLS_Guia/2d.html)):** Rama 2D de *Windows Internals* (solo si disponés localmente de la carpeta hermana `../CLS_Guia/`).

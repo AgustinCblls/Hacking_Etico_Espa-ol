@@ -198,6 +198,16 @@ Un modelo de amenazas queda obsoleto si nadie comprueba que las contramedidas ma
 - **Pruebas de concurrencia y aritmética**: ejecutar tests paralelos contra `POST /checkout/confirm` verificando que solo una transacción avance y que montos negativos sean rechazados (**`V2`**).
 - **Antipatrones que debés evitar**: considerar que "estar dentro de la misma VPC" elimina la necesidad de autenticación entre servicios (ignorando la *Frontera de Confianza 2*), copiar un DFD genérico sin actualizarlo cuando se agrega un nuevo webhook o almacenamiento S3, y redactar amenazas sin asignar un responsable ni un criterio de verificación ASVS.
 
+### Escalar a un programa AppSec medible: `OWASP SAMM`, `BSIMM` y `NIST SSDF`
+
+El *Threat Modeling* rinde su máximo valor cuando forma parte de un **programa formal de Seguridad de Aplicaciones (AppSec)** y no de esfuerzos aislados por proyecto:
+
+| Marco de programa AppSec | Naturaleza y estructura | Cómo se complementan |
+|---|---|---|
+| **OWASP SAMM** (*Software Assurance Maturity Model*) | Modelo prescriptivo abierto con **5 funciones de negocio** (*Gobernanza, Diseño, Implementación, Verificación y Operaciones*) y 3 niveles de madurez. | Sirve como hoja de ruta accionable paso a paso para medir dónde está el equipo hoy y planificar mejoras semestrales. |
+| **BSIMM** (*Building Security In Maturity Model*) | Modelo descriptivo basado en observaciones reales de programas maduros en más de cien organizaciones. | Permite comparar (*benchmarking*) tu inversión en prácticas AppSec frente a pares del mismo sector industrial. |
+| **NIST SSDF (`SP 800-218`)** | Marco oficial de prácticas fundamentales de desarrollo seguro exigido en cadenas de suministro y organismos públicos. | Define los controles mínimos obligatorios de ciclo de vida (**`PO`/`PS`/`PW`/`RV`**) alineables con ASVS 5.0, SBOM y CI/CD. |
+
 ---
 
 ## Práctica guiada en laboratorio

@@ -135,6 +135,32 @@ En la operación diaria de un SOC L1/L2 intervienen cuatro flujos prácticos adi
 3. **Gestión continua de Superficie de Ataque (*ASM — Attack Surface Management*) y Ciclo SDLC:** inventariá periódicamente subdominios olvidados, servicios expuestos y certificados próximos a vencer antes de que aparezcan en un incidente, e integrá validaciones tempranas de seguridad en cada fase del **SDLC** (*Software Development Life Cycle* / DevSecOps).
 4. **Riesgos emergentes en agentes de código e integraciones MCP:** los asistentes de desarrollo conectados mediante *Model Context Protocol (MCP)* leen archivos locales, *issues* y repositorios con permisos del desarrollador; aplicá siempre controles deterministas en el host (principio de mínimo privilegio, revisión de comandos y restricciones de red saliente) frente a texto malicioso sembrado en repositorios externos.
 
+## 5. Programa defensivo continuo: Gestión de Vulnerabilidades, Tabletop, PAM, DLP e ITDR
+
+Un SOC y un equipo Blue Team maduros no viven solo de responder alertas reactivas: operan controles preventivos y programas continuos que reducen la probabilidad y el impacto antes de que ocurra la brecha.
+
+### Ciclo del programa de Gestión de Vulnerabilidades
+
+Mientras el pentesting evalúa escenarios puntuales en profundidad, la **Gestión de Vulnerabilidades (*Vulnerability Management*)** mantiene inventario y remediación continua en todo el parque mediante cuatro etapas cerradas:
+
+1. **Descubrir:** inventario actualizado de activos y escaneo periódico con motores como **OpenVAS (Greenbone)** o **Nessus** (combinando **escaneo autenticado** mediante credenciales SSH/WMI de solo lectura para detectar paquetes faltantes con **escaneo externo no autenticado** para verificar lo expuesto), complementado por telemetría continua de agentes EDR/TVM.
+2. **Priorizar:** cruzar **CVSS v4.0**, **EPSS**, catálogo **CISA KEV** y criticidad del activo (exposición externa/Tier 0 vs. laboratorio aislado) mediante árbol SSVC.
+3. **Remediar dentro de SLAs acordados:** parches de seguridad, mitigaciones compensatorias (regla WAF/segmentación) o excepciones formales firmadas con fecha de vencimiento.
+4. **Verificar:** re-escaneo dirigido tras el despliegue del parche para confirmar el cierre efectivo (métricas clave: **MTTR por severidad**, **cobertura de escaneo autenticado %** y **tasa de reincidencia**).
+
+| Nivel / Criterio | SLA de remediación sugerido | Métrica de seguimiento para dirección |
+|---|---|---|
+| **Explotación activa (CISA KEV) / Crítica en perímetro** | `24 a 72 horas` (o mitigación compensatoria inmediata) | Porcentaje resuelto dentro de SLA + MTTR crítico |
+| **Alta en servidores internos / Tier 0** | `7 a 15 días` | Backlog vencido por unidad de negocio |
+| **Media / Baja** | `30 a 90 días` (ciclo de mantenimiento regular) | Tendencia de reducción de deuda técnica trimestral |
+
+### Ejercicios *Tabletop* y controles de programa (PAM, DLP e ITDR)
+
+- **Ejercicios *Tabletop* (simulacros de escritorio):** reuniones estructuradas donde SOC, IR, Infraestructura, Legal, Comunicación y Dirección recorren paso a paso un guion realista (*ransomware* en VMware, robo de sesión SaaS o compromiso de proveedor) sin apagar producción. Permiten medir tiempos de decisión, validar contactos fuera de banda y detectar ambigüedades en la matriz RACI antes de sufrir un incidente real.
+- **PAM (*Privileged Access Management*):** más allá de tener cuentas administrativas separadas, un programa PAM centraliza credenciales críticas en bóvedas cifradas con rotación automática tras cada uso, aplica acceso **Just-In-Time (JIT)** (permiso temporal aprobado solo durante una ventana de cambio), **JEA** (*Just Enough Administration*) y grabación auditable de sesiones SSH/RDP sobre bastiones.
+- **DLP (*Data Loss Prevention*):** políticas en endpoint, pasarela web/CASB y correo electrónico para identificar, etiquetar y bloquear transferencias no autorizadas de información clasificada o PII (tarjetas, documentos legales, código fuente) hacia USBs, webs de IA públicas o cuentas de almacenamiento personal.
+- **ITDR (*Identity Threat Detection & Response*):** disciplina enfocada específicamente en proteger el plano de identidad (Active Directory local, Microsoft Entra ID, Okta) correlacionando señales que un EDR puro de archivo no ve —viajes imposibles, *MFA fatigue*, concesión anómala de permisos OAuth, alteración de DACLs en Tier 0 o abuso de tokens de sesión— con respuesta automatizada para revocar *refresh tokens* y suspender identidades comprometidas en segundos.
+
 ## Ejemplo paso a paso: Triage L1/L2 y registro de incidente en laboratorio
 
 En este escenario simulado en tu red local Host-Only, una alerta señala una conexión saliente inusual desde un servidor Linux de pruebas hacia un puerto no estándar.

@@ -193,6 +193,12 @@ Salida verificada:
 
 En paralelo, para contención de rutas en disco (`Upload`), extraer primero `Path(entrada).name` y comprobar `ruta.is_relative_to(base)` impide que un parámetro como `../../etc/passwd` escape de `./reportes_lab`, y `/upload-seguro` solo guarda tras validar magic bytes reales (`PNG`/`%PDF-`) bajo nombre `UUID`.
 
+### Descompresión segura frente a **Zip Slip** (Path Traversal en archivos `.zip`/`.tar`)
+
+Cuando una aplicación extrae archivos comprimidos cargados por usuarios sin inspeccionar el nombre de cada entrada interna (`zipinfo.filename` o `tarinfo.name`), un archivo malicioso puede incluir entradas con secuencias `../../` (por ejemplo `../../../../var/www/html/shell.py` o enlaces simbólicos en `.tar`) y sobrescribir archivos críticos fuera de la carpeta de extracción (*Zip Slip*).
+- **Detección (Blue Team):** alertas de FIM/Sysmon (`Event ID 11` / `auditd`) ante creación o modificación de ejecutables, plantillas o crons originada por el proceso web durante operaciones de descompresión.
+- **Mitigación:** jamás uses `zipfile.extractall()` ni `tarfile.extractall()` ciegos sobre entradas no confiables; antes de escribir cada miembro, resolvé `destino = (base_dir / miembro).resolve()`, exigí `destino.is_relative_to(base_dir.resolve())` y rechazá enlaces simbólicos o rutas absolutas.
+
 ::: defensa Perspectiva defensiva y mitigación
 1. **Confinamiento de archivos (`Path.resolve()` + `.is_relative_to()`):** preferí siempre referenciar archivos por un ID numérico o UUID en base de datos en lugar de recibir rutas o nombres de archivo en parámetros HTTP.
 2. **Aislamiento de red de salida (*Egress Filtering*):** un servidor web que no necesita iniciar conexiones hacia otros hosts internos debe tener restringido el tráfico saliente a nivel de firewall/red de contenedores, además de validar las URLs con `ipaddress.is_global`.

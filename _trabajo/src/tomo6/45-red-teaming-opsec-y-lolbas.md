@@ -24,6 +24,14 @@ De esa tensión nace el enfoque **Purple Team**: en lugar de mantener una compet
 Todas las técnicas analizadas en este capítulo se estudian para comprender la cadena causal entre ejecución y telemetría. En cualquier evaluación real, la emulación de TTPs fuera de un laboratorio propio exige reglas de enfrentamiento (RoE) firmadas, ventanas horarias definidas y canales de desescalamiento inmediato con el SOC.
 :::
 
+### Red Teaming regulado guiado por inteligencia: `TIBER-EU` y pruebas `TLPT` (`DORA`)
+
+En sectores críticos como banca, seguros e infraestructuras financieras europeas, el Red Teaming evolucionó de ejercicio voluntario a exigencia normativa mediante marcos como **TIBER-EU** (*Threat Intelligence-based Ethical Red Teaming* del Banco Central Europeo) y las pruebas obligatorias **TLPT** (*Threat-Led Penetration Testing*) introducidas por el **Reglamento DORA**. A diferencia de un pentest genérico, estas pruebas siguen un ciclo estructurado en cuatro roles:
+- **White Team (Control):** grupo reducido dentro de la entidad que conoce el ejercicio, gestiona riesgos operativos, define funciones críticas y salvaguardas de producción.
+- **Proveedor de Threat Intelligence (TI):** elabora el informe de amenazas específicas reales contra la entidad y su sector para diseñar escenarios verosímiles.
+- **Red Team independiente:** emula los TTPs seleccionados en entornos productivos reales con estricto sigilo hacia objetivos críticos (*flags*) sin autorización previa en reglas de WAF/EDR.
+- **Blue Team y cierre Purple Team (*Replay*):** tras concluir la fase de pruebas, todos los actores recorren paso a paso cada ataque y alerta para transformar los hallazgos en nuevas reglas de detección y controles duraderos.
+
 ## OPSEC operativo y telemetría que delata
 
 El **OPSEC operativo** es la disciplina de evaluar cada acción antes de ejecutarla según la huella que deja en disco, en memoria, en la red y en los registros de auditoría del sistema operativo. En redes modernas con EDR y recolección centralizada de eventos, el mayor delator de un operador novato no es una vulnerabilidad compleja, sino el reflejo automático de tipear comandos administrativos heredados de guías antiguas.

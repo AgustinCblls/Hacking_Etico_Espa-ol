@@ -26,7 +26,7 @@ Una aplicación web no es un bloque monolítico: es un sistema distribuido donde
 [Base de Datos SQLite / PostgreSQL]
 ```
 
-Comprender qué valida cada capa es la base de toda auditoría web. Un error habitual de diseño consiste en delegar validaciones de seguridad al JavaScript del navegador olvidando que cualquier cliente HTTP (como `curl`, un script de Python o un proxy local) puede hablar directamente con el servidor enviando cabeceras y parámetros arbitrarios.
+Comprender qué valida cada capa es la base de toda auditoría web. Un error habitual de diseño consiste en delegar validaciones de seguridad al navegador o a clientes locales (como aplicaciones de escritorio, móviles o videojuegos): en cualquier arquitectura cliente-servidor, todo dato o control que viva exclusivamente del lado cliente puede ser inspeccionado o alterado enviando peticiones directas con `curl`, un script en Python o un proxy local. De ahí nace una regla universal de seguridad: **nunca confíes en validaciones ejecutadas solo del lado del cliente**.
 
 ## 2. Anatomía de una petición y respuesta HTTP
 

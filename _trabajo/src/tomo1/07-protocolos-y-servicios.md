@@ -1,5 +1,5 @@
 ::: nota Objetivo de la lección
-Comprender el funcionamiento interno, los mecanismos de autenticación, los banners y las malas configuraciones más frecuentes de los doce servicios de red críticos en infraestructuras modernas: **SSH, FTP, DNS, SMTP, SMB, SNMP, LDAP/LDAPS, RDP, WinRM, MySQL, PostgreSQL y MSSQL**. Al finalizar vas a poder auditar la postura de cada servicio en tu laboratorio y aplicar un checklist de hardening verificable.
+Comprender el funcionamiento interno, los mecanismos de autenticación, los banners y las malas configuraciones más frecuentes de los principales servicios de red en infraestructuras modernas: **SSH, FTP, DNS, SMTP, SMB, SNMP, LDAP/LDAPS, RDP, WinRM, MySQL, PostgreSQL, MSSQL**, además de **IMAP/POP3, IPMI/BMC, NFS, Oracle TNS, `rsync`, VNC, Redis y Elasticsearch**. Al finalizar vas a poder auditar la postura de cada servicio en tu laboratorio y aplicar un checklist de hardening verificable.
 :::
 
 **Prerrequisitos:** Dominio del modelo TCP/IP, puertos y sockets (Capítulo 1.2) y manejo de herramientas de inspección en Linux/Windows (Capítulos 1.3 a 1.5). **Duración sugerida:** 3 a 4 horas.
@@ -93,6 +93,21 @@ require_secure_transport = ON
 local_infile             = OFF
 secure_file_priv         = /var/lib/mysql-files
 ```
+
+### 4.3 Otros servicios críticos en inventarios corporativos (Correo, OOB, Archivos y NoSQL)
+
+En escaneos internos y perimetrales aparecen con frecuencia ocho servicios adicionales cuyo mal endurecimiento deriva en acceso inmediato sin autenticación o robo de credenciales:
+
+| Servicio (Puerto) | Exposición y vector habitual | Telemetría / Detección (Purple Team) | Endurecimiento obligatorio |
+| :--- | :--- | :--- | :--- |
+| **IMAP / POP3** (`143`/`110`, TLS `993`/`995`) | Descarga de correo en texto plano (`143`/`110`) o autenticación básica heredada sin MFA ni bloqueo por fuerza bruta. | Picos de fallos IMAP/POP3 y accesos desde ASNs atípicos en logs del servidor de correo o Entra ID/M365. | Desactivar protocolos en claro y *Basic Auth*; exigir **IMAPS/POP3S** o **OAuth 2.0 + MFA**. |
+| **IPMI / BMC / iDRAC / iLO** (UDP `623`, HTTPS gestión) | Interfaz de gestión física fuera de banda (*Out-of-Band*) expuesta en red de usuarios/Internet o con vulnerabilidad **Cipher 0** / descarga de hashes RMCP+. | Consultas UDP `623` no autorizadas o sesiones administrativas fuera de horario en logs del BMC. | **Aislar en VLAN OOB dedicada**, deshabilitar Cipher 0/IPMI sobre LAN si no se usa y exigir VPN + MFA para acceder al plano de gestión. |
+| **NFS** (TCP/UDP `2049`) | Exportaciones abiertas listables con `showmount -e` sin restricción de IP o montadas con `no_root_squash` (permite crear binarios SUID remotos en Linux). | Eventos `mountd`, montajes desde hosts no inventariados y alteraciones en `/etc/exports`. | Restringir por IP exacta en `/etc/exports`, exigir **`root_squash`** (y `all_squash` si aplica) y migrar a **NFSv4 con Kerberos (`sec=krb5p`)**. |
+| **Oracle TNS** (TCP `1521`) | Listener de Oracle Database expuesto que filtra nombres de instancia (`SID`/`SERVICE_NAME`) o acepta administración remota sin clave. | Registros `listener.log` con barridos de `SID` y fallos repetidos `ORA-01017`. | Activar `VALIDNODE_CHECKING = YES` en `sqlnet.ora`, limitar IPs autorizadas y cifrar tráfico con **TCPS / Oracle Native Network Encryption**. |
+| **`rsync`** (TCP `873`) | Demonio `rsyncd` en modo lectura/escritura anónima (`rsync host::modulo`) exponiendo backups, código fuente o llaves SSH. | Logs de `rsyncd` registrando listados anónimos o transferencias hacia IPs externas. | Desactivar el demonio público `873` y usar **`rsync` exclusivamente sobre SSH** (`-e ssh`) con clave pública y ACLs estrictas. |
+| **VNC** (TCP `5900+`) | Escritorio remoto gráfico sin cifrado de sesión nativo y limitado históricamente a contraseñas débiles de hasta **8 caracteres** (`VNC Auth`). | Tráfico en puerto `5900+` fuera de túnel VPN o alertas de fuerza bruta en logs `Xvnc`. | No exponer `5900+` directo; ligar VNC a `127.0.0.1`, tunelizar siempre vía **SSH/VPN** y usar contraseñas fuertes o TLS (`VeNCrypt`). |
+| **Redis** (TCP `6379`) | Caché en memoria escuchando en `0.0.0.0:6379` sin contraseña (`protected-mode no`), permitiendo leer secretos/sesiones o abusar de `SLAVEOF`/`CONFIG SET` para escritura de archivos. | Alertas NDR sobre conexiones `6379` desde clientes ajenos al backend y comandos `CONFIG`/`FLUSHALL` en auditoría. | Ligar a **`bind 127.0.0.1`**, exigir **`requirepass` + ACLs de Redis 6+** (renombrando o bloqueando `CONFIG`/`FLUSHALL`) y usar TLS + firewall. |
+| **Elasticsearch** (TCP `9200` HTTP / `9300` clúster) | API REST en `9200` abierta sin autenticación ni TLS, exponiendo terabytes de logs, PII y credenciales indexadas o permitiendo borrado/ransomware de índices. | Peticiones `GET /_cat/indices`, `DELETE /*` o accesos desde IPs distintas al colector Kibana/Logstash. | Habilitar seguridad nativa (**`xpack.security.enabled: true`**), cifrado **TLS/mTLS** entre nodos y clientes, y firewall cerrado solo para colectores autorizados. |
 
 ## 5. Checklist de hardening por servicio
 

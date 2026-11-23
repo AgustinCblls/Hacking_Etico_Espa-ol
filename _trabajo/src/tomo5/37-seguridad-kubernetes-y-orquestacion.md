@@ -73,6 +73,16 @@ rules:
   verbs: ["get"]
 ```
 
+### Identidades federadas de *workload* en Kubernetes gestionado (`IRSA`, `Workload Identity`)
+
+En clústeres gestionados (**EKS**, **GKE**, **AKS**), nunca debés distribuir llaves estáticas (`AccessKey`/`ClientSecret`) en `Secrets` para que un Pod hable con servicios cloud (S3, Cloud Storage, Key Vault). En su lugar, cada proveedor implementa federación **OIDC** ligada al `ServiceAccount` del Pod para emitir credenciales efímeras:
+
+- **AWS EKS (`IRSA` / *IAM Roles for Service Accounts* y *EKS Pod Identity*):** el `ServiceAccount` lleva la anotación `eks.amazonaws.com/role-arn` (o asociación Pod Identity) y el clúster intercambia su token OIDC vía `sts:AssumeRoleWithWebIdentity`.
+- **GCP (`GKE Workload Identity Federation`):** vincula directamente un `ServiceAccount` de Kubernetes con una identidad/permiso IAM de Google Cloud sin exportar archivos JSON de clave.
+- **Azure (`AKS Workload Identity`):** reemplaza al antiguo `aad-pod-identity` federando el token OIDC del `ServiceAccount` hacia una *Managed Identity* de Entra ID.
+
+**Riesgo y mitigación Purple Team:** si la *Trust Policy* del rol IAM valida solo el proveedor OIDC del clúster pero olvida restringir exactamente `system:serviceaccount:<namespace>:<nombre_sa>`, cualquier Pod en otro namespace podría anotar su propio `ServiceAccount` y asumir ese rol cloud privilegiado. Exigí siempre condiciones `StringEquals` estrictas sobre `sub` (namespace + ServiceAccount), desactivá `automountServiceAccountToken: false` donde no haga falta y auditá llamadas `AssumeRoleWithWebIdentity` en CloudTrail/Audit Logs.
+
 ## Riesgos Críticos en la Especificación de Pods
 
 Por defecto, Kubernetes monta automáticamente un token JWT del `ServiceAccount` `default` dentro de cada Pod en `/var/run/secrets/kubernetes.io/serviceaccount/token` e inicia los contenedores sin restricciones estrictas sobre `securityContext`.

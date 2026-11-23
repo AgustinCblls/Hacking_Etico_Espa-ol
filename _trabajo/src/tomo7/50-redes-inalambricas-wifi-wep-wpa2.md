@@ -60,7 +60,7 @@ En la salida de `airodump-ng`, prestá atención a las columnas `PWR` (intensida
 
 ## Debilidades criptográficas históricas de WEP
 
-Aunque **WEP** (*Wired Equivalent Privacy*) está oficialmente obsoleto desde 2004, sigue presente ocasionalmente en dispositivos industriales antiguos o impresoras heredadas y constituye la base didáctica para entender por qué el diseño criptográfico de un protocolo de enlace nunca debe improvisarse.
+Aunque **WEP** (*Wired Equivalent Privacy*) está oficialmente obsoleto desde 2004, sigue presente ocasionalmente en dispositivos industriales antiguos o impresoras heredadas y constituye la base didáctica para entender por qué la auditoría busca **eliminar cifrados débiles por diseño antes que intentar repararlos**: la reutilización de vectores de inicialización cortos sobre **RC4** degrada por completo la confidencialidad sin importar cuánto se rote la clave manualmente.
 
 WEP utiliza el cifrado de flujo **RC4** combinado con un mecanismo de verificación de integridad llamado **ICV** (*Integrity Check Value*) basado en **CRC-32** (que es lineal y no criptográfico). Para no reutilizar la misma secuencia pseudoaleatoria (*keystream*) de RC4 en cada paquete, WEP concatena un **Vector de Inicialización (IV) de 24 bits** en texto claro con la clave secreta compartida (de 40 o 104 bits).
 

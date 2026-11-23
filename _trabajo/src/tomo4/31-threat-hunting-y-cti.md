@@ -49,11 +49,23 @@ La **Inteligencia de Amenazas (*Cyber Threat Intelligence*, CTI)** contextualiza
 | **Operacional** | Responsables de SOC, IR y Defensa | Campañas activas, vectores iniciales más usados y capacidades reales de grupos que apuntan al sector. | Semanas a meses |
 | **Táctico y Técnico** | Analistas SOC, Hunters y Detection Engineers | TTPs mapeados a MITRE ATT&CK, reglas Sigma/YARA y artefactos observables (hashes, dominios, rutas). | Horas a semanas |
 
-### Prioridad de detección y estándares abiertos
+### Prioridad de detección, plataformas CTI (`MISP` / `OpenCTI`) y protocolo `TLP 2.0`
 
-Recordá siempre la **Pirámide del Dolor** (Cap. 4.5): bloquear un hash SHA-256 o una IP es sencillo pero efímero; cazar **TTPs** (comportamientos padre-hijo y abusos de protocolo) tiene impacto duradero. Para intercambiar inteligencia de forma estructurada entre organizaciones y plataformas (MISP, OpenCTI, SIEM) se utilizan los estándares abiertos de OASIS:
+Recordá siempre la **Pirámide del Dolor** (Cap. 4.5): bloquear un hash SHA-256 o una IP es sencillo pero efímero; cazar **TTPs** (comportamientos padre-hijo y abusos de protocolo) tiene impacto duradero. Para intercambiar y operacionalizar inteligencia de forma estructurada se utilizan los estándares abiertos de OASIS junto con plataformas abiertas de referencia:
 - **STIX 2.1 (*Structured Threat Information Expression*):** formato JSON estandarizado que describe objetos (`indicator`, `threat-actor`, `malware`, `attack-pattern`) y sus relaciones.
 - **TAXII 2.1 (*Trusted Automated Exchange of Intelligence Information*):** protocolo REST sobre HTTPS para publicar y consumir colecciones STIX automáticamente.
+- **MISP (*Malware Information Sharing Platform*):** plataforma colaborativa centrada en compartir **eventos e indicadores (IOCs)**, correlacionar atributos repetidos entre incidentes de distintas organizaciones, enriquecer con taxonomías y exportar automáticamente listas hacia Suricata, Zeek, SIEM o firewalls.
+- **OpenCTI:** plataforma basada en grafo de conocimiento **STIX 2.1** orientada a conectar **amenazas estratégicas/operacionales con TTPs de MITRE ATT&CK**, campañas, herramientas y fuentes externas (incluyendo conectores con MISP y feeds abiertos).
+
+Para intercambiar inteligencia sin exponer investigaciones confidenciales, toda pieza compartida en MISP, OpenCTI o TheHive debe etiquetarse con **TLP 2.0 (*Traffic Light Protocol*, estándar FIRST)**:
+
+| Etiqueta TLP 2.0 | Alcance de distribución permitido | Uso típico en SOC / CTI |
+|---|---|---|
+| **`TLP:RED`** | Estrictamente restringido a los participantes de la reunión/caso puntual (no reenviar). | Detalles de intrusión activa o identidad de víctima antes de contener. |
+| **`TLP:AMBER+STRICT`** | Solo dentro de la **propia organización** (sin compartir con proveedores ni clientes). | Telemetría interna sensible, hallazgos internos Tier 0. |
+| **`TLP:AMBER`** | Dentro de la organización y clientes/socios que necesiten actuar para protegerse. | IOCs observados en una campaña dirigida contra proveedores del sector. |
+| **`TLP:GREEN`** | Comunidad sectorial / pares de ciberseguridad (no publicar en web abierta ni redes). | Reglas Sigma/YARA compartidas entre equipos Blue Team de un ISAC. |
+| **`TLP:CLEAR`** | Sin restricción de divulgación pública (sujeto a atribución estándar). | Boletines públicos, hashes de malware ya divulgados, avisos CVE. |
 
 ### Regla innegociable de higiene: *Defanging*
 

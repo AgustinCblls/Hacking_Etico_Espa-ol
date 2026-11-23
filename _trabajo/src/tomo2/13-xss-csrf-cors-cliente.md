@@ -94,6 +94,12 @@ Los dos errores críticos de configuración que debés buscar en toda auditoría
 Una redirección abierta ocurre cuando el backend acepta un parámetro de URL destino (por ejemplo `/login?next=https://sitio-externo.invalid`) y responde `HTTP 302 Found` con `Location: <valor_usuario>` sin validar el dominio. Aunque por sí sola no ejecuta JavaScript, suele usarse para aumentar la credibilidad de enlaces de phishing bajo un dominio corporativo legítimo o como eslabón en flujos OAuth.
 **Mitigación:** aceptar únicamente **rutas relativas internas** verificando que comiencen con `/` (y nunca con `//`) o validar el hostname contra una lista blanca cerrada en el servidor.
 
+### Inyección CRLF y *HTTP Response Splitting* (OWASP WSTG-INPV-15)
+
+Cuando una aplicación inserta entrada del usuario dentro de cabeceras de respuesta HTTP (como `Location` en redirecciones o `Set-Cookie` en preferencias) sin sanitizar los delimitadores de fin de línea `CR` (`\r` / `%0d`) y `LF` (`\n` / `%0a`), un atacante puede inyectar cabeceras arbitrarias (`Set-Cookie` para fijar sesión) o insertar una doble línea en blanco (`\r\n\r\n`) para controlar el cuerpo de una segunda respuesta dividida (*HTTP Response Splitting* / XSS reflejado en caches).
+- **Detección (Blue Team):** alertas en WAF y logs HTTP ante secuencias `%0d`, `%0a` o saltos de línea codificados en query strings y respuestas inesperadas con cabeceras duplicadas.
+- **Mitigación:** rechazar o eliminar estrictamente `\r` y `\n` de cualquier cadena antes de pasarla a cabeceras HTTP, y utilizar frameworks modernos (Flask/Werkzeug, Django, Express actualizados) que lanzan excepción automática si una cabecera contiene caracteres de control.
+
 ## 6. Ejemplo paso a paso: Purple Team (`Ataca → Detecta → Corrige`) en XSS reflejado y almacenado
 
 En `laboratorios/app_lab_educativa.py` podés comparar directamente la salida sin escape (`/saludo-vulnerable` y `/comentarios-vulnerable`) frente a los gemelos con codificación contextual y CSP (`/saludo-seguro` y `/comentarios-seguro`):

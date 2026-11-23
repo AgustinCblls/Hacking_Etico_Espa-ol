@@ -614,8 +614,8 @@ def construir_sitio_html(data):
 </table></div>
 
 <aside class="callout aviso">
-<p class="callout-titulo">Cobertura integral de la Edición 2.1 (358 / 358 módulos) y Puente con Curso de Reversing</p>
-<p>Esta Hiper Biblioteca integra en <strong>{len(TOMOS_META)} Tomos ({len(caps)} capítulos)</strong> el espectro completo de la ciberseguridad moderna: Fundamentos, Pentesting Web/APIs, Infraestructura/AD, Blue Team/SOC/DFIR, Multi-Cloud/Docker/K8s/DevSecOps/SaaS, Web Avanzado (PortSwigger/WSTG), Threat Modeling, White-Box Code Review, Red Team/OPSEC, Mobile (OWASP MASTG), Wi-Fi/802.1X/WPA3, Hardware/BLE/OT-SCADA, GRC 2026 y Seguridad en IA, LLMs y Agentes ({en_alcance} módulos de taxonomía pública mapeados íntegramente). Adicionalmente, enlaza los {puente_cls} módulos de ensamblador, depuración y reversing de binarios hacia nuestra obra hermana <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><strong>Curso de Reversing en Windows</strong></a>.</p>
+<p class="callout-titulo">Cobertura integral ({len(TOMOS_META)} Tomos · 358 / 358 módulos) y portabilidad sin dependencias</p>
+<p>Esta Hiper Biblioteca es <strong>100 % autocontenida</strong> e integra en <strong>{len(TOMOS_META)} Tomos ({len(caps)} capítulos)</strong> el espectro completo de la ciberseguridad moderna: Fundamentos, Pentesting Web/APIs, Infraestructura/AD, Blue Team/SOC/DFIR, Multi-Cloud/Docker/K8s/DevSecOps/SaaS, Web Avanzado (PortSwigger/WSTG), Threat Modeling, White-Box Code Review, Red Team/OPSEC, Mobile (OWASP MASTG), Wi-Fi/802.1X/WPA3, Hardware/BLE/OT-SCADA, GRC 2026 y Seguridad en IA, LLMs y Agentes ({en_alcance} módulos de taxonomía pública mapeados íntegramente). Adicionalmente, enlaza de forma <strong>opcional</strong> {puente_cls} módulos de ensamblador, depuración y reversing de binarios hacia nuestra obra hermana <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><strong>Curso de Reversing en Windows</strong></a> (disponible en navegador solo si la carpeta <code>../CLS_Guia/</code> está ubicada al lado; en PDFs distribuidos por separado el contenido de esta obra sigue siendo autosuficiente).</p>
 </aside>
 
 <h2 id="que-hay-en-el-paquete">Qué incluye este paquete (100 % offline)</h2>
@@ -631,7 +631,7 @@ def construir_sitio_html(data):
 <tr><td><a href="buscar.html"><code>buscar.html</code></a></td><td>Buscador instantáneo offline sobre todo el contenido del curso.</td></tr>
 <tr><td><a href="orden_impresion.html"><code>orden_impresion.html</code></a></td><td>Especificación de imprenta y acceso directo a los {len(TOMOS_META) + 2} PDFs A4 (Tomos I–VII + Separata + Maestro único con paridad par estricta).</td></tr>
 <tr><td><a href="seguimiento.csv"><code>seguimiento.csv</code></a></td><td>Planilla de avance capítulo por capítulo lista para Excel o LibreOffice Calc.</td></tr>
-<tr><td><a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><code>../CLS_Guia/</code></a></td><td>Obra hermana complementaria especializada en Reversing de binarios Windows, Assembly, WinDbg, Windows Internals y Kernel.</td></tr>
+<tr><td><a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><code>../CLS_Guia/</code></a></td><td>Obra hermana <strong>opcional</strong> (carpeta aparte) especializada en Reversing de binarios Windows, Assembly, WinDbg, Windows Internals y Kernel. No es requerida para estudiar esta colección ni para los PDFs independientes.</td></tr>
 </tbody></table></div>
 
 <h2 id="seguridad-y-legalidad">Seguridad, ética y marco legal</h2>
@@ -1143,7 +1143,7 @@ def compilar_todos_los_pdfs(data, rendered_chapters):
     </div>
   </div>
   <div class="pie-portada">
-    <p><strong>Marco ético:</strong> Obra técnica 100 % original con fines educativos, defensivos y de auditoría autorizada en laboratorio local propio.</p>
+    <p><strong>Marco ético y portabilidad:</strong> Obra técnica 100 % original y autocontenida para fines educativos, defensivos y de auditoría autorizada en laboratorio local propio. Las referencias a la obra hermana <code>Curso de Reversing (../CLS_Guia/)</code> son enlaces opcionales externos y no se requieren en PDFs sueltos.</p>
   </div>
 </div>"""
         res = compilar_volumen_pdf(f"tomo_{tm['num']}", tm["pdf"], portada, secciones, css_base)

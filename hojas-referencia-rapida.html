@@ -44,8 +44,8 @@ nmap -sn 192.168.56.0/24
 # Escaneo TCP SYN rápido de los 1000 puertos más comunes + guardado en 3 formatos (requiere privilegios)
 sudo nmap -sS -T4 --open -oA escaneo_inicial 192.168.56.10
 
-# Escaneo completo de puertos TCP + detección de versiones y scripts seguros por defecto
-nmap -p- --min-rate 1500 -sV -sC -oA escaneo_completo 192.168.56.10
+# Escaneo completo de puertos TCP sin ping (-Pn) con control de tasa, versiones y scripts seguros
+nmap -Pn -p- --min-rate 1500 -sV -sC --open -oA escaneo_completo 192.168.56.10
 
 # Top 50 puertos UDP críticos (DNS 53, SNMP 161, NTP 123, DHCP 67/68)
 sudo nmap -sU --top-ports 50 --open 192.168.56.10
@@ -120,8 +120,11 @@ pypykatz lsa minidump /ruta/lab/lsass_dump.dmp</code></pre>
 <pre><code class="lenguaje-text"># Consulta rápida Splunk (SPL) — Top IPs con más de 10 fallos 4625 en 15 min
 index=windows EventCode=4625 | stats count dc(TargetUserName) as usuarios by IpAddress | where count &gt; 10 | sort - count
 
-# Consulta rápida Elastic (KQL) — PowerShell codificado lanzado por aplicaciones de Office
+# Consulta rápida Elastic (KQL — solo filtro) — PowerShell codificado lanzado por aplicaciones de Office
 event.code: "1" and process.name: ("powershell.exe" or "pwsh.exe") and process.parent.name: ("winword.exe" or "excel.exe")
+
+# Consulta rápida Elastic ES|QL (tuberías desde 8.14+) — Top IPs con fallos 4625
+FROM winlogbeat-* | WHERE event.code == "4625" | STATS fallos = COUNT(*) BY source.ip | WHERE fallos &gt; 10 | SORT fallos DESC
 
 # Regla Suricata didáctica — Detectar User-Agent de prueba en HTTP interno
 alert http $HOME_NET any -&gt; any any (msg:"LAB SEC User-Agent de Auditoria Detectado"; flow:to_server,established; http.user_agent; content:"Lab-Audit-Probe"; sid:9000001; rev:1;)</code></pre>

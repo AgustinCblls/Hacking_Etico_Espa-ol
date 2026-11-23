@@ -183,6 +183,18 @@
 <h3 id="cap-6-3-responder-la-pregunta-4-verificacion-continua-y-antipatrones-frecuentes">Responder la pregunta 4: verificación continua y antipatrones frecuentes</h3>
 <p>Un modelo de amenazas queda obsoleto si nadie comprueba que las contramedidas mapeadas a <strong>OWASP ASVS 5.0</strong> realmente existen en el código desplegado. Para cerrar el ciclo con la pregunta <em>"¿Hicimos un buen trabajo?"</em>, asociá cada fila de la tabla anterior a una prueba automatizada en integración continua:</p>
 <ul><li><strong>Pruebas de contrato e integración</strong>: verificar que toda llamada al endpoint de órdenes sin JWT válido devuelva <code>401</code>, que intentar leer la orden de otro usuario devuelva <code>403</code>/<code>404</code> (<strong><code>V8</code></strong>) y que un webhook con firma HMAC inválida sea rechazado (<strong><code>V4</code> / <code>V12</code></strong>).</li><li><strong>Pruebas de concurrencia y aritmética</strong>: ejecutar tests paralelos contra <code>POST /checkout/confirm</code> verificando que solo una transacción avance y que montos negativos sean rechazados (<strong><code>V2</code></strong>).</li><li><strong>Antipatrones que debés evitar</strong>: considerar que "estar dentro de la misma VPC" elimina la necesidad de autenticación entre servicios (ignorando la <em>Frontera de Confianza 2</em>), copiar un DFD genérico sin actualizarlo cuando se agrega un nuevo webhook o almacenamiento S3, y redactar amenazas sin asignar un responsable ni un criterio de verificación ASVS.</li></ul>
+<h3 id="cap-6-3-escalar-a-un-programa-appsec-medible-owasp-samm-bsimm-y-nist-ssdf">Escalar a un programa AppSec medible: <code>OWASP SAMM</code>, <code>BSIMM</code> y <code>NIST SSDF</code></h3>
+<p>El <em>Threat Modeling</em> rinde su máximo valor cuando forma parte de un <strong>programa formal de Seguridad de Aplicaciones (AppSec)</strong> y no de esfuerzos aislados por proyecto:</p>
+<div class="tabla"><table>
+<thead><tr>
+<th>Marco de programa AppSec</th>
+<th>Naturaleza y estructura</th>
+<th>Cómo se complementan</th>
+</tr></thead><tbody>
+<tr><td><strong>OWASP SAMM</strong> (<em>Software Assurance Maturity Model</em>)</td><td>Modelo prescriptivo abierto con <strong>5 funciones de negocio</strong> (<em>Gobernanza, Diseño, Implementación, Verificación y Operaciones</em>) y 3 niveles de madurez.</td><td>Sirve como hoja de ruta accionable paso a paso para medir dónde está el equipo hoy y planificar mejoras semestrales.</td></tr>
+<tr><td><strong>BSIMM</strong> (<em>Building Security In Maturity Model</em>)</td><td>Modelo descriptivo basado en observaciones reales de programas maduros en más de cien organizaciones.</td><td>Permite comparar (<em>benchmarking</em>) tu inversión en prácticas AppSec frente a pares del mismo sector industrial.</td></tr>
+<tr><td><strong>NIST SSDF (<code>SP 800-218</code>)</strong></td><td>Marco oficial de prácticas fundamentales de desarrollo seguro exigido en cadenas de suministro y organismos públicos.</td><td>Define los controles mínimos obligatorios de ciclo de vida (<strong><code>PO</code>/<code>PS</code>/<code>PW</code>/<code>RV</code></strong>) alineables con ASVS 5.0, SBOM y CI/CD.</td></tr>
+</tbody></table></div>
 <hr>
 <h2 id="cap-6-3-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
 <p>Elegí una arquitectura pequeña que estés construyendo o un escenario de laboratorio estándar (por ejemplo, un sistema de <strong>Transferencias Internas con Autenticación JWT y Notificaciones por Webhook</strong>) y realizá un ejercicio completo de modelado antes de implementar nuevas funcionalidades:</p>

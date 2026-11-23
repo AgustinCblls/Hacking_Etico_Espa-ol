@@ -97,6 +97,14 @@ kernel.dmesg_restrict = 1
 
 Aplicá los cambios con `sudo sysctl --system` y verificá que sigan vigentes ante reinicios.
 
+### Nivel de parches locales como vector y priorización (`PwnKit` y kernel)
+
+Un servidor Linux con servicios bien endurecidos igual puede quedar expuesto si el **nivel de parches** acumula vulnerabilidades locales conocidas. En una auditoría autorizada, antes de probar configuraciones complejas se evalúa la versión del kernel (`uname -r`) y de paquetes SUID/sistema (`dpkg -l` / `rpm -qa`) cruzándolas contra **CISA KEV** y **EPSS** para priorizar correcciones reales sin correr exploits destructivos en producción:
+
+- **Caso de referencia — PwnKit (`CVE-2021-4034`):** fallo crítico en `pkexec` (Polkit) presente por defecto durante más de una década en la mayoría de distribuciones Linux. Al invocar `pkexec` con lista de argumentos vacía (`argc == 0`) y manipulando variables de entorno (`GCONV_PATH` / `CHARSET`), `pkexec` cargaba bibliotecas arbitrarias como `root` sin requerir contraseña.
+- **Telemetría Blue Team:** registrar vía **`auditd`** o **Sysmon for Linux (Event ID `1`)** ejecuciones de `/usr/bin/pkexec` con parent inesperado, variables `GCONV_PATH` o carga/escritura reciente de archivos `.so` en `/tmp` o `/dev/shm`.
+- **Remediación y priorización:** priorizar la actualización de `policykit-1` / `polkit` y del kernel mediante mantenimiento programado o *livepatching*; como mitigación de emergencia documentada cuando no se requiere elevación interactiva en servidores, retirar el bit SUID temporalmente (`sudo chmod 0755 /usr/bin/pkexec`).
+
 ## 4. Detección de actividad privilegiada con `auditd`
 
 El subsistema de auditoría del núcleo Linux (`auditd`) permite registrar eventos críticos de seguridad de manera inmutable para análisis posterior o envío hacia un SIEM.

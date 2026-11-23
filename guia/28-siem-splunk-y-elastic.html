@@ -27,7 +27,7 @@
 <nav class="migas" aria-label="Ubicación"><a href="../00_EMPEZAR_AQUI.html">Inicio</a><span aria-hidden="true">›</span><a href="index.html">Curso</a><span aria-hidden="true">›</span><a href="../tomo4.html">Tomo IV</a><span aria-hidden="true">›</span><span>Cap. 4.3</span></nav>
 <h1 id="cap-4-3">Capítulo 4.3 · SIEM en práctica: Splunk (SPL), Elastic (KQL) y correlación de alertas</h1>
 <div class="meta-nivel"><span class="nivel-badge especialista">Especialista Blue/SOC</span> <span class="nivel-badge defensivo">Defensivo</span> <span><strong>Tomo IV · Ruta 4 · Especialista Blue/SOC</strong></span> <span class="meta-sep">·</span> <span>Siguiente paso: <a href="29-analisis-trafico-ids-ips.html">4.4 Network Security Monitoring: Wireshark, Zeek y reglas IDS/IPS Suricata</a></span></div>
-<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a dominar la arquitectura de un SIEM (ingestión, normalización con ECS/CIM, indexado y retención) y vas a saber construir búsquedas y correlaciones prácticas lado a lado en Splunk (SPL) y Elastic (KQL/Lucene), además de automatizar el análisis inicial de logs web con Python en tu laboratorio.</p></aside>
+<aside class="callout nota"><p class="callout-titulo">Objetivo de la lección</p><p>Al completar este capítulo vas a dominar la arquitectura de un SIEM (ingestión, normalización con ECS/CIM, indexado y retención) y vas a saber construir búsquedas y correlaciones prácticas lado a lado en <strong>Splunk (SPL)</strong> y <strong>Elastic (KQL y ES|QL con tuberías)</strong>, además de automatizar el análisis inicial de logs web con Python en tu laboratorio.</p></aside>
 <p><strong>Prerrequisitos:</strong> Conocimiento de logs de Windows/Sysmon y Linux (Capítulo 4.2), sintaxis básica de expresiones regulares y fundamentos HTTP. <strong>Duración sugerida:</strong> 3 horas de lectura y práctica en laboratorio aislado.</p>
 <h2 id="cap-4-3-1-arquitectura-interna-de-un-siem-y-normalizacion-de-datos">1. Arquitectura interna de un SIEM y normalización de datos</h2>
 <p>Un <strong>SIEM</strong> (<em>Security Information and Event Management</em>) transforma millones de líneas de texto heterogéneas en eventos consultables y alertas accionables. Su flujo interno sigue cinco etapas secuenciales:</p>
@@ -44,35 +44,44 @@
 <tr><td>Línea de comandos</td><td><code>process</code></td><td><code>process.command_line</code></td></tr>
 <tr><td>Código de respuesta HTTP</td><td><code>status</code></td><td><code>http.response.status_code</code></td></tr>
 </tbody></table></div>
-<h2 id="cap-4-3-2-fundamentos-practicos-splunk-spl-frente-a-elastic-kql">2. Fundamentos prácticos: Splunk SPL frente a Elastic KQL</h2>
+<h2 id="cap-4-3-2-fundamentos-practicos-splunk-spl-frente-a-elastic-kql-y-es-ql">2. Fundamentos prácticos: Splunk SPL frente a Elastic KQL y ES|QL</h2>
 <p><strong>SPL</strong> (<em>Search Processing Language</em>) opera como una tubería (<em>pipeline</em>) similar a Unix: filtrás primero a la izquierda del carácter <code>|</code> y luego transformás o agregás datos con comandos como <code>stats</code>, <code>eval</code>, <code>rex</code>, <code>transaction</code>, <code>lookup</code> y <code>timechart</code>.</p>
-<p><strong>KQL</strong> (<em>Kibana Query Language</em>) está optimizado para filtrado rápido sobre campos indexados en Elastic (mediante operadores <code>and</code>, <code>or</code>, <code>not</code> y comodines <code>*</code>), mientras que las agregaciones temporales y correlaciones de secuencia se construyen con visualizaciones, alertas EQL o filtros Lucene cuando se requieren expresiones regulares.</p>
+<p>En <strong>Elastic</strong>, conviven dos lenguajes principales de consulta según el alcance analítico:</p>
+<ul><li><strong>Elastic KQL</strong> (<em>Kibana Query Language</em>): lenguaje declarativo liviano orientado únicamente a <strong>filtrar documentos</strong> en Kibana Discover o reglas simples (<code>and</code>, <code>or</code>, <code>not</code> y comodines <code>*</code>), sin tuberías ni agregaciones dentro de la propia consulta.</li><li><strong>Elastic ES|QL</strong> (<em>Elasticsearch Piped Query Language</em>, disponible desde Elastic 8.14 / junio de 2024): lenguaje completo basado en <strong>tuberías (<code>|</code>)</strong> (<code>FROM ... | WHERE ... | EVAL ... | STATS ... BY ... | SORT ...</code>) que permite filtrar, transformar campos, hacer <em>lookups</em> (<code>ENRICH</code>) y calcular agregaciones estadísticas en una sola consulta —equivalente directo en Elastic de <strong>Splunk SPL</strong> y <strong>Microsoft Kusto KQL</strong>.</li></ul>
 <div class="tabla"><table>
 <thead><tr>
 <th>Operación analítica</th>
 <th>Splunk (SPL)</th>
-<th>Elastic (KQL / Lucene)</th>
+<th>Elastic (KQL / filtros)</th>
+<th>Elastic (ES|QL · tuberías)</th>
 </tr></thead><tbody>
-<tr><td>Filtrado exacto</td><td><code>index=win EventCode=4625</code></td><td><code>event.code: "4625"</code></td></tr>
-<tr><td>Coincidencia parcial</td><td><code>CommandLine="*Encoded*"</code></td><td><code>process.command_line: *Encoded*</code></td></tr>
-<tr><td>Negación / exclusión</td><td><code>NOT user="svc_backup"</code></td><td><code>not user.name: "svc_backup"</code></td></tr>
-<tr><td>Agregación y conteo</td><td><code>| stats count by src_ip</code></td><td>Agregación <em>Terms</em> sobre <code>source.ip</code> en Lens/Discover</td></tr>
-<tr><td>Serie temporal</td><td><code>| timechart span=5m count</code></td><td>Histograma de fecha con intervalo <code>5m</code></td></tr>
+<tr><td>Filtrado exacto</td><td><code>index=win EventCode=4625</code></td><td><code>event.code: "4625"</code></td><td><code>FROM logs-* | WHERE event.code == "4625"</code></td></tr>
+<tr><td>Coincidencia parcial</td><td><code>CommandLine="*Encoded*"</code></td><td><code>process.command_line: *Encoded*</code></td><td><code>| WHERE process.command_line LIKE "*Encoded*"</code></td></tr>
+<tr><td>Negación / exclusión</td><td><code>NOT user="svc_backup"</code></td><td><code>not user.name: "svc_backup"</code></td><td><code>| WHERE user.name != "svc_backup"</code></td></tr>
+<tr><td>Agregación y conteo</td><td><code>| stats count by src_ip</code></td><td>Agregación <em>Terms</em> en Lens/Discover</td><td><code>| STATS total = COUNT(*) BY source.ip | SORT total DESC</code></td></tr>
+<tr><td>Serie temporal</td><td><code>| timechart span=5m count</code></td><td>Histograma de fecha con intervalo <code>5m</code></td><td><code>| EVAL bucket = DATE_TRUNC(5 minutes, @timestamp) | STATS COUNT(*) BY bucket</code></td></tr>
 </tbody></table></div>
-<aside class="callout aviso"><p class="callout-titulo">Aclaración clave: los dos «KQL» (Elastic Kibana vs Microsoft Sentinel)</p><p>En entrevistas técnicas, certificaciones y laboratorios suele aparecer una confusión muy frecuente porque dos tecnologías distintas comparten exactamente la misma sigla <strong>KQL</strong>:</p>
-<ul><li><strong>Elastic KQL (<em>Kibana Query Language</em>):</strong> lenguaje declarativo liviano orientado únicamente a <strong>filtrar documentos</strong> en Kibana Discover / Elastic Security usando <code>campo: valor</code> y operadores booleanos (<code>and</code>, <code>or</code>, <code>not</code>). No tiene tuberías (<code>|</code>) ni agregaciones estadísticas propias dentro de la cadena de filtro.</li><li><strong>Microsoft KQL (<em>Kusto Query Language</em>):</strong> lenguaje completo basado en <strong>tuberías (<code>|</code>)</strong> utilizado en <strong>Microsoft Sentinel</strong>, <strong>Azure Monitor (Log Analytics)</strong> y <strong>Microsoft Defender XDR</strong> para filtrar, proyectar, unir tablas y agregar grandes volúmenes de eventos (de estructura muy cercana a Splunk SPL).</li></ul>
+<aside class="callout aviso"><p class="callout-titulo">Aclaración clave: los dos «KQL» y dónde encaja Elastic ES|QL</p><p>En entrevistas técnicas, certificaciones y laboratorios suele aparecer una confusión muy frecuente porque dos tecnologías distintas comparten exactamente la misma sigla <strong>KQL</strong>:</p>
+<ul><li><strong>Elastic KQL (<em>Kibana Query Language</em>):</strong> sintaxis declarativa liviana orientada exclusivamente a <strong>filtrar documentos</strong> en Kibana Discover / Elastic Security usando <code>campo: valor</code> y operadores booleanos (<code>and</code>, <code>or</code>, <code>not</code>). Carece de tuberías (<code>|</code>) y agregaciones.</li><li><strong>Elastic ES|QL (<em>Elasticsearch Piped Query Language</em>):</strong> introducido en junio de 2024 para resolver esa limitación dentro de Elastic, incorpora <strong>tuberías (<code>|</code>)</strong>, <code>EVAL</code>, <code>DISSECT</code>/<code>GROK</code>, <code>STATS ... BY</code> y <code>SORT</code>, igualando la expresividad analítica de SPL y Kusto en un único pipeline.</li><li><strong>Microsoft KQL (<em>Kusto Query Language</em>):</strong> lenguaje basado en <strong>tuberías (<code>|</code>)</strong> utilizado en <strong>Microsoft Sentinel</strong>, <strong>Azure Monitor (Log Analytics)</strong> y <strong>Microsoft Defender XDR</strong> para filtrar, proyectar, unir tablas y agregar eventos.</li></ul>
 <p>Comparación directa buscando ejecuciones codificadas de PowerShell fuera de un host de administración:</p>
-<pre><code class="lenguaje-kql"># 1. Elastic KQL (Kibana Discover / Elastic Security) -&gt; Solo filtrado
+<pre><code class="lenguaje-kql"># 1. Elastic KQL (Kibana Discover / reglas de filtro simple) -&gt; Solo filtrado
 event.code: "1" and process.name: "powershell.exe" and
 process.command_line: *-enc* and not host.name: "adm-srv-01"</code></pre>
-<pre><code class="lenguaje-kusto">// 2. Microsoft KQL (Kusto Query Language en Sentinel / Defender XDR) -&gt; Filtro + agregación
+<pre><code class="lenguaje-esql">// 2. Elastic ES|QL (Elastic 8.14+, junio 2024+) -&gt; Filtro + agregación con tuberías
+FROM winlogbeat-*, logs-endpoint.*
+| WHERE @timestamp &gt; NOW() - 24 hours
+| WHERE event.code == "1" AND process.name == "powershell.exe"
+| WHERE process.command_line LIKE "*-enc*" AND host.name != "adm-srv-01"
+| STATS Ejecuciones = COUNT(*) BY host.name, user.name, process.command_line
+| SORT Ejecuciones DESC</code></pre>
+<pre><code class="lenguaje-kusto">// 3. Microsoft KQL (Kusto Query Language en Sentinel / Defender XDR) -&gt; Filtro + agregación
 DeviceProcessEvents
 | where Timestamp &gt; ago(24h)
 | where FileName =~ "powershell.exe" and ProcessCommandLine has "-enc"
 | where DeviceName !~ "adm-srv-01"
 | summarize Ejecuciones = count() by DeviceName, AccountName, ProcessCommandLine
 | sort by Ejecuciones desc</code></pre>
-<p>Desde un enfoque <strong>Purple Team</strong>, cuando diseñás una detección en Sigma conviene saber de antemano a qué backend la vas a transpilar: en <strong>Elastic KQL</strong> el filtro alimenta la regla o visualización en Kibana, mientras que en <strong>Sentinel (Kusto KQL)</strong> podés resolver filtrado, enriquecimiento y conteo en la misma consulta.</p></aside>
+<p>Desde un enfoque <strong>Purple Team</strong>, cuando diseñás una detección en Sigma conviene saber qué motor la ejecutará: <strong>Elastic KQL</strong> genera el filtro base de alerta o Discover, <strong>ES|QL</strong> resuelve agregaciones estadísticas, umbrales y correlaciones directamente en Elastic Security, y <strong>Sentinel (Kusto KQL)</strong> cumple el mismo rol en el ecosistema Microsoft.</p></aside>
 <h2 id="cap-4-3-3-casos-de-deteccion-lado-a-lado-spl-y-kql">3. Casos de detección lado a lado (SPL y KQL)</h2>
 <p>A continuación se presentan cuatro escenarios esenciales de monitoreo en un SOC, alineados con tácticas padre de MITRE ATT&amp;CK (<strong>Acceso a Credenciales</strong>, <strong>Ejecución</strong> y <strong>Persistencia</strong>).</p>
 <h3 id="cap-4-3-caso-a-fuerza-bruta-seguida-de-inicio-de-sesion-exitoso">Caso A: Fuerza bruta seguida de inicio de sesión exitoso</h3>
@@ -121,7 +130,7 @@ not host.name: ("adm-srv-01")</code></pre>
 <th>Campo IP origen / Evento normalizado</th>
 <th>Lógica de correlación y concepto clave</th>
 </tr></thead><tbody>
-<tr><td><strong>Elastic (<code>ECS</code>)</strong></td><td><code>source.ip</code>, <code>user.name</code>, <code>event.code</code></td><td>Documentos JSON tipados; <em>Event Query Language</em> (<code>EQL</code>) para secuencias temporales y reglas KQL programadas.</td></tr>
+<tr><td><strong>Elastic (<code>ECS</code>)</strong></td><td><code>source.ip</code>, <code>user.name</code>, <code>event.code</code></td><td>Documentos JSON tipados; <strong>KQL</strong> para filtrado rápido, <strong>ES|QL</strong> (tuberías <code>|</code>) para análisis y agregaciones, y <strong>EQL</strong> para secuencias temporales.</td></tr>
 <tr><td><strong>Splunk (<code>CIM</code>)</strong></td><td><code>src_ip</code>, <code>user</code>, <code>signature_id</code></td><td><em>Data Models</em> acelerados (<code>Authentication</code>, <code>Network_Traffic</code>, <code>Web</code>) que desacoplan las búsquedas <code>tstats</code> del proveedor del log.</td></tr>
 <tr><td><strong>IBM QRadar</strong></td><td>Propiedades parseadas por DSM + identificador <strong>QID</strong> (<em>QRadar Identifier</em>)</td><td>El <strong>CRE</strong> (<em>Custom Rule Engine</em>) agrupa eventos y flujos relacionados en una <strong>Offense</strong> única deduplicada por magnitud, credibilidad y relevancia.</td></tr>
 </tbody></table></div>
@@ -181,10 +190,10 @@ python3 laboratorios/analizador_logs_soc.py laboratorios/muestras/web_access_sim
 <p><strong>4. ¿Qué riesgo introduce el desfase horario entre servidores que envían logs al SIEM?</strong> Impide reconstruir la línea de tiempo real de un incidente y hace fallar las reglas de correlación secuencial (por ejemplo, detectar fallos seguidos de un inicio de sesión exitoso dentro de una ventana de pocos minutos).</p>
 <p><strong>5. ¿Cuál es la forma recomendada de gestionar excepciones durante el afinado (tuning) de alertas?</strong> Centralizar entidades autorizadas (cuentas de servicio, escáneres internos, equipos de administración) en tablas <em>lookup</em> auditadas y con fecha de revisión, en lugar de incrustar exclusiones sueltas difíciles de mantener.</p>
 <h2 id="cap-4-3-antes-de-avanzar">Antes de avanzar</h2>
-<ul><li>☐ Comprendés el flujo completo del SIEM: recolección, parsing, normalización, indexado y correlación.</li><li>☐ Sabés traducir una lógica básica de búsqueda entre Splunk SPL y Elastic KQL.</li><li>☐ Ejecutaste <code>laboratorios/analizador_logs_soc.py</code> sobre un archivo de logs local.</li><li>☐ Aplicaste criterios de afinado para distinguir actividad benigna de alertas accionables.</li></ul>
+<ul><li>☐ Comprendés el flujo completo del SIEM: recolección, parsing, normalización, indexado y correlación.</li><li>☐ Sabés traducir una búsqueda con agregación entre Splunk SPL y Elastic KQL / ES|QL.</li><li>☐ Ejecutaste <code>laboratorios/analizador_logs_soc.py</code> sobre un archivo de logs local.</li><li>☐ Aplicaste criterios de afinado para distinguir actividad benigna de alertas accionables.</li></ul>
 <aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con la telemetría de endpoints centralizada y correlacionada en el SIEM, el paso final de esta parte es sumar la perspectiva de red: inspección de paquetes con Wireshark/tshark, metadatos con Zeek y reglas IDS/IPS en Suricata.</p></aside>
 <h2 id="cap-4-3-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
-<ul><li>Splunk Documentation — <em>Search Reference (SPL) &amp; Common Information Model (CIM)</em>: https://docs.splunk.com/</li><li>Elastic Documentation — <em>Elastic Common Schema (ECS) &amp; Kibana Query Language (KQL)</em>: https://www.elastic.co/guide/</li><li>NIST Special Publication 800-92 — <em>Guide to Computer Security Log Management</em>: https://csrc.nist.gov/publications/detail/sp/800-92/final</li><li>SigmaHQ — <em>Generic Signature Format for SIEM Systems</em>: https://sigmahq.io/</li></ul>
+<ul><li>Splunk Documentation — <em>Search Reference (SPL) &amp; Common Information Model (CIM)</em>: https://docs.splunk.com/</li><li>Elastic Documentation — <em>Elastic Common Schema (ECS), KQL &amp; ES|QL (Elasticsearch Piped Query Language)</em>: https://www.elastic.co/guide/</li><li>NIST Special Publication 800-92 — <em>Guide to Computer Security Log Management</em>: https://csrc.nist.gov/publications/detail/sp/800-92/final</li><li>SigmaHQ — <em>Generic Signature Format for SIEM Systems</em>: https://sigmahq.io/</li></ul>
 
 <details class="qa" style="margin-top:1.5rem">
   <summary>Trazabilidad curricular: 16 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>

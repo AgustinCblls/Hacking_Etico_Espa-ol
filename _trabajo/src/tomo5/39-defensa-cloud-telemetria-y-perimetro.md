@@ -166,6 +166,18 @@ Mientras la telemetría (CloudTrail / Cloud Logging) registra *qué pasó* en el
 - **ScoutSuite:** auditor multi-cloud desarrollado por NCC Group que recolecta la configuración de solo lectura vía APIs de AWS, Azure y GCP y construye un informe HTML navegable offline para revisar rápidamente superficies expuestas (buckets públicos, Security Groups `0.0.0.0/0`, claves antiguas).
 - **Steampipe:** motor basado en PostgreSQL + plugins que expone las APIs de AWS, Azure, GCP, Kubernetes y GitHub como tablas consultables en tiempo real mediante **SQL estándar** (por ejemplo, cruzar en una sola consulta instancias EC2 expuestas con `http_tokens = 'optional'` y roles IAM adjuntos).
 
+### Mapa comparativo de plataformas: CSPM, CWPP, CIEM, CDR y CNAPP
+
+Para no confundir categorías comerciales al diseñar una arquitectura defensiva en la nube, cada sigla responde a una capa concreta del ciclo *prevenir → detectar → responder*:
+
+| Categoría | Qué protege y qué analiza | Ejemplos / Capacidades clave |
+|---|---|---|
+| **CSPM** (*Cloud Security Posture Management*) | **Configuración del plano de control** en cuentas AWS/Azure/GCP y Kubernetes frente a estándares CIS/NIST. | `Prowler`, `ScoutSuite`, `Steampipe`, AWS Security Hub: detecta buckets públicos, cifrado faltante o `IMDSv1` activo. |
+| **CWPP** (*Cloud Workload Protection Platform*) | **Cargas de cómputo en ejecución** (VMs, contenedores, pods K8s y funciones *serverless*). | Escaneo de CVEs en imágenes, control runtime eBPF (`Falco`, `Tetragon`) y protección anti-malware/EDR en hosts cloud. |
+| **CIEM** (*Cloud Infrastructure Entitlement Management*) | **Permisos e identidades efectivas** humanas y de máquina (IAM, Entra ID, roles federados `IRSA`/`Workload Identity`). | Identifica privilegios excesivos no utilizados (*over-privileged roles*), caminos de escalada `iam:PassRole` y llaves antiguas. |
+| **CDR** (*Cloud Detection & Response*) | **Telemetría de eventos en vivo** (CloudTrail, Entra ID Sign-In Logs, K8s Audit Logs) para caza y contención. | AWS GuardDuty + EventBridge + playbooks automatizados para detectar abuso de tokens y aislar roles o contenedores. |
+| **CNAPP** (*Cloud-Native Application Protection Platform*) | **Plataforma convergente unificada** que correlaciona código/IaC (*shift-left*), CSPM, CWPP, CIEM y CDR en un grafo único. | Prioriza riesgos tóxicos combinados (por ejemplo: contenedor con CVE crítico + acceso público Internet + rol IAM administrador). |
+
 ---
 
 ## Defensa perimetral web y mitigación Anti-DDoS
