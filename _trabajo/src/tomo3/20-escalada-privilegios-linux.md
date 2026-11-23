@@ -112,7 +112,25 @@ sudo auditctl -l
 -w /etc/sudoers -p wa -k cambios_sudoers
 -w /etc/sudoers.d/ -p wa -k cambios_sudoers
 -w /etc/crontab -p wa -k tareas_programadas
+-a always,exit -F arch=b64 -S execve -F dir=/tmp -k exec_temporal
 ```
+
+### Triaje automatizado en laboratorio (`LinPEAS` y `pspy`) y su detección
+
+En auditorías locales de tu VM de laboratorio, dos utilidades abiertas aceleran la verificación de hallazgos sin reemplazar el criterio del analista:
+
+```bash
+# 1. LinPEAS (solo en VM de laboratorio aislada): triaje integral de SUID, capabilities, PATH y cron
+./linpeas.sh -q | tee /tmp/triaje_linpeas.log
+
+# 2. pspy64 (monitoreo de procesos sin privilegios root vía /proc e inotify para descubrir cron jobs)
+./pspy64 -pf -i 1000
+```
+
+| Vector / Herramienta | Qué revela en el sistema | Telemetría Blue Team (`auditd` / Sysmon for Linux / Sigma) | Mitigación estructural |
+|---|---|---|---|
+| **`LinPEAS`** | Inventario rápido de SUID, `getcap`, permisos débiles, grupos (`docker`/`lxd`) y sockets expuestos. | Ráfaga de llamadas `execve` (`auditd SYSCALL` / Sysmon for Linux **Event ID `1`**) desde `/tmp` o `/dev/shm` con comandos `find -perm -4000`, `getcap`, `sudo -l`. **Criterio Sigma:** `Image` en `/tmp/*` o `/dev/shm/*` con `CommandLine` conteniendo `linpeas` o enumeración encadenada en < 10 s. | Montar `/tmp`, `/var/tmp` y `/dev/shm` con `noexec,nosuid,nodev` y activar alertas sobre binarios ejecutados desde rutas temporales. |
+| **`pspy`** | Procesos efímeros lanzados por `root` (`cron`, `systemd.timer`) y sus argumentos en línea de comandos. | Lecturas intensivas de `/proc/[pid]/cmdline` o ejecución desde rutas de usuario (Sysmon for Linux **ID `1`**). **Criterio Sigma:** binario no firmado en ruta escribible observando `/proc` repetidamente. | Montar `/proc` con **`hidepid=2`** (o `subset=pid`) para ocultar los procesos de otros usuarios a cuentas sin privilegios, y no pasar secretos como argumentos CLI. |
 
 ## Ejemplo paso a paso: auditoría y remediación de permisos en un servidor Linux de laboratorio
 

@@ -107,21 +107,31 @@ Un usuario `A` puede no figurar directamente en `Domain Admins`, pero:
 
 Herramientas de auditoría basadas en grafos como **BloodHound Community Edition** (junto con auditorías defensivas como **PingCastle** y **Purple Knight**) modelan el directorio como nodos (Usuarios, Grupos, Equipos, OUs, GPOs, Dominios) y aristas (`MemberOf`, `AdminTo`, `HasSession`, `GenericAll`, `WriteDacl`, `ForceChangePassword`, `AllowedToDelegate`). Usando algoritmos de camino más corto (*Shortest Path*, como Dijkstra/BFS en Neo4j), permiten al equipo de seguridad visualizar y cortar esos caminos indirectos de escalada antes de que sean abusados.
 
-### Herramientas de inventario multiprotocolo (`NetExec` / `CrackMapExec`) y debilidades de acceso inicial AD
+### Herramientas de inventario multiprotocolo (`NetExec`), colectores BloodHound y acceso inicial AD
 
-En evaluaciones autorizadas desde Linux/estaciones de auditoría, la suite **`NetExec` (`nxc`, sucesor mantenido de `CrackMapExec`)** permite verificar de forma reproducible configuraciones SMB, WinRM, LDAP y MSSQL:
+En evaluaciones autorizadas desde tu estación de auditoría en laboratorio, la dupla **`BloodHound`** (`bloodhound-python` / `SharpHound`) + **`NetExec` (`nxc`, sucesor mantenido de `CrackMapExec`)** permite reproducir tanto el mapeo del grafo AD como la verificación de controles de red:
 
 ```bash
-# Verificar firma SMB (signing) y versión del SO en una subred de laboratorio autorizada
-nxc smb 10.10.20.0/24
+# 1. Colector remoto BloodHound CE desde Linux (en lab autorizado)
+bloodhound-python -c All -d corp.local -u usuario_lab -p 'ClaveLab!' -ns 10.10.20.10 --zip
 
-# Verificar acceso LDAP autenticado e inventario de cuentas con política de contraseñas
-nxc ldap dc01.corp.local -u usuario_lab -p 'ClaveLab!' --pass-pol
+# 2. Alternativa nativa en endpoint Windows del laboratorio (SharpHound)
+.\SharpHound.exe -c All --Domain corp.local
+
+# 3. NetExec: verificar firma SMB (signing), recursos compartidos, política y cuentas pre-Windows 2000
+nxc smb 10.10.20.0/24 --shares -u usuario_lab -p 'ClaveLab!'
+nxc ldap dc01.corp.local -u usuario_lab -p 'ClaveLab!' --users --pass-pol
 ```
+
+::: nota Telemetría de detección para BloodHound y `NetExec` (Event IDs + Sigma)
+- **Event ID `1644` (*Directory Service*):** consultas LDAP amplias sin filtro o paginación excesiva sobre todos los usuarios, grupos, GPOs y ACLs del dominio ejecutadas por `bloodhound-python` / `SharpHound` / `nxc ldap`.
+- **Event ID `4624` (Logon Type `3`) y `5145` (SMB Shares):** ráfaga de conexiones SMB/RPC desde una misma estación de usuario hacia decenas de hosts en pocos segundos para recolectar sesiones (`HasSession`) y administradores locales (`AdminTo`).
+- **Sysmon Event ID `1` y `3` + criterio Sigma:** proceso no administrativo (`SharpHound.exe` / PowerShell) generando alta cardinalidad de `DestinationIp` hacia puertos `445/TCP`, `135/TCP` y `389/TCP` en una ventana menor a 60 segundos (`sigma: windows/network_connection` + `process_creation` con `OriginalFileName: SharpHound.exe`).
+:::
 
 Asimismo, la auditoría de acceso inicial en AD (**AD Hardening — Recon & Initial Access**) obliga a verificar y cerrar cuatro debilidades heredadas de red:
 1. **Envenenamiento de resolución de nombres locales (`LLMNR`, `NBT-NS` y `mDNS`):** cuando un equipo Windows falla al resolver un nombre por DNS, emite consultas broadcast/multicast LLMNR/NBT-NS en la subred local que pueden recibir respuestas falsas. **Mitigación obligatoria:** deshabilitar LLMNR por GPO (*Turn off multicast name resolution = Enabled*) y desactivar NetBIOS over TCP/IP vía opción DHCP o script de inicio.
-2. **Sesiones SMB nulas (*NULL Sessions*) y grupo `Pre-Windows 2000 Compatible Access`:** verificar que `Everyone` y `Anonymous Logon` no pertenezcan a dicho grupo heredado (evita enumeración LDAP sin credenciales).
+2. **Sesiones SMB nulas (*NULL Sessions*) y superficie `Pre-Windows 2000`:** verificar que `Everyone` y `Anonymous Logon` no pertenezcan al grupo heredado `Pre-Windows 2000 Compatible Access` (evita enumeración LDAP sin credenciales) y auditar también que no existan **cuentas de computadora pre-creadas con la casilla Pre-Windows 2000** (cuya mecánica, detección y remediación se detalla en el Cap. 3.7).
 3. **Credenciales heredadas en `SYSVOL` (`GPP cpassword` MS14-025):** auditar que ningún archivo XML antiguo de Group Policy Preferences conserve el atributo `cpassword` en `\\dominio\SYSVOL`.
 
 ### El vector IPv6 en Active Directory (DHCPv6, RA spoofing y NTLM Relay)
@@ -167,6 +177,21 @@ El aislamiento entre niveles no se deja a la buena voluntad de los administrador
 2. **Deshabilitar el anidamiento descontrolado y auditar `AdminSDHolder`:** ejecutá periódicamente consultas que listen todas las cuentas con `adminCount=1` y verificá que correspondan únicamente a administradores activos reales.
 3. **Monitorear consultas LDAP masivas en el SOC:** una ráfaga inusual de consultas LDAP que enumeran todos los objetos `user`, `group`, `computer` y sus listas de control de acceso (`nTSecurityDescriptor`) desde una estación de trabajo no administrativa se detecta habilitando la telemetría de **Event ID `1644`** en el registro `Directory Service` de los Controladores de Dominio (o mediante Sysmon / sensores MDI).
 :::
+
+## Anexo: Cómo armar un laboratorio reproducible de Active Directory
+
+Para ejecutar las prácticas de este bloque (Caps. 3.6–3.8) sin depender de plataformas externas, elegí una de tres arquitecturas aisladas según la memoria RAM de tu equipo:
+
+| Opción | Componentes mínimos | RAM sugerida en host | Cuándo conviene |
+|---|---|---|---|
+| **1. Lab liviano manual** | 1× Windows Server 2022/2025 Eval (DC01: AD DS + DNS, 4 GB RAM) + 1× Windows 10/11 Eval unido al dominio (4 GB) + 1× Kali/Parrot (2–4 GB). | **12–16 GB RAM** | Equipos portátiles o estudio enfocado paso a paso. |
+| **2. GOAD / GOAD-Light** | Despliegue automático vía Terraform/Packer/Ansible (`goad.py`): `GOAD` completo (5 VMs, multi-dominio + ADCS) o `GOAD-Light` (3 VMs). | **16 GB (`Light`) a 32 GB** | Practicar Trusts entre bosques, NTLM Relay y ADCS realistas. |
+| **3. Ludus (Proxmox VE)** | Servidor Proxmox con definición declarativa YAML (`ludus range`), plantillas Windows Server + cliente + red aislada automática. | **32+ GB RAM** (servidor) | Entornos persistentes de equipo Purple Team y reseteo rápido. |
+
+**Checklist rápido para la opción liviana (VirtualBox / VMware / Hyper-V):**
+1. **Red aislada:** creá un switch interno o red **Host-Only** (`10.10.20.0/24`) sin DHCP externo y configurá IP fija en `DC01` (`10.10.20.10`, DNS apuntando a `127.0.0.1`).
+2. **Promoción mínima:** instalá el rol `AD-Domain-Services`, promovelo a nuevo bosque (`corp.local`), uní `WS01` (`10.10.20.20`) al dominio usando `10.10.20.10` como DNS y opcionalmente instalá ADCS en otro servidor o rol de prueba.
+3. **Snapshots obligatorios:** antes de habilitar configuraciones vulnerables intencionales (p. ej. cuenta de prueba con SPN o sin pre-auth) o ejecutar scripts de auditoría, tomá un **snapshot limpio (`Base-AD-Limpio`)** para revertir al cerrar cada práctica.
 
 ## Práctica en laboratorio local
 

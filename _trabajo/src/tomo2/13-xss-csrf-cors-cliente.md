@@ -63,6 +63,7 @@ CSP le indica al navegador qué fuentes de contenido están autorizadas. Incluso
 | `object-src 'none'` | Desactiva plugins heredados | Bloquea elementos `<object>`, `<embed>` y `<applet>`. |
 | `base-uri 'self'` | Fija la etiqueta `<base>` al propio origen | Evita que una inyección HTML altere la ruta base de los scripts relativos. |
 | `frame-ancestors 'none'` | Prohíbe incrustar la página en marcos | Reemplazo moderno y más flexible de `X-Frame-Options: DENY`. |
+| `require-trusted-types-for 'script'` | Exige políticas **Trusted Types** en *sinks* DOM peligrosos | Bloquea asignaciones de cadenas crudas a `innerHTML`/`document.write`, mitigando **DOM XSS** en SPAs modernas. |
 
 ## 4. Cross-Site Request Forgery (CSRF) y Clickjacking
 
@@ -93,16 +94,23 @@ Los dos errores críticos de configuración que debés buscar en toda auditoría
 Una redirección abierta ocurre cuando el backend acepta un parámetro de URL destino (por ejemplo `/login?next=https://sitio-externo.invalid`) y responde `HTTP 302 Found` con `Location: <valor_usuario>` sin validar el dominio. Aunque por sí sola no ejecuta JavaScript, suele usarse para aumentar la credibilidad de enlaces de phishing bajo un dominio corporativo legítimo o como eslabón en flujos OAuth.
 **Mitigación:** aceptar únicamente **rutas relativas internas** verificando que comiencen con `/` (y nunca con `//`) o validar el hostname contra una lista blanca cerrada en el servidor.
 
-## 6. Ejemplo paso a paso: verificación de escape HTML y CSP en nuestro laboratorio
+## 6. Ejemplo paso a paso: Purple Team (`Ataca → Detecta → Corrige`) en XSS reflejado y almacenado
 
-Comprobemos en `http://127.0.0.1:5050/saludo-seguro` cómo actúan conjuntamente el escape de entidades HTML de MarkupSafe y las cabeceras defensivas:
+En `laboratorios/app_lab_educativa.py` podés comparar directamente la salida sin escape (`/saludo-vulnerable` y `/comentarios-vulnerable`) frente a los gemelos con codificación contextual y CSP (`/saludo-seguro` y `/comentarios-seguro`):
 
 ```bash
-# Enviamos caracteres especiales HTML (<, >, ") en el parámetro nombre
+# 1. ATACA (XSS reflejado y almacenado en modo vulnerable)
+curl -s "http://127.0.0.1:5050/saludo-vulnerable?nombre=%3Cb%3EAnalista%3C/b%3E"
+curl -s -X POST http://127.0.0.1:5050/comentarios-vulnerable -d "texto=<img src=x onerror=alert(1)>"
+
+# 2. DETECTA (revisar alerta generada en el registro del laboratorio)
+curl -s "http://127.0.0.1:5050/telemetria-lab"
+
+# 3. CORRIGE Y VERIFICA (escape HTML con MarkupSafe/Jinja2 + cabeceras CSP/nosniff)
 curl -i "http://127.0.0.1:5050/saludo-seguro?nombre=%3Cb%3EAnalista%3C/b%3E"
 ```
 
-Respuesta verificada del servidor:
+Respuesta verificada del endpoint corregido `/saludo-seguro`:
 
 ```http
 HTTP/1.1 200 OK
@@ -127,12 +135,12 @@ Observá las tres defensas activas al mismo tiempo:
 
 ## Práctica en laboratorio local
 
-1. Con `laboratorios/app_lab_educativa.py` en ejecución, realizá peticiones con `curl -i` a `/saludo-seguro` probando entradas que contengan `<`, `>`, `&`, `"` y `'`. Verificá en el cuerpo de la respuesta cómo se codifica cada uno de los cinco caracteres.
-2. Inspeccioná el código de `saludo_seguro()` en `laboratorios/app_lab_educativa.py` y agregá en una copia local de prueba las cabeceras `Referrer-Policy: strict-origin-when-cross-origin` y `Permissions-Policy: geolocation=(), microphone=(), camera=()`.
-3. Escribí una función de validación de CORS en Python (`validar_origen_cors(origin)`) que solo devuelva la cabecera `Access-Control-Allow-Origin` si el origen recibido coincide exactamente con una tupla cerrada `ORIGENES_PERMITIDOS = ("http://127.0.0.1:5050", "http://localhost:5050")`.
+1. **Ciclo completo en `app_lab_educativa.py`:** probá payloads inocuos (`<b>Lab</b>` y `<img src=x onerror=console.log(1)>`) sobre `/saludo-vulnerable` y `POST /comentarios-vulnerable`, confirmá las detecciones `XSS_Reflejado` y `XSS_Almacenado` en `/telemetria-lab`, y validá la codificación y cabeceras CSP en `/saludo-seguro` y `/comentarios-seguro`.
+2. **Práctica interactiva en OWASP Juice Shop (`127.0.0.1:3000`):** completá un reto de **XSS basado en DOM** en la barra de búsqueda y analizá el archivo JS del cliente para identificar la fuente y el sumidero del DOM.
+3. **CORS seguro y práctica adicional:** escribí una función `validar_origen_cors(origin)` que solo acepte `ORIGENES_PERMITIDOS = ("http://127.0.0.1:5050", "http://localhost:5050")`. Podés reforzar esta unidad con los módulos XSS/CSRF/CORS de **PortSwigger Web Security Academy** y **DVWA**.
 
 ::: practica Entregable mínimo
-Tabla con la codificación verificada de los 5 caracteres especiales HTML en `/saludo-seguro`, captura de `curl -i` mostrando las nuevas cabeceras defensivas añadidas y tu función `validar_origen_cors()` probada con orígenes válidos e inválidos.
+Evidencia del ciclo **Ataca → Detecta → Corrige** sobre XSS reflejado/almacenado, resumen del DOM XSS resuelto en OWASP Juice Shop y la función `validar_origen_cors()` probada.
 :::
 
 ## Preguntas de repaso

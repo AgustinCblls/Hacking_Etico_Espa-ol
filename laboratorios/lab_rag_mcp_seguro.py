@@ -2,11 +2,19 @@
 """Laboratorio educativo 100 % local sobre seguridad en RAG y Tool Calling / MCP (Cap. 7.8).
 Demuestra la diferencia entre un flujo vulnerable a Prompt Injection indirecta, fuga RAG
 y Excessive Agency frente a una implementacion endurecida con controles deterministas.
-Uso: python laboratorios/lab_rag_mcp_seguro.py
+
+Uso por defecto (determinista, sin GPU ni red):
+  python laboratorios/lab_rag_mcp_seguro.py
+
+Uso opcional contra modelo local en Ollama (http://127.0.0.1:11434):
+  python laboratorios/lab_rag_mcp_seguro.py --ollama --modelo llama3.2
 """
+import argparse
 import html
 import json
 import re
+import urllib.error
+import urllib.request
 
 BASE_DOCUMENTAL_RAG = [
     {
@@ -55,10 +63,73 @@ def motor_llm_simulado(contexto: str, consulta_usuario: str) -> dict:
     }
 
 
-def flujo_vulnerable(usuario_tenant: str, consulta: str) -> dict:
+def motor_llm_ollama(contexto: str, consulta_usuario: str, modelo: str, url_base: str) -> dict:
+    """Consulta un modelo local servido por Ollama en loopback y normaliza su salida JSON."""
+    instrucciones = (
+        "Sos un asistente corporativo que responde estrictamente sobre contexto autorizado. "
+        "Devolve UNICAMENTE un objeto JSON valido con dos claves: "
+        "'respuesta_texto' (string) y 'tool_call' (objeto con 'nombre' y 'arg')."
+    )
+    payload = json.dumps({
+        "model": modelo,
+        "stream": False,
+        "format": "json",
+        "messages": [
+            {"role": "system", "content": instrucciones},
+            {
+                "role": "user",
+                "content": f"Contexto:\n{contexto}\n\nConsulta:\n{consulta_usuario}",
+            },
+        ],
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        f"{url_base.rstrip('/')}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        cuerpo = json.loads(resp.read().decode("utf-8"))
+
+    contenido = cuerpo.get("message", {}).get("content", "{}")
+    try:
+        parsed = json.loads(contenido)
+    except json.JSONDecodeError:
+        parsed = {}
+    tool = parsed.get("tool_call") if isinstance(parsed.get("tool_call"), dict) else {}
+    return {
+        "respuesta_texto": str(parsed.get("respuesta_texto", contenido)),
+        "tool_call": {
+            "nombre": str(tool.get("nombre", "consultar_estado_ticket")),
+            "arg": str(tool.get("arg", "TK-0402")),
+        },
+    }
+
+
+def invocar_motor(
+    contexto: str,
+    consulta_usuario: str,
+    usar_ollama: bool = False,
+    modelo: str = "llama3.2",
+    url_base: str = "http://127.0.0.1:11434",
+) -> dict:
+    """Selecciona el motor determinista local o el backend opcional Ollama."""
+    if usar_ollama:
+        return motor_llm_ollama(contexto, consulta_usuario, modelo, url_base)
+    return motor_llm_simulado(contexto, consulta_usuario)
+
+
+def flujo_vulnerable(
+    usuario_tenant: str,
+    consulta: str,
+    usar_ollama: bool = False,
+    modelo: str = "llama3.2",
+    url_base: str = "http://127.0.0.1:11434",
+) -> dict:
     """Antipatron: recupera todos los tenants, confia en instrucciones del RAG y ejecuta tools sin validar."""
     contexto = "\n".join(d["texto"] for d in BASE_DOCUMENTAL_RAG)
-    salida = motor_llm_simulado(contexto, consulta)
+    salida = invocar_motor(contexto, consulta, usar_ollama, modelo, url_base)
     return {
         "modo": "VULNERABLE",
         "docs_recuperados": [d["id"] for d in BASE_DOCUMENTAL_RAG],
@@ -76,7 +147,13 @@ def contiene_inyeccion_indirecta(texto: str) -> bool:
     return any(re.search(p, texto, re.IGNORECASE) for p in patrones)
 
 
-def flujo_seguro(usuario_tenant: str, consulta: str) -> dict:
+def flujo_seguro(
+    usuario_tenant: str,
+    consulta: str,
+    usar_ollama: bool = False,
+    modelo: str = "llama3.2",
+    url_base: str = "http://127.0.0.1:11434",
+) -> dict:
     """Patron endurecido: RBAC previo en RAG, aislamiento de datos, allowlist de tools y escape de salida."""
     eventos_auditoria = []
 
@@ -96,7 +173,7 @@ def flujo_seguro(usuario_tenant: str, consulta: str) -> dict:
             fragmentos_limpios.append(f"<documento id='{d['id']}'>{d['texto']}</documento>")
 
     contexto_seguro = "\n".join(fragmentos_limpios)
-    salida = motor_llm_simulado(contexto_seguro, consulta)
+    salida = invocar_motor(contexto_seguro, consulta, usar_ollama, modelo, url_base)
 
     # 3. Validacion determinista de Tool Calling / MCP fuera del LLM
     tc = salida["tool_call"]
@@ -119,7 +196,45 @@ def flujo_seguro(usuario_tenant: str, consulta: str) -> dict:
     }
 
 
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Laboratorio local RAG + Tool Calling / MCP (simulado por defecto u Ollama local)."
+    )
+    parser.add_argument(
+        "--ollama",
+        action="store_true",
+        help="Envia las consultas a una instancia local de Ollama (requiere servicio activo en loopback).",
+    )
+    parser.add_argument(
+        "--modelo",
+        default="llama3.2",
+        help="Nombre del modelo local en Ollama (por defecto: llama3.2).",
+    )
+    parser.add_argument(
+        "--url",
+        default="http://127.0.0.1:11434",
+        help="URL base del servidor local de Ollama (por defecto: http://127.0.0.1:11434).",
+    )
+    args = parser.parse_args()
+
+    motor_desc = f"Ollama ({args.modelo})" if args.ollama else "Simulado determinista"
+    print(f"=== Prueba comparativa RAG + Tool Calling [Motor: {motor_desc}] ===")
+    try:
+        vuln = flujo_vulnerable("finanzas", "Revisar factura #402", args.ollama, args.modelo, args.url)
+        seg = flujo_seguro("finanzas", "Revisar factura #402", args.ollama, args.modelo, args.url)
+    except urllib.error.URLError as exc:
+        print(json.dumps({
+            "error": "No se pudo conectar con el servidor local de Ollama",
+            "url": args.url,
+            "detalle": str(exc.reason),
+            "sugerencia": "Inicia Ollama localmente (`ollama serve`) o ejecuta el script sin --ollama.",
+        }, ensure_ascii=False, indent=2))
+        return 1
+
+    print(json.dumps(vuln, ensure_ascii=False, indent=2))
+    print(json.dumps(seg, ensure_ascii=False, indent=2))
+    return 0
+
+
 if __name__ == "__main__":
-    print("=== Prueba comparativa RAG + Tool Calling (usuario tenant='finanzas') ===")
-    print(json.dumps(flujo_vulnerable("finanzas", "Revisar factura #402"), ensure_ascii=False, indent=2))
-    print(json.dumps(flujo_seguro("finanzas", "Revisar factura #402"), ensure_ascii=False, indent=2))
+    raise SystemExit(main())

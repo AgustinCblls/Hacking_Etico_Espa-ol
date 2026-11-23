@@ -77,18 +77,23 @@ nmap -sT -sV --script="http-headers,http-title" -p 5050 127.0.0.1
 
 ## Evaluación y priorización de vulnerabilidades
 
-Identificar un servicio expuesto o una versión desactualizada no alcanza: necesitás priorizar qué corregir primero. Para evitar decisiones basadas solo en intuición, combiná tres marcos complementarios:
+Identificar un servicio expuesto o una versión desactualizada no alcanza: necesitás priorizar qué corregir primero. Para evitar decisiones basadas solo en intuición, combiná cuatro piezas complementarias:
 
 1. **CVSS (v3.1 y v4.0):** estima la severidad técnica según la facilidad de acceso, los privilegios requeridos y el impacto sobre confidencialidad, integridad y disponibilidad. La versión 4.0 incorpora métricas suplementarias y una mejor contextualización ambiental, pero sigue siendo una medida de severidad teórica, no de probabilidad real.
 2. **EPSS (*Exploit Prediction Scoring System*):** estima la probabilidad porcentual de que una vulnerabilidad catalogada sea observada en actividad hostil durante los próximos 30 días. Permite diferenciar fallos críticos con alta exposición real de fallos severos en papel pero raramente abusados.
-3. **CWE (*Common Weakness Enumeration*):** clasifica la causa raíz del defecto en familias estructurales —como *Validación de Entrada* o *Exposición de Información Sensible*— para corregir patrones arquitectónicos completos y no solo síntomas aislados.
+3. **CISA KEV y árbol SSVC:** el catálogo **CISA KEV (*Known Exploited Vulnerabilities*)** confirma si un CVE ya tiene explotación activa observada en el mundo real; combinado con **SSVC (*Stakeholder-Specific Vulnerability Categorization*)**, permite decidir objetivamente entre **Act** (parcheo urgente inmediato), **Attend**, **Track\*** o **Track**.
+4. **CWE (*Common Weakness Enumeration*):** clasifica la causa raíz del defecto en familias estructurales —como *Validación de Entrada* o *Exposición de Información Sensible*— para corregir patrones arquitectónicos completos y no solo síntomas aislados.
 
-| Prioridad | Severidad (CVSS) | Probabilidad (EPSS) | Exposición del activo | Acción recomendada |
+| Prioridad | Severidad (CVSS) | Probabilidad (EPSS) / KEV | Exposición del activo | Acción recomendada (SSVC) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Crítica (P1)** | Alta / Crítica | Elevada | Expuesto a red externa | Remediación inmediata y verificación |
-| **Alta (P2)** | Alta / Crítica | Baja | Red interna segmentada | Planificar parcheo en el ciclo corto |
-| **Media (P3)** | Media | Moderada | Servicio interno autenticado | Mitigar por configuración y monitorear |
-| **Baja (P4)** | Baja / Informativa | Muy baja | Laboratorio o entorno aislado | Documentar en inventario de deuda técnica |
+| **Crítica (P1)** | Alta / Crítica | Elevada o presente en **CISA KEV** | Expuesto a red externa (o *edge device*) | **Act:** remediación inmediata y verificación |
+| **Alta (P2)** | Alta / Crítica | Baja (sin KEV) | Red interna segmentada | **Attend:** planificar parcheo en el ciclo corto |
+| **Media (P3)** | Media | Moderada | Servicio interno autenticado | **Track\*:** mitigar por configuración y monitorear |
+| **Baja (P4)** | Baja / Informativa | Muy baja | Laboratorio o entorno aislado | **Track:** documentar en inventario de deuda técnica |
+
+::: aviso Superficie crítica 2024–2026: dispositivos perimetrales (*Edge Devices*)
+En incidentes reales de 2024–2026, los **dispositivos de borde (*edge devices*)** —firewalls SSL-VPN, gateways de acceso remoto y balanceadores de fabricantes como **Fortinet, Ivanti, Citrix y Palo Alto**— concentraron el vector principal de acceso inicial corporativo. Al operar expuestos 24/7 sin agentes EDR tradicionales dentro del firmware, cualquier CVE incluido en **CISA KEV** sobre estos equipos debe tratarse con prioridad **Act (P1)** y aislamiento inmediato de interfaces de gestión.
+:::
 
 ## 4. OSINT corporativo y seguridad de la Cadena de Suministro (*Supply Chain*)
 

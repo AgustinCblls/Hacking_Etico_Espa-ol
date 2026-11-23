@@ -159,7 +159,7 @@ def auditar_codigo(ruta_archivo: str):
         print(f"  [OK] {ruta_archivo}: 0 sumideros inseguros detectados por las reglas base.")
 ```
 
-Al ejecutarlo sobre `laboratorios/app_lab_educativa.py`, el auditor confirma `0 sumideros inseguros detectados`, validando que las rutas del laboratorio utilizan plantillas fijas y consultas parametrizadas.
+Al ejecutar `python laboratorios/auditor_whitebox_codereview.py ./laboratorios/`, el auditor identifica de inmediato el sumidero SQLi intencional del endpoint `/buscar-vulnerable` en `app_lab_educativa.py` (`cursor.execute(<dinámico>)` — `CWE-89`), mientras que ninguno de los endpoints `-seguro` ni los restantes scripts defensivos disparan falsos positivos. Esa detección estática temprana permite interceptar regresiones antes de publicar código.
 
 ::: defensa Perspectiva defensiva y mitigación
 1. **Esquemas de entrada y salida tipados (DTOs):** utilizá bibliotecas como Pydantic o Marshmallow en cada endpoint de API para rechazar propiedades desconocidas (*extra = "forbid"*), fijar longitudes máximas y validar tipos escalares antes de ejecutar la lógica de negocio.
@@ -169,12 +169,12 @@ Al ejecutarlo sobre `laboratorios/app_lab_educativa.py`, el auditor confirma `0 
 
 ## Práctica en laboratorio local
 
-1. Implementá en un archivo local `auditor_whitebox_lab.py` el escáner estático de la sección 5 y agregale una quinta regla (`WB-SQL-05`) que detecte llamadas a `.execute(f"` o `.execute("SELECT " +` con concatenación directa.
-2. Ejecutá tu auditor contra todos los scripts `.py` de la carpeta `laboratorios/` (`app_lab_educativa.py`, `auditor_red_local.py`, `analizador_logs_soc.py`) y verificá que todos pasen limpiamente.
-3. Creá una función de prueba en Python que implemente `actualizar_perfil_seguro()` y comprobá que rechace cualquier intento de inyectar `"rol": "admin"` o `"saldo": 9999` dentro del diccionario de entrada.
+1. **White-Box (`Source → Sink`) en `laboratorios/`:** corré `python laboratorios/auditor_whitebox_codereview.py ./laboratorios/`, verificá qué línea de `buscar_vulnerable()` en `app_lab_educativa.py` dispara `CWE-89`, y añadí en una copia local `auditor_whitebox_lab.py` la regla `WB-SSTI-04` (`render_template_string(f"`) para detectar también `/plantilla-vulnerable` y confirmar cero hallazgos en `/plantilla-seguro`.
+2. **Auditoría API en OWASP Juice Shop (`127.0.0.1:3000`):** inspeccioná la API REST/JSON del carrito o perfil en **OWASP Juice Shop** probando un caso de *Mass Assignment* / *Excessive Data Exposure*, y verificá qué propiedades acepta o filtra el backend.
+3. **Práctica adicional recomendada:** completá los escenarios de APIs vulnerables (BOLA, BFLA, Mass Assignment y SSRF) en **crAPI** y los laboratorios de *API Testing* y *GraphQL* en **PortSwigger Web Security Academy**.
 
 ::: practica Entregable mínimo
-El script `auditor_whitebox_lab.py` con las 5 reglas SAST funcionando, el reporte de ejecución limpia sobre `laboratorios/` y la prueba unitaria contra asignación masiva.
+Salida comentada de `auditor_whitebox_codereview.py` sobre `app_lab_educativa.py` (diferenciando hallazgos `-vulnerable` de `-seguro`), la regla `WB-SSTI-04` probada y la ficha del ejercicio sobre APIs de OWASP Juice Shop.
 :::
 
 ## Preguntas de repaso

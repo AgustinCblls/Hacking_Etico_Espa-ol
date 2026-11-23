@@ -38,27 +38,48 @@ Para proteger credenciales en reposo se utilizan Funciones de Derivación de Cla
 
 ## 3. Auditoría autorizada de hashes de prueba con Hashcat y John the Ripper
 
-En una auditoría interna autorizada (por ejemplo, evaluando la robustez de credenciales sintéticas o volcados de laboratorio propios), herramientas como **Hashcat** y **John the Ripper** permiten medir qué porcentaje de contraseñas incumplen criterios mínimos de entropía frente a diccionarios y reglas comunes.
+En una auditoría interna autorizada (por ejemplo, evaluando la robustez de credenciales sintéticas o volcados de laboratorio propios), herramientas como **Hashcat** y **John the Ripper** permiten medir qué porcentaje de contraseñas incumplen criterios mínimos de entropía frente a diccionarios, reglas y máscaras acotadas.
 
-### Estrategias de evaluación en laboratorio
+### Modos frecuentes de Hashcat, utilidades `*2john`, reglas y máscaras
 
-- **Modo diccionario:** Compara hashes de prueba contra listas de palabras frecuentes o filtradas históricamente.
-- **Modo basado en reglas:** Aplica transformaciones determinísticas sobre un diccionario (mayúscula inicial, sustitución simple de caracteres, sufijos de años como `2025` o `2026`), evidenciando por qué las políticas tradicionales basadas en patrones predecibles fallan.
-- **Modo máscara:** Evalúa patrones estructurales acotados en pruebas controladas de longitud y conjunto de caracteres.
+| Formato / Origen | Modo Hashcat (`-m`) | Prefijo o patrón observable | Uso típico en laboratorio |
+|---|---|---|---|
+| **NTLM (NT Hash)** | `1000` | `32` hex chars (`aad3b435...:NThash`) | Volcados `SAM` / `NTDS.dit` (`secretsdump` propio). |
+| **NetNTLMv2** | `5600` | `user::DOM:challenge:HMAC:blob` | Captura NTLM en red (Responder/Inveigh en lab). |
+| **Kerberoasting (TGS RC4)** | `13100` | `$krb5tgs$23$*user$dom$spn*...` | Tickets TGS exportados (`GetUserSPNs.py`). |
+| **AS-REP Roasting (RC4)** | `18200` | `$krb5asrep$23$user@DOM:...` | Cuentas sin pre-auth (`GetNPUsers.py`). |
+| **Linux `sha512crypt`** | `1800` | `$6$salt$hash...` | Cuentas en `/etc/shadow` de laboratorio Linux. |
+| **bcrypt (Blowfish)** | `3200` | `$2a$10$...` / `$2b$12$...` | Aplicaciones web modernas (muy lento en GPU). |
+
+- **Extracción de hashes desde contenedores/llaves con `*2john`:** `john` incluye extractores en Python/Perl/C para evaluar archivos protegidos propios sin modificarlos: `zip2john`, `rar2john`, `ssh2john` (claves SSH con passphrase), `keepass2john` (`.kdbx`) y `pfx2john` (certificados `.pfx`).
+- **Reglas deterministas y máscaras:**
+  - *Reglas (`-r`):* mutan cada palabra de un diccionario (capitalización, sufijos de año, *leetspeak*), por ejemplo `best64.rule` o `OneRuleToRuleThemStill.rule`.
+  - *Máscaras (`-a 3`):* prueban plantillas de formato (`?u` mayúscula, `?l` minúscula, `?d` dígito, `?s` símbolo, `?a` ASCII imprimible).
 
 ```bash
 # 1. Medir el rendimiento local del hardware en modo benchmark (sin atacar objetivos reales)
-hashcat -b -m 0 --quiet
+hashcat -b -m 1000 --quiet
 john --test --format=raw-sha256
 
-# 2. Inspeccionar formatos soportados y verificar un archivo de hashes sintéticos de laboratorio
-# Archivo de ejemplo creado localmente para auditoría educativa
+# 2. Generar un archivo de hashes sintéticos de laboratorio
 printf 'usuario_lab:%s\n' "$(printf 'ClaveDebil2026' | sha256sum | awk '{print $1}')" > /tmp/hashes_lab.txt
 
-# 3. Evaluar el archivo sintético con un diccionario local reducido y mostrar coincidencias
+# 3. Auditoría basada en diccionario + reglas y en ataque por máscara acotada
 john --format=raw-sha256 --wordlist=/tmp/diccionario_lab.txt /tmp/hashes_lab.txt
-john --show --format=raw-sha256 /tmp/hashes_lab.txt
+hashcat -m 1000 /tmp/ntlm_sinteticos.txt /tmp/diccionario_lab.txt -r /usr/share/hashcat/rules/best64.rule
+hashcat -m 1000 /tmp/ntlm_sinteticos.txt -a 3 ?u?l?l?l?l?d?d?d?d
+
+# 4. Extraer hash de archivo comprimido de prueba para auditar su passphrase
+zip2john respaldo_lab.zip > /tmp/zip_hash.txt
+john --wordlist=/tmp/diccionario_lab.txt /tmp/zip_hash.txt
 ```
+
+### Diferencia crítica en Windows/AD: NTLM (`-m 1000`) frente a NetNTLMv2 (`-m 5600`)
+
+Confundir estos dos artefactos provoca errores graves en ejercicios *Purple Team*:
+
+- **NTLM (NT Hash, `-m 1000`):** es el hash **estático** `MD4(UTF-16LE(contraseña))` almacenado en `SAM`, `NTDS.dit` y la memoria de LSASS. **SÍ es reutilizable directamente mediante *Pass-the-Hash (PtH)*** (`impacket-wmiexec -hashes :NTHASH`, `nxc smb -H NTHASH`), porque el protocolo de desafío-respuesta utiliza ese hash como clave para responder al servidor sin necesitar la contraseña en texto plano.
+- **NetNTLMv2 (`-m 5600`):** es una **respuesta HMAC-MD5 calculada para una única sesión de red** usando el desafío aleatorio de 8 bytes enviado por el servidor en ese instante más marcas temporales y el nombre del destino. **NO es reutilizable mediante *Pass-the-Hash*** (el desafío cambia en cada conexión); solo sirve para **auditoría offline (cracking)** con Hashcat `-m 5600` o para **NTLM Relay en tiempo real** mientras la conexión siga abierta y falten firmas SMB/LDAP/EPA.
 
 ::: peligro Alcance estrictamente autorizado
 Nunca ejecutes auditorías de hashes ni pruebas de autenticación sobre cuentas o bases de datos sin autorización escrita y un alcance formalmente definido. Todas las prácticas de este manual se limitan a hashes generados por vos mismo en tu laboratorio aislado.
@@ -74,13 +95,13 @@ En un intento vertical clásico (muchas contraseñas contra un solo usuario), la
 
 Esta técnica suele tener éxito en organizaciones que combinan dos debilidades: rotación obligatoria frecuente (que empuja a los usuarios a elegir patrones estacionales predecibles) y ausencia de autenticación multifactor (MFA) o monitoreo agregado por origen.
 
-## 5. Políticas modernas de contraseñas según NIST SP 800-63B
+## 5. Políticas modernas de contraseñas según NIST SP 800-63B-4
 
-La guía NIST SP 800-63B revolucionó las recomendaciones clásicas al demostrar empíricamente que las reglas arbitrarias de complejidad y rotación periódica reducen la seguridad real en lugar de aumentarla.
+La guía **NIST SP 800-63B-4 (agosto 2025)** actualizó las recomendaciones de autenticación digital al confirmar empíricamente que las reglas arbitrarias de composición y la rotación periódica debilitan la seguridad real en lugar de fortalecerla.
 
 ### Principios centrales para implementar hoy
 
-1. **Priorizar la longitud sobre la complejidad arbitraria:** Fomentar frases de contraseña largas (mínimo 8 caracteres exigibles, recomendando ≥ 12–15 caracteres y permitiendo al menos 64 caracteres con espacios y Unicode).
+1. **Priorizar la longitud sobre la complejidad arbitraria:** Cuando la contraseña actúa como **único factor**, NIST SP 800-63B-4 exige un mínimo obligatorio de **15 caracteres**; cuando se combina obligatoriamente con **MFA**, se mantiene un mínimo de **8 caracteres**, admitiendo siempre al menos 64 caracteres con espacios y Unicode.
 2. **Eliminar reglas de composición artificiales:** No forzar combinaciones obligatorias de mayúsculas, números y símbolos que inducen patrones predecibles.
 3. **Bloquear contraseñas comprometidas:** Comparar cada nueva contraseña contra listas de contraseñas filtradas, palabras de diccionario comunes y términos derivados del servicio o nombre de usuario.
 4. **Suprimir la rotación periódica sin evidencia de compromiso:** Cambiar contraseñas cada 90 días sin indicios de filtración degrada la calidad de las claves; solo se debe forzar el cambio ante sospecha o confirmación de compromiso.
@@ -133,10 +154,10 @@ Dentro de los marcos de defensa (tácticas de alto nivel de MITRE ATT&CK como **
 
 1. Ejecutá el script de Python del ejemplo paso a paso en tu máquina de laboratorio y documentá los tiempos medidos para SHA-256, PBKDF2 y scrypt.
 2. Creá un pequeño archivo con tres hashes sintéticos (dos contraseñas débiles con patrón año/mayúscula y una frase de contraseña larga de 18 caracteres) y auditalo localmente con `john` o `hashcat` usando un diccionario reducido creado por vos.
-3. Redactá una política técnica breve (media página) para una aplicación web ficticia aplicando los criterios de NIST SP 800-63B.
+3. Redactá una política técnica breve (media página) para una aplicación web ficticia aplicando los criterios de **NIST SP 800-63B-4** (15+ caracteres en factor único, 8+ con MFA y bloqueo de contraseñas filtradas).
 
 ::: practica Entregable mínimo
-Tabla comparativa con los tiempos reales obtenidos en tu laboratorio, resultado de la verificación de los tres hashes sintéticos (mostrando cómo la frase larga resiste el diccionario) y el borrador de política de contraseñas alineada a NIST SP 800-63B.
+Tabla comparativa con los tiempos reales obtenidos en tu laboratorio, resultado de la verificación de los tres hashes sintéticos (mostrando cómo la frase larga resiste el diccionario) y el borrador de política de contraseñas alineada a **NIST SP 800-63B-4**.
 :::
 
 ## Preguntas de repaso
@@ -147,17 +168,17 @@ Tabla comparativa con los tiempos reales obtenidos en tu laboratorio, resultado 
 
 **3. ¿Por qué Argon2id se considera superior a SHA-256 simple o incluso a PBKDF2 para almacenar contraseñas?** Porque, además de incorporar salt y costo temporal configurable, exige un uso intensivo de memoria RAM (memory-hardness), lo cual limita fuertemente la aceleración paralela mediante GPUs o hardware dedicado.
 
-**4. ¿Por qué el password spraying resulta difícil de frenar únicamente con un umbral básico de bloqueo por cuenta?** Porque distribuye pocos intentos entre muchas cuentas diferentes, manteniéndose por debajo del límite de fallos consecutivos de cada usuario individual.
+**4. ¿Por qué un hash NTLM (`-m 1000`) permite *Pass-the-Hash* mientras que una captura NetNTLMv2 (`-m 5600`) no?** Porque NTLM es el hash estático almacenado en `SAM`/`NTDS.dit` empleado para calcular respuestas de autenticación, mientras que NetNTLMv2 es el HMAC resultante de un desafío único por sesión enviado por el servidor (útil para auditoría offline o relay en vivo, pero inválido al cerrar esa sesión).
 
-**5. ¿Por qué NIST SP 800-63B desaconseja la rotación periódica obligatoria de contraseñas sin evidencia de compromiso?** Porque obliga a los usuarios a reutilizar patrones incrementales predecibles (como cambiar el número final o el mes), debilitando la entropía efectiva sin aportar protección real frente a credenciales no comprometidas.
+**5. ¿Por qué NIST SP 800-63B-4 desaconseja la rotación periódica obligatoria y distingue mínimos de 15 caracteres (factor único) frente a 8 caracteres (con MFA)?** Porque la rotación arbitraria induce patrones incrementales predecibles sin evidencia de compromiso, mientras que una clave usada como único factor requiere mayor entropía mínima (15 caracteres) que una credencial respaldada por MFA resistente a phishing.
 
 ## Antes de avanzar
 
 - [ ] Diferenciás claramente codificación, cifrado y hashing unidireccional.
-- [ ] Sabés justificar la selección de Argon2id o scrypt frente a algoritmos heredados.
-- [ ] Ejecutaste pruebas controladas con hashes sintéticos y comprendiste el impacto del costo computacional.
+- [ ] Sabés justificar la selección de Argon2id o scrypt frente a algoritmos heredados y distinguir `-m 1000` (NTLM) de `-m 5600` (NetNTLMv2).
+- [ ] Ejecutaste pruebas controladas con hashes sintéticos y comprendiste el impacto de reglas y máscaras.
 - [ ] Entendés la mecánica y mitigación del password spraying.
-- [ ] Podés redactar e implementar controles de contraseñas conforme a NIST SP 800-63B.
+- [ ] Podés redactar e implementar controles de contraseñas conforme a **NIST SP 800-63B-4**.
 
 ::: nota Puerta de salida
 Eliminá los archivos temporales con diccionarios y hashes de prueba de `/tmp` una vez documentado tu entregable y conservá únicamente tu informe técnico de resultados.
@@ -165,7 +186,7 @@ Eliminá los archivos temporales con diccionarios y hashes de prueba de `/tmp` u
 
 ## Referencias y estándares abiertos
 
-- NIST SP 800-63B: *Digital Identity Guidelines — Authentication and Lifecycle Management* (https://pages.nist.gov/800-63-3/sp800-63b.html)
+- NIST SP 800-63B-4 (agosto 2025): *Digital Identity Guidelines — Authentication and Authenticator Management* (https://pages.nist.gov/800-63-4/sp800-63b.html)
 - OWASP Cheat Sheet Series: *Password Storage Cheat Sheet* (https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 - RFC 9106: *Argon2 Memory-Hard Function for Password Hashing and Proof-of-Work Applications* (https://datatracker.ietf.org/doc/html/rfc9106)
 - MITRE ATT&CK Enterprise Matrix: tácticas *Credential Access* e *Initial Access* (https://attack.mitre.org/)

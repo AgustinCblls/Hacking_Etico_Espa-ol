@@ -1,5 +1,5 @@
 ::: nota Objetivo de la lección
-Al finalizar este capítulo anexo vas a comprender la arquitectura completa de una aplicación con IA generativa (prompt de sistema, usuario, RAG, herramientas/MCP y salida), dominar los riesgos críticos del **OWASP Top 10 for LLM Applications**, auditar y endurecer flujos de **RAG + Tool Calling / MCP** en Python 3 sin depender de APIs externas, y diseñar guardrails deterministas alineados con **NIST AI RMF**, **MITRE ATLAS** e **ISO/IEC 42001**.
+Al finalizar este capítulo vas a comprender la arquitectura completa de una aplicación con IA generativa (prompt de sistema, usuario, RAG, herramientas/MCP y salida), dominar los diez riesgos del **OWASP Top 10 for LLM Applications** (incluyendo `LLM09` y `LLM10`) junto con el **OWASP Top 10 for Agentic Applications (`ASI01–ASI10`, diciembre 2025)**, evaluar modelos con herramientas de **AI Red Teaming (`garak`, `PyRIT`, `promptfoo`)** y auditar/endurecer flujos de **RAG + Tool Calling / MCP** en Python 3 tanto en modo simulado como contra **Ollama local**, alineando guardrails deterministas con **NIST AI RMF**, **MITRE ATLAS** e **ISO/IEC 42001**.
 :::
 
 **Prerrequisitos:** Tomo II (Seguridad Web y APIs), Tomo VI (White-Box Code Review y Threat Modeling) y Cap. 7.7 (GRC). **Duración sugerida:** 7 a 9 horas.
@@ -39,7 +39,7 @@ El error arquitectónico raíz equivale al que vimos en SQL Injection (Cap. 2.3)
 - **Inyección directa:** el usuario redacta instrucciones en el chat buscando anular el *System Prompt* o evadir restricciones (*jailbreaking*). Aunque los filtros de texto ayudan, ningún filtro basado solo en otro modelo probabilístico es infalible.
 - **Inyección indirecta (la más peligrosa en producción):** el usuario hace una pregunta inocente (*"Resumí los correos recibidos hoy"* o *"Analizá esta página web"*), pero dentro del documento externo, correo, comentario de *pull request* o registro web recuperado se esconde una instrucción maliciosa dirigida al LLM. Si el agente tiene herramientas conectadas, esa carga externa puede intentar secuestrar su flujo de ejecución.
 
-### 2.2 Insecure Output Handling (`LLM05`)
+### 2.2 Improper Output Handling (`LLM05:2025`)
 
 Tratar la respuesta de un LLM como si fuera texto seguro de confianza reintroduce vulnerabilidades web clásicas en la aplicación que consume esa salida:
 - Si el frontend inserta la respuesta del LLM directamente en el DOM (`innerHTML` / `dangerouslySetInnerHTML`) sin escapar HTML, una inyección puede provocar **XSS**.
@@ -70,14 +70,48 @@ En una arquitectura **RAG (*Retrieval-Augmented Generation*)**, los fragmentos r
 
 *(Complemento de seguridad ML clásica: en clasificadores supervisados también existen ataques adversarios de **evasión** —pequeñas perturbaciones diseñadas para cruzar fronteras de decisión— e **inversión/extracción de modelo** mediante consultas masivas; se mitigan con limitación de tasa, redondeo de probabilidades devueltas y entrenamiento adversario).*
 
-## 3. Ejemplo paso a paso en laboratorio local (`laboratorios/lab_rag_mcp_seguro.py`)
+### 2.6 Misinformation (`LLM09:2025`) y Unbounded Consumption (`LLM10:2025`)
 
-El repositorio incluye el script educativo 100 % local [`laboratorios/lab_rag_mcp_seguro.py`](../laboratorios/lab_rag_mcp_seguro.py) (no requiere GPU ni APIs externas). Compara un flujo ingenuo **vulnerable** frente a un flujo **endurecido** cuando un documento externo indexado en el RAG intenta ejecutar una inyección indirecta sobre un usuario del tenant `finanzas`.
+- **Desinformación y alucinaciones (`LLM09:2025 — Misinformation`):** los LLMs predicen tokens probables y pueden fabricar con aparente seguridad citas legales falsas, diagnósticos incorrectos o nombres inexistentes de librerías (`pip`/`npm`) y comandos. Esto origina incluso riesgos de *slopsquatting*: un atacante registra paquetes maliciosos en PyPI/npm usando nombres que los LLMs suelen inventar repetidamente. **Mitigación:** exigir *grounding* RAG con enlaces verificables al documento fuente, validar existencia y hashes antes de instalar dependencias sugeridas por IA, e imponer revisión humana en decisiones críticas.
+- **Consumo ilimitado (`LLM10:2025 — Unbounded Consumption`):** prompts gigantescos, entradas repetitivas o bucles autónomos de agentes que reintentan indefinidamente saturan GPU/CPU o generan costos financieros masivos en APIs (*Denial of Wallet*). **Mitigación:** fijar topes duros de `max_tokens` en entrada y salida, límite de pasos (`max_iterations`) en agentes, *timeouts* por petición, cuotas por usuario/tenant (`rate limiting`) y caché semántico o exacto.
 
-**Paso 1:** Ejecutar el script desde la raíz del curso para observar ambos comportamientos:
+## 3. OWASP Top 10 for Agentic Applications (diciembre 2025)
+
+A diferencia de un chatbot estático de un turno, los **sistemas agénticos** combinan planificación autónoma de múltiples pasos, memoria persistente, ejecución de herramientas/MCP y comunicación entre agentes. Para responder a esa superficie ampliada, OWASP publicó en **diciembre de 2025** la taxonomía específica **`ASI01` a `ASI10`**:
+
+| Código | Riesgo en aplicaciones agénticas (OWASP Dec 2025) | Impacto técnico principal | Control determinista prioritario |
+| :--- | :--- | :--- | :--- |
+| **`ASI01`** | *Agent Goal Hijack* | Desvío del objetivo del plan mediante instrucciones ocultas en RAG, correos o salidas de herramientas. | Aislamiento estricto de datos no confiables y validación de intención antes de ejecutar pasos sensibles. |
+| **`ASI02`** | *Tool Misuse and Exploitation* | Uso abusivo o fuera de parámetro de herramientas válidas (API, SQL, CLI). | Lista blanca por herramienta, validación estricta por esquema/regex y mínimo privilegio. |
+| **`ASI03`** | *Identity and Privilege Abuse* | Herencia excesiva de credenciales del usuario o escalada entre servicios desde el agente. | Tokens efímeros con alcance acotado (*least privilege*) y sin delegación ciega de administrador. |
+| **`ASI04`** | *Agentic Supply Chain Vulnerabilities* | Servidores MCP, plugins o definiciones de agentes de terceros alterados o maliciosos (*tool poisoning*). | Fijado de versiones/hashes, firmas y auditoría previa de descriptores de herramientas. |
+| **`ASI05`** | *Unexpected Code Execution* | Generación y ejecución insegura de código o comandos del sistema (RCE). | Prohibir `eval`/`shell=True`; ejecutar código solo en contenedores sandbox sin red ni privilegios. |
+| **`ASI06`** | *Memory and Context Poisoning* | Corrupción persistente de memoria a largo plazo o base vectorial que altera decisiones futuras. | Firmado/validación de entradas persistidas, partición por tenant y expiración controlada. |
+| **`ASI07`** | *Insecure Inter-Agent Communication* | Suplantación o alteración de mensajes entre múltiples agentes cooperantes. | Autenticación mTLS/firmas entre agentes y verificación de esquema en cada mensaje recibido. |
+| **`ASI08`** | *Cascading Failures* | Alucinación o fallo menor que se amplifica en cadena a través de subagentes autónomos. | Cortacircuitos (*circuit breakers*), límites `max_iterations` y verificación de invariantes entre etapas. |
+| **`ASI09`** | *Human-Agent Trust Exploitation* | Uso de tono persuasivo o explicaciones engañosas para inducir aprobación humana riesgosa. | Mostrar en la interfaz *Human-in-the-Loop* parámetros crudos exactos (monto, destino, comando), nunca resúmenes generados por el agente. |
+| **`ASI10`** | *Rogue Agents* | Agente desviado o atrapado en bucles dañinos fuera de sus límites operativos. | *Kill-switch* inmediato, monitoreo continuo de acciones y revocación automática de credenciales ante anomalías. |
+
+## 4. Red Teaming automatizado de IA: `garak`, `PyRIT` y `promptfoo`
+
+Al auditar aplicaciones con IA antes de pasar a producción (integrando seguridad en CI/CD y evaluación defensiva), tres herramientas abiertas cumplen roles complementarios:
+
+- **`garak` (NVIDIA):** escáner de sondas (*probes*) automatizadas especializado en descubrir *jailbreaks*, fugas de contexto, codificaciones evasivas y generación de código peligroso contra modelos locales o APIs (por ejemplo en laboratorio local con Ollama: `garak --model_type ollama --model_name llama3.2 --probes promptinject`).
+- **`PyRIT` (*Python Risk Identification Tool*, Microsoft):** framework programático pensado para **AI Red Teaming multivuelta**: un modelo o motor orquestador adapta dinámicamente los mensajes de prueba y un evaluador califica si el objetivo violó políticas tras varios turnos.
+- **`promptfoo`:** herramienta CLI/YAML ideal para **pruebas de regresión continuas en CI/CD**; permite definir casos declarativos de *prompt injection*, fuga RAG y abuso de herramientas y fallar el *build* si un cambio de modelo o *system prompt* reintroduce una vulnerabilidad.
+
+## 5. Ejemplo paso a paso en laboratorio local (`laboratorios/lab_rag_mcp_seguro.py`)
+
+El repositorio incluye el script educativo 100 % local [`laboratorios/lab_rag_mcp_seguro.py`](../laboratorios/lab_rag_mcp_seguro.py), que funciona de manera **determinista por defecto (sin GPU ni red externa)** y ofrece además el flag opcional **`--ollama`** para probar flujos reales contra una instancia local de **Ollama (`http://127.0.0.1:11434`)**. Compara un flujo ingenuo **vulnerable** frente a un flujo **endurecido** cuando un documento externo indexado en el RAG intenta ejecutar una inyección indirecta sobre un usuario del tenant `finanzas`.
+
+**Paso 1:** Ejecutar el script desde la raíz del curso (modo determinista por defecto, o con `--ollama` si tenés un modelo local corriendo en `127.0.0.1:11434`):
 
 ```bash
+# Modo por defecto (100 % determinista, sin GPU ni APIs)
 python laboratorios/lab_rag_mcp_seguro.py
+
+# Modo opcional contra Ollama local (requiere servicio activo en 127.0.0.1:11434)
+python laboratorios/lab_rag_mcp_seguro.py --ollama --modelo llama3.2
 ```
 
 **Paso 2:** Comparar las dos salidas JSON generadas por la ejecución real:
@@ -156,13 +190,13 @@ Tu extensión de `lab_rag_mcp_seguro.py` con control *Human-in-the-Loop* para he
 ## Antes de avanzar
 
 ::: nota Puerta de salida
-Con este capítulo anexo completaste los **7 Tomos (55 capítulos)** de **Hacking Ético Español**, integrando desde fundamentos de sistemas y redes hasta defensa Cloud, Code Review, OT/ICS, GRC y Seguridad en IA/LLMs y Agentes. Tu próximo paso es transformar esta teoría en kilometraje práctico resolviendo máquinas y laboratorios reales con ayuda de la [Separata de Escritorio](../hojas-referencia-rapida.html) y el [Kit de Laboratorios](../laboratorios.html).
+Con este capítulo completaste los **7 Tomos (55 capítulos)** de **Hacking Ético Español**, integrando desde fundamentos de sistemas y redes hasta defensa Cloud, Code Review, OT/ICS, GRC y Seguridad en IA/LLMs y Agentes. Tu próximo paso es transformar esta teoría en kilometraje práctico resolviendo máquinas y laboratorios reales con ayuda de la [Separata de Escritorio](../hojas-referencia-rapida.html) y el [Kit de Laboratorios](../laboratorios.html).
 :::
 
 ## Referencias y estándares abiertos
 
-- **OWASP Top 10 for LLM Applications & Generative AI Security Project (v2025 / GenAI):** clasificación y mitigaciones de riesgos en LLMs, RAG y sistemas agénticos.
+- **OWASP Top 10 for LLM Applications (v2025) & OWASP Top 10 for Agentic Applications (`ASI01–ASI10`, diciembre 2025):** clasificación y mitigaciones de riesgos en LLMs, RAG y sistemas agénticos.
 - **MITRE ATLAS (*Adversarial Threat Landscape for Artificial-Intelligence Systems*):** matriz de tácticas, técnicas y casos de estudio adversarios en IA/ML.
 - **NIST AI Risk Management Framework (AI RMF 1.0 + Generative AI Profile NIST AI 600-1).**
 - **ISO/IEC 42001:2023:** requisitos para un Sistema de Gestión de Inteligencia Artificial (AIMS).
-- **Documentación técnica de `safetensors` (Hugging Face) y especificación abierta de Model Context Protocol (MCP) Security Best Practices.**
+- **Herramientas abiertas de AI Red Teaming y estándares:** NVIDIA **garak**, Microsoft **PyRIT**, **promptfoo**, documentación de **`safetensors`** y especificación de seguridad de **Model Context Protocol (MCP)**.

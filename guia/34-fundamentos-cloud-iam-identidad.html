@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -177,6 +177,7 @@ aws iam simulate-principal-policy \
 # 5. Identificar credenciales no utilizadas o sin MFA habilitado (reporte de credenciales)
 aws iam generate-credential-report
 aws iam get-credential-report --query "Content" --output text | base64 --decode &gt; credential_report.csv</code></pre>
+<aside class="callout nota"><p class="callout-titulo">Herramientas de auditoría Cloud y entornos abiertos de práctica</p><p>En evaluaciones autorizadas <em>Purple Team</em> sobre entornos propios o sandboxes legales se complementa la CLI nativa con utilidades especializadas: <strong><code>Pacu</code></strong> (framework modular de auditoría IAM y servicios en AWS), <strong><code>ROADtools</code></strong> / <strong><code>AzureHound</code></strong> (mapeo de objetos, aplicaciones y rutas de ataque en <strong>Entra ID</strong> hacia BloodHound) y <strong><code>GraphRunner</code></strong> (auditoría de exposición sobre Microsoft 365 y Microsoft Graph). Para entrenar sin riesgo productivo podés utilizar <strong><code>flaws.cloud</code></strong> (escenarios conceptuales clásicos), <strong><code>CloudGoat</code></strong> (infraestructura AWS vulnerable controlada vía Terraform) y <strong><code>Kubernetes Goat</code></strong> (entorno de laboratorio para contenedores y clústeres).</p></aside>
 <h2 id="cap-5-1-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
 <p>En tu entorno local (podés usar <strong>LocalStack</strong> o una cuenta propia de pruebas en AWS Free Tier), creá un rol de aplicación llamado <code>RolLecturaLogs</code> y un usuario de pruebas <code>auditor-junior</code>. Adjuntale al usuario una política JSON acotada que permita consultar metadatos de IAM (<code>iam:Get*</code>, <code>iam:List*</code>) y simular políticas, más un <code>Deny</code> explícito sobre cualquier operación fuera de tu región elegida. Ejecutá <code>aws iam simulate-principal-policy</code> para comprobar cómo el motor prioriza el <code>Deny</code> explícito frente a un <code>Allow</code> amplio.</p>
 <aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Documentá en un archivo <code>auditoria-iam.md</code>:</p>

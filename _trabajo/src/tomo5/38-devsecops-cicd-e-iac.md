@@ -173,6 +173,18 @@ grype sbom:./sbom.cdx.json --fail-on high
 trivy image --format spdx-json --output image.spdx.json ghcr.io/org/app:1.4.2
 ```
 
+### Casos reales de *Supply Chain* (2024–2026), NIST SSDF y *OpenSSF Scorecard*
+
+| Caso real | Componente afectado | Mecanismo de compromiso | Contramedida de ingeniería clave |
+| :--- | :--- | :--- | :--- |
+| **`xz-utils`** (`CVE-2024-3094`) | Utilidad `xz` / `liblzma` | Puerta trasera oculta en *tarballs* de compilación tras cooptar el rol de mantenedor. | Revisiones múltiples de mantenedores, compilaciones reproducibles y monitoreo de artefactos binarios. |
+| **`Leaky Vessels`** (`CVE-2024-21626` y afines) | `runc` y `BuildKit` | Fuga de descriptores de archivos del host durante construcción/arranque de contenedores. | Parchear runtime OCI, aislar *builders* en nodos efímeros sin privilegios y evitar Dockerfiles no confiables. |
+| **`IngressNightmare`** (`CVE-2025-1974` y afines) | Kubernetes `Ingress-NGINX` | Ejecución remota sin autenticación mediante el *admission webhook* exponiendo secretos del clúster. | Restringir red hacia webhooks de admisión solo al plano de control, parchear urgente y aplicar mínimo privilegio RBAC. |
+| **`tj-actions/changed-files`** (`CVE-2025-30066`) | GitHub Actions de terceros | Alteración retroactiva de etiquetas (`@v44`) para imprimir secretos de CI/CD en logs de *workflows*. | **Fijar acciones por hash SHA completo** (`@<commit-sha>`), tokens efímeros mínimos y no usar secretos en repos públicos. |
+| **`Shai-Hulud`** (npm / PyPI 2025) | Registros de paquetes públicos | Gusano en scripts `preinstall` que roba tokens cloud/registro y republica versiones infectadas. | Deshabilitar scripts automáticos (`--ignore-scripts`) en CI, usar *lockfiles* estrictos y **MFA FIDO2** en cuentas de publicación. |
+
+Para gobernar este ciclo de forma sistemática, combiná **NIST SSDF (`SP 800-218`)** (prácticas verificables de preparación, compilación aislada y respuesta a vulnerabilidades) con **`OpenSSF Scorecard`**, que audita automáticamente repositorios en busca de protección de ramas, dependencias fijadas por SHA, firmas y permisos mínimos en `GITHUB_TOKEN`.
+
 ### Pruebas dinámicas (DAST) controladas
 
 El **DAST** evalúa cabeceras HTTP de seguridad, exposición de endpoints administrativos, errores de CORS y fallas en flujos de autenticación contra una instancia viva desplegada en un entorno efímero de *staging* (nunca contra producción sin autorización ni ventanas de control). Un patrón práctico es levantar la aplicación con Docker Compose dentro del job de CI y ejecutar un escaneo base o contra la especificación OpenAPI con OWASP ZAP.

@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -64,7 +64,7 @@ def obtener_ruta_segura(nombre_solicitado: str) -&gt; Path:
 <tr><td><strong>Descarga con cabeceras de aislamiento</strong></td><td>Servir descargas desde un dominio estático separado (<code>cdn-archivos.ejemplo.local</code>) con <code>Content-Disposition: attachment</code> y <code>X-Content-Type-Options: nosniff</code>.</td><td>Impide que un SVG o HTML subido ejecute JavaScript dentro del origen principal de la aplicación.</td></tr>
 </tbody></table></div>
 <h2 id="cap-2-6-3-server-side-request-forgery-ssrf">3. Server-Side Request Forgery (SSRF)</h2>
-<p><strong>SSRF (OWASP Top 10 A10:2021)</strong> ocurre cuando una funcionalidad de la aplicación (por ejemplo "Importar imagen desde URL", "Previsualizar enlace" o "Probar webhook") acepta una URL proporcionada por el usuario y <strong>el propio servidor backend realiza la petición de red hacia ese destino</strong>.</p>
+<p><strong>SSRF (incorporado en <code>A01:2025 – Broken Access Control</code> del OWASP Top 10:2025)</strong> ocurre cuando una funcionalidad de la aplicación (por ejemplo "Importar imagen desde URL", "Previsualizar enlace" o "Probar webhook") acepta una URL proporcionada por el usuario y <strong>el propio servidor backend realiza la petición de red hacia ese destino</strong>.</p>
 <p>¿Por qué es tan crítico aunque el servidor no muestre la respuesta completa? Porque el servidor backend se encuentra <strong>dentro de la red interna</strong>:</p>
 <ul><li>Puede conectarse a servicios que escuchan exclusivamente en loopback (<code>http://127.0.0.1:8080</code>, bases de datos locales, paneles de administración internos).</li><li>Puede alcanzar otros servidores de la subred privada (<code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>) que están protegidos desde internet por el firewall perimetral.</li></ul>
 <pre><code class="lenguaje-text">[Cliente Externo] ──(URL: http://127.0.0.1:9000/admin)──► [Servidor Web Público]
@@ -142,27 +142,32 @@ def render_seguro(nombre_usuario):
 <tr><td><strong>Blind XXE</strong></td><td>El parser XML tiene <code>DOCTYPE</code> y resolución de entidades externas habilitadas aunque no refleje el XML en la respuesta.</td><td>Enviar una declaración <code>&lt;!DOCTYPE ...&gt;</code> de prueba que referencie un recurso HTTP/DNS único del listener OAST del laboratorio, sin solicitar archivos locales reales.</td><td>Auditar configuraciones del parser (<code>defusedxml</code> en Python, <code>disallow-doctype-decl=true</code> en Java/.NET) y alertar resoluciones DNS/HTTP originadas por parsers XML.</td></tr>
 <tr><td><strong>Log4Shell (<code>CVE-2021-44228</code>)</strong></td><td>Log4j2 vulnerable evalúa búsquedas <code>${jndi:...}</code> dentro de cadenas registradas en logs (como <code>User-Agent</code> o parámetros).</td><td>Enviar una sonda benigna con token identificador (<code>${jndi:ldap://127.0.0.1:1389/probe-&lt;id&gt;}</code>) hacia un listener pasivo de laboratorio (sin entregar carga ejecutable) para verificar si el proceso Java intenta conectar.</td><td>Actualizar Log4j2 a versión parcheada, verificar <code>log4j2.formatMsgNoLookups=true</code>, monitorear en WAF/SIEM patrones <code>jndi:</code> y bloquear tráfico saliente LDAP/RMI/DNS no autorizado desde contenedores Java.</td></tr>
 </tbody></table></div>
-<h2 id="cap-2-6-6-ejemplo-paso-a-paso-verificacion-de-controles-anti-traversal-y-anti-ssrf-en-python">6. Ejemplo paso a paso: verificación de controles anti-Traversal y anti-SSRF en Python</h2>
-<p>Ejecutá en tu entorno local la siguiente prueba de unidad para verificar cómo responden nuestras funciones defensivas <code>obtener_ruta_segura()</code> y <code>validar_url_anti_ssrf()</code>:</p>
-<pre><code class="lenguaje-python"># Prueba local de contención de rutas y bloqueo de destinos internos
-from pathlib import Path
+<h2 id="cap-2-6-6-ejemplo-paso-a-paso-ciclo-purple-team-de-ssrf-ssti-y-upload-en-app-lab-educativa-py">6. Ejemplo paso a paso: ciclo Purple Team de SSRF, SSTI y Upload en <code>app_lab_educativa.py</code></h2>
+<p>Ejecutá el ciclo <strong>Ataca → Detecta → Corrige y verifica</strong> contra los pares SSRF, SSTI y Upload de <code>laboratorios/app_lab_educativa.py</code>:</p>
+<pre><code class="lenguaje-bash"># 1. SSRF: ATACA (/fetch-vulnerable) -&gt; CORRIGE (/fetch-seguro devuelve 403)
+curl -s "http://127.0.0.1:5050/fetch-vulnerable?url=http://169.254.169.254/latest/meta-data/"
+curl -i "http://127.0.0.1:5050/fetch-seguro?url=https://127.0.0.1:5050/interno-metadata"
 
-base = Path("./reportes_lab").resolve()
-base.mkdir(exist_ok=True)
+# 2. SSTI: ATACA (/plantilla-vulnerable evalúa 49) -&gt; CORRIGE (/plantilla-seguro imprime literal)
+curl -s "http://127.0.0.1:5050/plantilla-vulnerable?nombre=%7B%7B7*7%7D%7D"
+curl -s "http://127.0.0.1:5050/plantilla-seguro?nombre=%7B%7B7*7%7D%7D"
 
-for entrada in ["informe_q1.pdf", "../../etc/passwd", "/etc/hosts"]:
-    ruta = (base / Path(entrada).name).resolve()
-    dentro = ruta.is_relative_to(base)
-    print(f"Entrada: {entrada:20s} -&gt; Resuelta: {ruta.name:16s} | Dentro de base: {dentro}")</code></pre>
+# 3. DETECTA: inspeccioná los eventos SSRF_Internal_Target, SSRF_Bloqueado y SSTI_Probe
+curl -s "http://127.0.0.1:5050/telemetria-lab"</code></pre>
 <p>Salida verificada:</p>
-<pre><code class="lenguaje-text">Entrada: informe_q1.pdf       -&gt; Resuelta: informe_q1.pdf   | Dentro de base: True
-Entrada: ../../etc/passwd     -&gt; Resuelta: passwd           | Dentro de base: True
-Entrada: /etc/hosts           -&gt; Resuelta: hosts            | Dentro de base: True</code></pre>
-<p>Al extraer primero <code>Path(entrada).name</code> y comprobar <code>is_relative_to(base)</code>, cualquier intento de escapar hacia directorios superiores queda confinado estrictamente dentro de <code>./reportes_lab</code>.</p>
+<pre><code class="lenguaje-text">// /plantilla-vulnerable?nombre={{7*7}} -&gt; evalúa Jinja2:
+&lt;h2&gt;Perfil (Vulnerable): 49&lt;/h2&gt;
+
+// /plantilla-seguro?nombre={{7*7}} -&gt; pasa como variable de contexto escapada:
+&lt;h2&gt;Perfil (Seguro): {{7*7}}&lt;/h2&gt;
+
+// /fetch-seguro frente a loopback -&gt; HTTP 403:
+{"error":"Destino interno bloqueado por política anti-SSRF (127.0.0.1)"}</code></pre>
+<p>En paralelo, para contención de rutas en disco (<code>Upload</code>), extraer primero <code>Path(entrada).name</code> y comprobar <code>ruta.is_relative_to(base)</code> impide que un parámetro como <code>../../etc/passwd</code> escape de <code>./reportes_lab</code>, y <code>/upload-seguro</code> solo guarda tras validar magic bytes reales (<code>PNG</code>/<code>%PDF-</code>) bajo nombre <code>UUID</code>.</p>
 <aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><ol><li><strong>Confinamiento de archivos (<code>Path.resolve()</code> + <code>.is_relative_to()</code>):</strong> preferí siempre referenciar archivos por un ID numérico o UUID en base de datos en lugar de recibir rutas o nombres de archivo en parámetros HTTP.</li><li><strong>Aislamiento de red de salida (<em>Egress Filtering</em>):</strong> un servidor web que no necesita iniciar conexiones hacia otros hosts internos debe tener restringido el tráfico saliente a nivel de firewall/red de contenedores, además de validar las URLs con <code>ipaddress.is_global</code>.</li><li><strong>Formatos de intercambio de datos seguros:</strong> estandarizá <code>json.loads()</code> y <code>yaml.safe_load()</code>, prohibiendo <code>pickle</code> para cualquier dato que cruce una frontera de confianza.</li></ol></aside>
 <h2 id="cap-2-6-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
-<ol><li>Creá un script <code>test_defensas_servidor.py</code> en tu carpeta de trabajo que implemente las dos funciones defensivas de este capítulo (<code>obtener_ruta_segura</code> y <code>validar_url_anti_ssrf</code>).</li><li>Agregá casos de prueba automatizados con <code>assert</code> que verifiquen que <code>validar_url_anti_ssrf</code> rechaza <code>http://127.0.0.1:5050</code>, <code>http://localhost:8080</code>, <code>http://192.168.1.1</code> y <code>file:///etc/passwd</code>, aceptando únicamente URLs <code>https://</code> hacia direcciones IP públicas globales.</li><li>Verificá en el mismo script la diferencia entre pasar <code>nombre="{{ 7*7 }}"</code> como variable de contexto en Jinja2 (<code>render_template_string("Hola {{ nombre }}", nombre=...)</code>) frente a interpolarlo en la plantilla: comprobá que en el modo seguro la salida es literalmente <code>Hola {{ 7*7 }}</code> (o escapado) sin evaluar nunca la multiplicación.</li></ol>
-<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>El archivo <code>test_defensas_servidor.py</code> con las tres pruebas unitarias (Path Traversal, Anti-SSRF y Plantilla Segura Jinja2) ejecutándose sin errores en tu consola local.</p></aside>
+<ol><li><strong>SSRF, SSTI y Upload en <code>app_lab_educativa.py</code>:</strong> compará <code>/fetch-vulnerable</code> vs <code>/fetch-seguro</code>, <code>/plantilla-vulnerable</code> vs <code>/plantilla-seguro</code>, y probá enviar un archivo de texto renombrado <code>.png</code> a <code>POST /upload-vulnerable</code> frente a <code>POST /upload-seguro</code>, observando las alertas en <code>/telemetria-lab</code>.</li><li><strong>OWASP Juice Shop (<code>127.0.0.1:3000</code>):</strong> completá los retos de <strong>subida de archivos sin restricción de tipo/tamaño</strong> o <strong>XXE / SSRF</strong> en la instancia local, verificando en logs del contenedor qué petición los disparó.</li><li><strong>Práctica unitaria y recursos externos:</strong> escribí <code>test_defensas_servidor.py</code> validando <code>validar_url_anti_ssrf</code> contra <code>127.0.0.1</code>, <code>192.168.1.1</code> y <code>file:///</code>. Reforzá con los laboratorios de SSRF, XXE y SSTI de <strong>PortSwigger Web Security Academy</strong> y <strong>DVWA</strong> (<em>File Upload / File Inclusion</em>).</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Evidencia de ejecución <strong>Ataca → Detecta → Corrige</strong> sobre SSRF, SSTI y Upload en <code>app_lab_educativa.py</code>, reporte del reto resuelto en OWASP Juice Shop y <code>test_defensas_servidor.py</code> pasando al 100 %.</p></aside>
 <h2 id="cap-2-6-preguntas-de-repaso">Preguntas de repaso</h2>
 <p><strong>1. ¿Por qué eliminar la subcadena <code>"../"</code> con <code>replace("../", "")</code> no es un control suficiente contra Path Traversal?</strong> Porque pueden emplearse variaciones como barras invertidas en Windows (<code>..\</code>), secuencias anidadas (<code>....//</code> que al quitar <code>../</code> reconstruyen <code>../</code>) o rutas absolutas (<code>/etc/passwd</code>). La solución correcta es tomar solo el nombre base o un ID en base de datos, resolver la ruta canónica real con <code>Path.resolve()</code> y verificar que esté contenida en el directorio base con <code>.is_relative_to()</code>.</p>
 <p><strong>2. ¿Por qué no basta con verificar la cabecera <code>Content-Type: image/png</code> ni la extensión <code>.png</code> al recibir un archivo subido por un usuario?</strong> Porque tanto la cabecera <code>Content-Type</code> de la petición multipart como el nombre del archivo son cadenas de texto controladas por el cliente. Es obligatorio validar los <em>magic bytes</em> o decodificar la imagen en el servidor, renombrar el archivo con un UUID generado internamente y almacenarlo fuera del directorio de ejecución del servidor web.</p>
@@ -174,7 +179,7 @@ Entrada: /etc/hosts           -&gt; Resuelta: hosts            | Dentro de base:
 <ul><li>Implementar contención canónica de rutas con <code>Path.resolve()</code> e <code>is_relative_to()</code>.</li><li>Diseñar un flujo de subida de archivos con UUID, validación de contenido y almacenamiento fuera de webroot.</li><li>Bloquear destinos internos y redirecciones en clientes HTTP del backend para prevenir SSRF.</li><li>Distinguir entre pasar variables de contexto a una plantilla y concatenar cadenas en la plantilla.</li></ul>
 <aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Con estas seis familias de fallos de servidor dominadas, estamos listos para abordar la seguridad de arquitecturas modernas de APIs (REST y GraphQL), anomalías del protocolo HTTP y auditoría de código fuente: avanzá al <strong>Capítulo 2.7 · Seguridad de APIs (REST/GraphQL), HTTP avanzado y revisión Whitebox</strong>.</p></aside>
 <h2 id="cap-2-6-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
-<ul><li><strong>OWASP Top 10 (2021) — A08:2021 Software and Data Integrity Failures &amp; A10:2021 Server-Side Request Forgery (SSRF).</strong></li><li><strong>OWASP File Upload Cheat Sheet, Server-Side Request Forgery Prevention Cheat Sheet, XML External Entity (XXE) Prevention Cheat Sheet &amp; Deserialization Cheat Sheet.</strong></li><li><strong>Documentación oficial de Python (<code>pathlib.Path.is_relative_to</code>, <code>ipaddress</code> y <code>defusedxml</code>).</strong></li></ul>
+<ul><li><strong>OWASP Top 10:2025 (<code>A01:2025 – Broken Access Control [incl. SSRF]</code>, <code>A03:2025 – Software Supply Chain Failures</code>, <code>A08:2025 – Software or Data Integrity Failures</code> y <code>A10:2025 – Mishandling of Exceptional Conditions</code>) y OWASP ASVS 5.0 (Capítulo V5 — <em>File Handling</em>).</strong></li><li><strong>OWASP File Upload Cheat Sheet, Server-Side Request Forgery Prevention Cheat Sheet, XML External Entity (XXE) Prevention Cheat Sheet &amp; Deserialization Cheat Sheet.</strong></li><li><strong>Documentación oficial de Python (<code>pathlib.Path.is_relative_to</code>, <code>ipaddress</code> y <code>defusedxml</code>).</strong></li></ul>
 
 <details class="qa" style="margin-top:1.5rem">
   <summary>Trazabilidad curricular: 10 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>

@@ -43,6 +43,13 @@ Cuando un servicio se registra con una ruta como `C:\Program Files\App Interna\s
 
 De manera similar, el **secuestro de DLL (DLL hijacking)** aprovecha el orden de búsqueda de bibliotecas dinámicas de Windows cuando una aplicación solicita una DLL por nombre simple sin especificar la ruta completa y la biblioteca no reside en el directorio protegido de la aplicación ni en `System32`. Si el proceso continúa buscando en directorios incluidos en la variable `PATH` donde un usuario común puede escribir, la integridad del proceso queda comprometida.
 
+### Vectores críticos adicionales: `AlwaysInstallElevated` y BYOVD (visión defensiva)
+
+| Vector / Superficie | Mecanismo técnico | Telemetría (Event IDs + Sigma) | Mitigación obligatoria |
+|---|---|---|---|
+| **`AlwaysInstallElevated`** | Si tanto `HKCU\...\Installer\AlwaysInstallElevated` como `HKLM\...\Installer\AlwaysInstallElevated` valen `1`, cualquier usuario estándar puede ejecutar un instalador `.msi` (`msiexec /quiet /qn /i lab.msi`) con privilegios `NT AUTHORITY\SYSTEM`. | **Sysmon Event ID `1`** / **Security `4688`** (`msiexec.exe /quiet` iniciado por usuario estándar desde `%TEMP%` o `Users\Public`) + **Application `11707`/`1033`** (`MsiInstaller`). **Criterio Sigma:** `Image\|endswith: '\msiexec.exe'` con `/q` y padre no administrativo desde ruta escribible. | Mantener **`AlwaysInstallElevated = 0`** en GPO (`Computer` y `User Configuration`), bloquear `.msi` no firmados mediante AppLocker/WDAC. |
+| **BYOVD** (*Bring Your Own Vulnerable Driver*) | Un actor con privilegios administrativos locales carga un controlador legítimo firmado pero con vulnerabilidades de lectura/escritura en núcleo para terminar procesos EDR o alterar tokens del kernel. | **Sysmon Event ID `6`** (*Driver Loaded*), **System `7045`** (`Type: Kernel Driver`) y **CodeIntegrity `3076`/`3077`** por bloqueo WDAC/Blocklist. **Criterio Sigma:** carga de `.sys` desde `Users\`/`Temp\` o coincidencia de hash con listas *LOLDrivers*. | Habilitar **Microsoft Vulnerable Driver Blocklist** y **HVCI (*Memory Integrity*)** sobre VBS. Para el análisis técnico de drivers y firmas en núcleo, consultá [Curso de Reversing en Windows · Etapa 6](../../CLS_Guia/guia/etapa-6.html). |
+
 ## 3. Medidas de endurecimiento para endpoints Windows
 
 El hardening efectivo en Windows reduce drásticamente el impacto de credenciales expuestas y corta las vías habituales de elevación local.
@@ -112,6 +119,18 @@ Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\D
 # VirtualizationBasedSecurityStatus = 2 indica VBS activo.
 # SecurityServicesRunning contiene 1 cuando Credential Guard está en ejecución.
 ```
+
+### Triaje automatizado en laboratorio (`WinPEAS`) y correlación Sigma
+
+En VMs de laboratorio aisladas, `WinPEAS` acelera el inventario de servicios sin comillas, permisos de carpetas en `PATH`, `AlwaysInstallElevated` y credenciales en caché:
+
+```powershell
+# Triaje enfocado en servicios e información del sistema dentro de VM aislada de laboratorio
+.\winPEASx64.exe quiet servicesinfo systeminfo
+```
+
+- **Telemetría Blue Team:** **Sysmon Event ID `1`** / **Security `4688`** (ejecución de `winPEAS*.exe` desde `Users\Public` o `%TEMP%` seguida de ráfagas de `reg query`, `sc qc` e `icacls`), **Sysmon Event ID `11`** (*FileCreate* del binario) y **PowerShell `4104`** si se ejecuta vía script en memoria.
+- **Criterio Sigma:** `ProcessCreate` con `OriginalFileName` o `CommandLine` conteniendo `winPEAS` / `servicesinfo` o correlación en ventana < 15 s de múltiples consultas `reg query` sobre `Run`, `Installer\AlwaysInstallElevated` y `Services` bajo usuario estándar.
 
 ::: defensa Perspectiva defensiva, detección y mitigación
 Bajo la óptica Blue Team (tácticas de alto nivel de MITRE ATT&CK como **Privilege Escalation**, **Credential Access** y **Defense Evasion**), la protección de endpoints Windows se apoya en dos pilares:

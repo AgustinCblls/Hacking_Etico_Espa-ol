@@ -98,6 +98,18 @@ Sucesor multiplataforma de OPC Classic (que dependía de RPC/DCOM inseguro en Wi
 | **S7comm / Plus** | TCP 102 | Solo en S7commPlus moderno | Parada remota de CPU (`STOP`) o alteración de lógica | `s7comm` |
 | **OPC UA** | TCP 4840 | Robusta (X.509 + AES/SHA256) | Degradación manual a `SecurityPolicy: None` | `opcua` |
 
+Otros tres protocolos habituales en auditorías de campo son **`BACnet`** (`UDP/47808`, automatización de edificios y climatización HVAC), **`EtherNet/IP`** (`TCP/44818` y `UDP/2222`, manufactura industrial) e **`IEC 60870-5-104`** (`TCP/2404`, telecontrol en subestaciones eléctricas), todos mapeados en la matriz especializada **MITRE ATT&CK for ICS** (tácticas propias de planta como *Inhibit Response Function* e *Impair Process Control*).
+
+### Incidentes históricos OT/ICS que explican la defensa actual
+
+| Incidente / Malware OT | Año | Superficie / Protocolo explotado | Lección defensiva para planta |
+| :--- | :--- | :--- | :--- |
+| **`Stuxnet`** | 2010 | Alteración silenciosa de lógica en PLCs Siemens vía estación de ingeniería comprometida | Aislamiento estricto de EWS/USB y verificación de integridad de lógica PLC. |
+| **`Industroyer` / `Industroyer2`** | 2016 / 2022 | Envío nativo de comandos de maniobra por **IEC 104 / IEC 101 / OPC DA** en redes eléctricas | Firewalls con DPI industrial y bloqueo de comandos fuera de consolas HMI autorizadas. |
+| **`Triton` (`TRISIS`)** | 2017 | Reprogramación de controladores de seguridad física **SIS** (*Safety Instrumented Systems*) | Separación física e independiente de redes SIS frente al control básico BPCS. |
+| **`PIPEDREAM` (`INCONTROLLER`)** | 2022 | Framework modular multiprotocolo (**Modbus**, OPC UA, CODESYS, Omron) | Inventario continuo de activos OT y monitoreo pasivo de cargas de firmware. |
+| **`FrostyGoop`** | 2024 | Abuso directo sin exploits de **Modbus TCP (`502`)** contra controladores de calefacción | Nunca exponer TCP/502 ni HMI a Internet; exigir segmentación Purdue y NDR Modbus. |
+
 ## Segmentación OT, Data Diodes y monitoreo pasivo de tráfico
 
 Como en OT raramente podés parchear PLCs en caliente o instalarles agentes EDR, la defensa se apoya en controlar caminos de red y observar pasivamente lo que circula por el cable.
@@ -128,7 +140,7 @@ alert modbus any any -> 10.20.1.0/24 502 (msg:"OT ALERTA - Escritura Modbus FC 0
 
 En esta práctica vas a analizar de manera estrictamente pasiva una captura de tráfico industrial simulado y diseñar reglas defensivas de segmentación y detección.
 
-1. **Obtención de captura educativa:** descargá en tu VM de análisis una captura `.pcap` pública de tráfico ICS (por ejemplo, muestras Modbus/DNP3/S7comm de *Wireshark SampleCaptures* o repositorios educativos abiertos de *ICS-Security-Tools*).
+1. **Obtención de captura educativa o simulación aislada (`OpenPLC` / Modbus):** descargá en tu VM de análisis una captura `.pcap` pública de tráfico ICS (por ejemplo, muestras Modbus/DNP3/S7comm de *Wireshark SampleCaptures* o *ICS-Security-Tools*), o bien levantá en tu propio host un contenedor local aislado de **`OpenPLC`** / simulador Modbus vinculado exclusivamente a `127.0.0.1:502` (nunca contra equipos industriales reales) mientras capturás tráfico en loopback con `tshark`.
 2. **Inspección pasiva con TShark/Wireshark:** ejecutá análisis en modo solo lectura sobre la captura:
    - Listá conversaciones Modbus con `tshark -r captura.pcap -Y "modbus" -T fields -e ip.src -e ip.dst -e modbus.func_code`.
    - Clasificá los códigos de función observados diferenciando lecturas (`1`, `3`, `4`) de escrituras (`5`, `6`, `15`, `16`).

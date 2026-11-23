@@ -71,6 +71,10 @@ ffuf -u "http://127.0.0.1:5050/buscar-seguro?FUZZ=redes" -w diccionarios/paramet
 ffuf -u http://127.0.0.1:8080/ -H "Host: FUZZ.lab.local" -w diccionarios/subdominios.txt -ac
 ```
 
+::: nota Alternativas habituales en laboratorio (`gobuster`, `feroxbuster` y `Caido`)
+Además de `ffuf`, en auditorías modernas vas a ver **`gobuster`** (`gobuster dir -u http://127.0.0.1:5050 -w ...`) y **`feroxbuster`** (escrito en Rust, ideal para descubrimiento **recursivo automático** de subdirectorios con autocalibración). Para inspección manual e intercepción de peticiones HTTP/S junto a Burp Suite Community u OWASP ZAP, **`Caido`** ofrece una arquitectura cliente-servidor ligera en Rust orientada a flujos repetibles y filtros rápidos.
+:::
+
 ## 4. Análisis y desofuscación de JavaScript del lado cliente
 
 En aplicaciones modernas basadas en APIs REST o GraphQL, el navegador descarga archivos `.js` que contienen toda la tabla de enrutamiento del frontend, los nombres exactos de los endpoints del backend, los parámetros esperados y comentarios o constantes olvidados.

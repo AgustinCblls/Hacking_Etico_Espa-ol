@@ -1,5 +1,5 @@
 ::: nota Objetivo de la lección
-Al finalizar este capítulo vas a dominar la arquitectura contractual y operativa de una auditoría de seguridad (MSA, NDA, RoE y protocolo stop-and-notify), aplicar metodologías cualitativas y cuantitativas de riesgos (SLE, ARO y ALE), diferenciar ISO/IEC 27001, NIST CSF 2.0 y PCI-DSS v4.0, y comprender las obligaciones legales de privacidad, notificación de brechas en 72 horas, cadena de custodia y delitos informáticos en Europa y Latinoamérica.
+Al finalizar este capítulo vas a dominar la arquitectura contractual y operativa de una auditoría de seguridad (MSA, NDA, RoE y protocolo stop-and-notify), aplicar metodologías cualitativas y cuantitativas de riesgos (SLE, ARO y ALE), diferenciar ISO/IEC 27001, NIST CSF 2.0, PCI-DSS v4.0.1, SOC 2, NIS2, DORA e ISO/IEC 42001, y comprender el mapa legal hispanohablante de privacidad, notificación de brechas (72 h GDPR frente a plazos de LATAM), divulgación responsable sin *Safe Harbor*, cadena de custodia y ruta profesional de certificaciones.
 :::
 
 Encontrar una vulnerabilidad crítica sirve de poco si se descubre fuera del alcance autorizado, sin cobertura contractual o sin capacidad para traducir el riesgo técnico a impacto de negocio y cumplimiento normativo. La disciplina de **Gobernanza, Riesgo y Cumplimiento (GRC)** conecta la práctica técnica de seguridad con la estrategia ejecutiva y el marco jurídico que protege tanto a la organización auditada como al equipo evaluador.
@@ -69,7 +69,18 @@ Ejemplo práctico: una plataforma de ventas tiene un valor `AV = USD 500.000`. U
 3. **Evitar:** desactivar el servicio obsoleto o eliminar el proceso riesgoso.
 4. **Aceptar:** asumir conscientemente el riesgo cuando mitigar cuesta más que el `ALE` o existe una excepción temporal; exige obligatoriamente **firma formal de la alta dirección** o dueño del riesgo con fecha de revisión.
 
-## Principales marcos de cumplimiento: ISO 27001, NIST CSF 2.0 y PCI-DSS v4.0
+### Metodologías de riesgo, CIS Controls v8.1, terceros y Continuidad de Negocio
+
+- **Metodologías de riesgo complementarias:** junto al cálculo `SLE/ARO/ALE`, las organizaciones emplean **ISO/IEC 27005** (gestión formal de riesgos ligada a ISO 27001), **MAGERIT** (metodología abierta de referencia en administraciones públicas hispanohablantes basada en activos, amenazas y salvaguardas) y **FAIR** (*Factor Analysis of Information Risk*, cuantificación probabilística por rangos y frecuencia de eventos de pérdida).
+- **CIS Controls v8.1, terceros y concienciación:** **CIS Critical Security Controls v8.1** agrupa 18 controles priorizados en tres *Implementation Groups* (`IG1` higiene básica obligatoria, `IG2` mediana complejidad e `IG3` alta madurez); la gobernanza moderna exige además evaluación continua de **riesgo de terceros (TPRM / *supply chain*)** y métricas continuas de **concienciación** (tasa de reporte al SOC).
+
+| Concepto de Continuidad (**ISO 22301**) | Definición operativa | Impacto en arquitectura técnica |
+| :--- | :--- | :--- |
+| **`BIA`** (*Business Impact Analysis*) | Identifica procesos críticos de negocio y cuánto cuesta cada hora de interrupción. | Prioriza qué sistemas reciben respaldos inmutables y redundancia primero. |
+| **`RTO`** (*Recovery Time Objective*) | **Tiempo máximo tolerable de caída** desde el incidente hasta restaurar el servicio. | Define nivel de automatización de recuperación (*failover*, *IaC*, en frío vs. caliente). |
+| **`RPO`** (*Recovery Point Objective*) | **Pérdida máxima admisible de datos** medida hacia atrás en tiempo desde la falla. | Fija la frecuencia mínima de *snapshots* y replicación (p. ej. cada 15 min o 24 h). |
+
+## Principales marcos de cumplimiento: ISO 27001, NIST CSF 2.0 y PCI-DSS v4.0.1
 
 ### ISO/IEC 27001 (Edición 2022)
 
@@ -79,15 +90,15 @@ Estándar internacional certificable para un **SGSI (*Sistema de Gestión de Seg
 
 Marco voluntario del NIST basado en resultados, perfiles (*Profiles*) y niveles (*Tiers*). En su versión **2.0** (2024) amplió su alcance a todo tipo de organizaciones e incorporó la función transversal **Govern (GV)** sobre las cinco funciones operativas clásicas: **Identify (ID)**, **Protect (PR)**, **Detect (DE)**, **Respond (RS)** y **Recover (RC)**.
 
-### PCI-DSS v4.0
+### PCI-DSS v4.0.1
 
-Estándar contractual obligatorio para toda entidad que almacene, procese o transmita datos de tarjetas de pago dentro del **CDE (*Cardholder Data Environment*)**. Se estructura en **12 requisitos** en 6 objetivos. La versión **v4.0** introduce el **Enfoque Personalizado (*Customized Approach*)**, exige **MFA para todo acceso al CDE** e incorpora requisitos críticos de integridad y autorización de scripts JavaScript en páginas de pago web (requisitos 6.4.3 y 11.6.1) para frenar ataques de *e-skimming*.
+Estándar contractual obligatorio para toda entidad que almacene, procese o transmita datos de tarjetas de pago dentro del **CDE (*Cardholder Data Environment*)**. Se estructura en **12 requisitos** en 6 objetivos. La versión **v4.0.1** introduce el **Enfoque Personalizado (*Customized Approach*)** y aclara los requisitos que pasaron a regir de forma obligatoria el **31/03/2025** (*future-dated requirements*), incluyendo **MFA para todo acceso al CDE** y controles estrictos de integridad y autorización de scripts JavaScript en páginas de pago web (requisitos 6.4.3 y 11.6.1) para frenar ataques de *e-skimming*.
 
 | Marco / Norma | Enfoque principal | Estructura clave | Certificación / Evaluación |
 | :--- | :--- | :--- | :--- |
 | **ISO/IEC 27001:2022** | SGSI integral basado en riesgos | Cláusulas 4–10 + 93 controles Anexo A + SoA | Certificable por organismo acreditado |
 | **NIST CSF 2.0** | Lenguaje común y madurez por resultados | 6 funciones: *Govern, Identify, Protect, Detect, Respond, Recover* | Marco de referencia flexible (no certificable) |
-| **PCI-DSS v4.0** | Protección de datos de tarjetas (CDE) | 12 requisitos; foco en segmentación, MFA y scripts de pago | Auditoría anual QSA o cuestionario SAQ |
+| **PCI-DSS v4.0.1** | Protección de datos de tarjetas (CDE) | 12 requisitos; requisitos *future-dated* obligatorios desde 31/03/2025 (MFA, 6.4.3, 11.6.1) | Auditoría anual QSA o cuestionario SAQ |
 
 ### Marcos GRC complementarios clave en 2026
 
@@ -99,28 +110,40 @@ En entornos corporativos SaaS, financieros, europeos y basados en IA, los audito
 | **Directiva NIS2** (UE) | Ciberseguridad de infraestructura crítica europea | Aplica a **entidades esenciales e importantes**; exige gestión de riesgos en cadena de suministro, MFA, cifrado y responsabilidad directa de la dirección. | **Reporte en fases**: alerta temprana en **24 h**, notificación detallada del incidente en **72 h** e informe final al mes. |
 | **Reglamento DORA** (UE) | Resiliencia operativa digital del sector financiero | Regula bancos, aseguradoras, *fintech* y proveedores TIC críticos; unifica gestión de riesgos TIC, pruebas de resiliencia y supervisión de terceros. | Exige pruebas avanzadas guiadas por amenazas (**TLPT** / *Red Teaming* periódico) y reporte estricto de incidentes mayores. |
 | **ISO/IEC 42001** | Sistema de Gestión de Inteligencia Artificial (AIMS) | Primer estándar certificable para gobernanza de IA: inventario de modelos, evaluación de sesgos, transparencia, trazabilidad de datos y seguridad de *pipelines*. | Certificable por organismo acreditado bajo estructura análoga a ISO 27001 (PDCA + controles de ciclo de vida de IA). |
+| **EU Cyber Resilience Act (`CRA`)** | Seguridad de productos con elementos digitales (hardware/software en UE) | Exige diseño seguro por defecto, SBOM, actualizaciones de seguridad durante el ciclo de soporte y marcado CE. | **Reporte obligatorio** de vulnerabilidades explotadas activamente e incidentes graves desde el **11/09/2026** (`24 h` / `72 h`); cumplimiento pleno desde **11/12/2027**. |
+| **EU AI Act** (`Reg. UE 2024/1689`) | Regulación europea de sistemas de Inteligencia Artificial por niveles de riesgo | Prohíbe prácticas de riesgo inaceptable, regula modelos fundacionales (**GPAI**) e impone auditoría estricta a sistemas de alto riesgo. | Prohibiciones vigentes desde **02/02/2025**, obligaciones **GPAI** desde **02/08/2025**, transparencia desde **02/08/2026** y despliegue escalonado de alto riesgo hacia **2027**. |
 
 ## Marco legal, privacidad, notificación de brechas y delitos informáticos
 
-### GDPR y principios equivalentes en España y Latinoamérica
+### Privacidad y delitos informáticos en España y Latinoamérica (mapa comparativo)
 
-El **GDPR** europeo fijó el estándar de referencia en privacidad con siete principios centrales: **licitud, lealtad y transparencia**; **limitación de finalidad**; **minimización de datos**; **exactitud**; **limitación de conservación**; **integridad y confidencialidad**; y **responsabilidad proactiva (*accountability*)**, diferenciando entre **Responsable (*Controller*)** y **Encargado (*Processor*)**.
+El **GDPR** europeo fijó el estándar de referencia en privacidad con siete principios centrales: **licitud, lealtad y transparencia**; **limitación de finalidad**; **minimización de datos**; **exactitud**; **limitación de conservación**; **integridad y confidencialidad**; y **responsabilidad proactiva (*accountability*)**, diferenciando entre **Responsable (*Controller*)** y **Encargado (*Processor*)**. En el ámbito penal internacional coexisten el **Convenio de Budapest** del Consejo de Europa y la **Convención de la ONU contra la Ciberdelincuencia** (adoptada por la Asamblea General mediante Res. 79/243 en diciembre de 2024 y abierta a firma en Hanoi en octubre de 2025, sujeta a ratificación para su entrada en vigor).
 
-En el mundo hispanohablante y regional convergen marcos equivalentes: **España** aplica el GDPR junto con la **LOPDGDD (Ley Orgánica 3/2018)** y el **Esquema Nacional de Seguridad (ENS)**; **Argentina** (Ley 25.326, autoridad AAIP) y **Uruguay** (Ley 18.331) cuentan con estatus de adecuación europea; **Brasil** aplica la **LGPD (Ley 13.709/2018)** ante la ANPD; **México** rige bajo la **LFPDPPP**; y **Chile** modernizó su régimen con la **Ley 21.719**, alineada al estándar europeo.
+| Jurisdicción | Marco de privacidad / ciberseguridad | Delitos informáticos y notas clave para auditores |
+| :--- | :--- | :--- |
+| **España** | **GDPR (UE) + LOPDGDD (LO 3/2018)** + **ENS** | **Código Penal arts. 197 bis/ter y 264 bis/ter**: los **arts. 197 ter y 264 ter** penan producir, adquirir o facilitar herramientas o credenciales específicamente concebidas o adaptadas **con intención de cometer los delitos** de acceso o daño; el contrato RoE previo acredita uso técnico legítimo. |
+| **Argentina** | **Ley 25.326** (AAIP, adecuación UE) | **Ley 26.388** (reforma el Código Penal en acceso ilegítimo, interceptación y daño informático) y **Ley 27.411** (adhesión formal al **Convenio de Budapest**). |
+| **México** | **Nueva LFPDPPP (2025)** — autoridad: **Secretaría Anticorrupción y Buen Gobierno** (reemplazó al extinto INAI) | **Código Penal Federal arts. 211 bis 1 a 211 bis 7** (acceso ilícito a sistemas y equipos informáticos, con agravantes por infraestructura pública o financiera). |
+| **Colombia** | **Ley 1581 de 2012** (SIC) | **Ley 1273 de 2009** (*De la protección de la información y de los datos*: tipifica acceso abusivo, obstaculización ilegítima, suplantación web e interceptación). |
+| **Chile** | **Ley Marco de Ciberseguridad 21.663** (ANCI) y **Ley 21.719** (fecha legal de vigencia estipulada en su art. 1.º transitorio: **1 de diciembre de 2026**) | **Ley 21.459** sobre delitos informáticos (alineada al Convenio de Budapest: acceso ilícito, ataque a la integridad de sistemas y datos, receptación). |
+| **Perú** | **Ley 29733** de Protección de Datos Personales | **Ley 30096** de Delitos Informáticos (y modificatoria Ley 30171 sobre acceso ilícito, atentado a la integridad de datos y fraude informático). |
 
-### Plazos estrictos de notificación: la regla de las 72 horas
+### Plazos de notificación de brechas: 72 horas en GDPR frente a plazos regionales
 
-El **Artículo 33 del GDPR** (replicado o tomado como referencia por legislaciones modernas de privacidad) exige notificar toda brecha de datos personales con riesgo potencial a la autoridad supervisora competente **sin dilación indebida y dentro de un plazo máximo de 72 horas** desde que la organización toma conocimiento. Si persiste un **alto riesgo** para las personas afectadas (por ejemplo, filtración en claro de datos financieros o contraseñas), debe notificarse además directamente a los titulares (Art. 34).
+Es un error frecuente suponer que el plazo de **72 horas** rige de manera universal:
 
-### Cadena de custodia y delitos informáticos
+- **Unión Europea (GDPR Art. 33 y NIS2):** exige notificar brechas de datos con riesgo a la autoridad supervisora dentro de un máximo de **72 horas** desde que se toma conocimiento (y a los afectados si hay alto riesgo, Art. 34). En **NIS2**, las entidades esenciales e importantes reportan alerta temprana en **24 h**, evaluación inicial en **72 h** e informe final al mes.
+- **Latinoamérica (plazos variables según país):** cada país fija plazos propios. Por ejemplo, en **Brasil (LGPD / ANPD)** el plazo reglamentario general es de **3 días hábiles**; en **Chile**, la **Ley Marco 21.663** impone alerta temprana en **3 horas** para incidentes con impacto significativo en servicios esenciales; y otras leyes nacionales combinan términos reglamentarios específicos u obligación "sin dilación indebida".
+
+### Cadena de custodia, delitos informáticos y divulgación sin *Safe Harbor*
 
 Cuando ocurre un incidente o se halla evidencia de intrusión ajena durante una auditoría, la preservación forense determina su validez legal:
 
 - **Cadena de custodia:** registro cronológico e ininterrumpido de recolección, traslado, resguardo y análisis de evidencia digital (volcados de memoria, imágenes de disco, logs). Exige copias bit a bit de solo lectura, cálculo inmediato de hash **SHA-256** y control estricto de acceso.
-- **Delitos informáticos:** las leyes penales alineadas al **Convenio de Budapest** (como los artículos 197 bis/ter y 264 del Código Penal español o los artículos 153 bis y 183 del Código Penal argentino) tipifican el acceso ilegítimo, la interceptación ilícita, el daño informático y el fraude. La **autorización previa, escrita y delimitada** del legítimo titular es la frontera exacta entre una auditoría ética y un delito penal.
+- **Frontera legal (*autorización escrita*):** la **autorización previa, escrita y delimitada** del legítimo titular es el límite exacto entre una evaluación ética y un delito penal.
 
-::: peligro Prohibido operar bajo permisos verbales
-Un mensaje informal o autorización verbal sin SOW/RoE firmado no brinda cobertura legal, especialmente sobre activos alojados en terceros o proveedores nube. Ante cualquier duda de alcance, detené las pruebas y solicitá confirmación escrita.
+::: peligro Divulgación fuera de Bug Bounty y ausencia de Safe Harbor en LATAM
+En casi ningún país de Latinoamérica existe una cláusula legal automática de ***Safe Harbor*** (puerto seguro) que proteja al investigador que prueba sistemas ajenos sin contrato ni programa público de recompensas con alcance explícito. Si advertís de manera pasiva una exposición accidental sin autorización previa: **detenete de inmediato**, no descargues ni manipules registros, no exijas pago o recompensa (puede encuadrarse como extorsión) y canalizá el aviso de forma neutral mediante el contacto oficial (`security.txt` / `security@`) o el **CSIRT nacional** (*CERT.ar*, *CSIRT.gob.cl*, *colCERT*, *INCIBE-CERT*), evaluando asesoría legal antes de publicar detalles.
 :::
 
 ## Inserción laboral: portafolio demostrable y entrevistas técnicas
@@ -142,6 +165,20 @@ Los selectores técnicos priorizan evidencia observable de cómo trabajás por e
 | **Analista SOC L1/L2** | *"Te llega una alerta con `winword.exe` lanzando `powershell.exe -enc ...` y una conexión saliente. ¿Qué hacés paso a paso?"* | Triage ordenado: verificar `4104` (Script Block ya desofuscado), `Sysmon 3/22` (IP/dominio destino), usuario/equipo afectado, diferenciar falso positivo (script firmado de IT) de verdadero positivo, aislar host antes de reiniciar para preservar RAM y escalar según NIST SP 800-61. |
 | **AppSec / Web Junior** | *"Encontramos un IDOR o una SQLi en un endpoint de pagos. ¿Cómo la reproducís y cómo la arreglás?"* | Reproducir mínimo en Burp/`curl` (sin dañar datos), explicar causa raíz (falta de control de propietario o concatenación SQL), proponer corrección precisa en código (`WHERE id = ? AND owner_id = ?` o consultas parametrizadas) y test de regresión en CI. |
 | **Pentester / Cloud Junior** | *"Ves abierto un servidor web y SMB, o una cuenta AWS con `iam:PassRole`. ¿Cómo razonás tu metodología?"* | Enumeración metódica antes de explotar, toma de notas reproducible, manejo de falsos positivos, respeto de alcance (*Stop-and-Notify* ante riesgo productivo) y priorización de riesgo combinando probabilidad e impacto real. |
+
+### Mapa de certificaciones prácticas y plataformas de práctica (CTFs)
+
+Ningún certificado reemplaza el criterio técnico ni la experiencia verificable, pero una hoja de ruta ordenada ayuda a validar conocimientos prácticos por perfil:
+
+| Certificación | Nivel y orientación | Qué demuestra en la práctica |
+| :--- | :--- | :--- |
+| **`eJPT`** (INE) | Inicial · *Red / Pentest Junior* | Fundamentos reales de enumeración de redes, servicios web básicos y evaluación guiada en entorno de laboratorio. |
+| **`BTL1`** (*Security Blue Team*) | Inicial / Intermedio · *Blue Team / SOC* | Examen práctico de 24 h resolviendo incidentes reales con SIEM, análisis de phishing, forense, YARA y detección de amenazas. |
+| **`CPTS`** (*Hack The Box*) | Intermedio / Avanzado · *Pentest* | Evaluación exhaustiva de múltiples días sobre Web, pivoting y Active Directory junto con un informe profesional completo. |
+| **`OSCP+`** (*OffSec*) | Intermedio / Avanzado · *Pentest* | Examen práctico cronometrado de 24 h enfocado en explotación manual, escalada de privilegios y compromiso de Active Directory. |
+| **`CRTO`** (*Zero-Point Security*) | Avanzado · *Red Team / Purple* | Operación en dominio Active Directory con énfasis en **OPSEC**, evasión de detección, delegación/ADCS y control C2 realista. |
+
+- **Plataformas y CTFs recomendados:** combiná **TryHackMe** (rutas guiadas iniciales), **PortSwigger Web Security Academy** (laboratorios web gratuitos), **Hack The Box** (máquinas retiradas para AD e infraestructura), **LetsDefend** / **CyberDefenders** (laboratorios SOC y DFIR) y competencias abiertas en **OverTheWire** o **CTFtime**.
 
 ## Práctica guiada en laboratorio
 

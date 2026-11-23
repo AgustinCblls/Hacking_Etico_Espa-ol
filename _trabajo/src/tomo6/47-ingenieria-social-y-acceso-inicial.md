@@ -48,6 +48,15 @@ En ejercicios de Red Teaming o programas de concientización, los vectores se cl
 | ***Vishing*** | Teléfono / VoIP / Llamada | Autoridad técnica (IT) + Reciprocidad | Solicitud de códigos MFA o aprobación *push*; sin ticket previo verificable |
 | ***Pretexting*** | Multicanal (voz + correo + chat) | Prueba social + Autoridad | Inconsistencias al verificar identidad fuera de banda en directorio real |
 
+### Vishing al Help Desk y deepfakes de voz o video
+
+Un vector de alto impacto que sortea por completo los filtros de correo y los proxies AiTM es el **vishing dirigido al *Help Desk*** (*Service Desk*) para persuadir al personal de soporte de **restablecer contraseñas, registrar un dispositivo MFA adicional o emitir un *Temporary Access Pass* (TAP)**. Con herramientas actuales de clonación de voz y síntesis de video en tiempo real (**deepfakes** entrenados con pocos segundos de audio público de entrevistas, conferencias o mensajes corporativos), el atacante ya no depende solo de un guion convincente: puede imitar el timbre y cadencia de un ejecutivo o empleado real en llamadas telefónicas o videollamadas.
+
+**Controles obligatorios de verificación fuera de banda (*Out-of-Band*):**
+1. **Verificación activa iniciada por el *Help Desk*:** la mesa de ayuda nunca valida la identidad en la llamada entrante ni con datos filtrables por OSINT (DNI, legajo, fecha de ingreso o nombre de gerente); corta o pausa el pedido y realiza un **contacto saliente fuera de banda** hacia el número/usuario oficial del directorio corporativo o plataforma autenticada (Teams/Slack) + confirmación por cámara o gestor directo en operaciones sensibles.
+2. **Aprobación y desafío fuerte antes de tocar MFA:** exigir autenticación en el portal ITSM mediante sesión activa con **FIDO2** (o verificación por videollamada con palabra clave/código temporal rotativo) antes de emitir un TAP o enrolar un segundo factor; prohibir que soporte general modifique factores de cuentas ejecutivas o **Tier 0** sin aprobación dual.
+3. **Telemetría SOC sobre identidades:** alertar en el SIEM ante todo evento de **restablecimiento de MFA o emisión de TAP** (`Update user` / `Admin registered security info` en Entra ID / IdP) seguido de un inicio de sesión desde IP, ASN o dispositivo no enrolado en MDM.
+
 ## Diseño ético y ejecución de campañas autorizadas de simulación
 
 Ejecutar simulaciones de phishing en una organización sin un marco ético estricto destruye la confianza entre los empleados y el equipo de seguridad. Una campaña mal diseñada genera resentimiento y hace que las personas oculten incidentes reales por miedo a represalias.
@@ -216,7 +225,7 @@ if ($registroDmarc) {
 
 En tu entorno de laboratorio local (sin enviar correos reales hacia terceros ni consultar dominios fuera de tu alcance autorizado):
 
-1. **Diseñá una ficha de pretexto ético**: redactá un escenario de simulación interna para un equipo ficticio de Finanzas identificando explícitamente qué **2 o 3 principios de Cialdini** intervienen, qué datos ficticios de OSINT lo hacen verosímil y qué **3 señales observables** debería notar el empleado para reportarlo al SOC (por ejemplo, dominio externo, urgencia artificial, discrepancia en `Reply-To`).
+1. **Diseñá una ficha de pretexto ético y protocolo anti-vishing**: redactá un escenario de simulación interna para un equipo ficticio de Finanzas o *Help Desk* identificando qué **2 o 3 principios de Cialdini** intervienen, qué datos ficticios de OSINT lo hacen verosímil, qué **3 señales observables** delatan el engaño (incluyendo indicios de vishing/deepfake) y el paso exacto de **verificación fuera de banda** antes de aprobar cambios financieros o de MFA.
 2. **Auditá un `.eml` simulado**: guardá un correo de prueba en texto plano con cabeceras `From`, `Reply-To`, `Return-Path` y `Authentication-Results`, ejecutá el script `auditar_eml_laboratorio` en Python y verificá cómo detecta desalineación de dominios y fallos DMARC.
 3. **Verificá metadatos en documentos de prueba**: creá un documento `.docx` o `.pdf` de prueba en tu laboratorio, inspeccionalo con `exiftool archivo_prueba.pdf` (o propiedades de archivo) para observar qué usuario, software y fechas quedan embebidos, y documentá cómo sanitizarlos (`exiftool -all= archivo_prueba.pdf`) antes de una publicación externa.
 

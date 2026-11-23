@@ -62,9 +62,13 @@ La respuesta es la **PKI (*Public Key Infrastructure*)** y los **certificados di
 | Campo X.509 | Qué verifica el cliente / auditor | Consecuencia si está mal configurado |
 |---|---|---|
 | **Subject Alternative Name (`SAN`)** | Lista oficial de nombres DNS (`DNS:portal.empresa.local`) o IPs válidas (hoy tiene prioridad sobre `CN`). | El navegador rechaza la conexión con error de coincidencia de nombre aunque la cadena sea válida. |
-| **Validity (`NotBefore` / `NotAfter`)** | Ventana temporal de validez (en web pública, máximo 398 días y con tendencia a 47–90 días automatizados con ACME). | Certificados vencidos provocan caídas de servicio o tentación de que los usuarios pulsen "Ignorar advertencia". |
+| **Validity (`NotBefore` / `NotAfter`)** | Ventana temporal de validez: en web pública, **máximo 200 días desde el 15/03/2026** conforme a la hoja de ruta CA/B Forum **SC-081v3** (bajando a **100 días en 2027** y **47 días en 2029**). | Certificados vencidos o fuera de plazo generan rechazo del cliente/navegador y tentación de forzar automatizaciones inseguras. |
 | **Key Usage & Extended Key Usage (`EKU`)** | Define usos permitidos (`Server Authentication 1.3.6.1.5.5.7.3.1`, `Client Authentication`, `Code Signing`). | Un certificado de usuario no debe poder actuar como CA intermedia (`Basic Constraints: CA:FALSE`). |
 | **Estado de revocación (`CRL` / `OCSP`)** | Lista de certificados revocados antes de expirar por compromiso de clave o baja de servicio. | Un certificado cuya clave privada se filtró sigue siendo aceptado hasta su fecha de vencimiento. |
+
+::: nota Retirada de OCSP en CAs públicas (Let's Encrypt 2025)
+Durante **2025**, **Let's Encrypt** completó su transición de **OCSP** hacia listas **CRL** (suspendió URLs de OCSP y *OCSP Must-Staple* en mayo y apagó definitivamente sus *responders* OCSP el **6 de agosto de 2025**) para eliminar la fuga de privacidad sobre los sitios consultados por cada navegador y reducir infraestructura masiva. En servidores web actuales, evitá forzar *OCSP Stapling* obligatorio si tu CA ya no incluye URL de OCSP y verificá revocación mediante CRL/CRLite en clientes.
+:::
 
 ## 5. Auditoría práctica de TLS y errores frecuentes en servicios internos
 

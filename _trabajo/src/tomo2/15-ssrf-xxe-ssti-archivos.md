@@ -52,7 +52,7 @@ Permitir que los usuarios suban archivos (avatares, documentos PDF, planillas CS
 
 ## 3. Server-Side Request Forgery (SSRF)
 
-**SSRF (OWASP Top 10 A10:2021)** ocurre cuando una funcionalidad de la aplicación (por ejemplo "Importar imagen desde URL", "Previsualizar enlace" o "Probar webhook") acepta una URL proporcionada por el usuario y **el propio servidor backend realiza la petición de red hacia ese destino**.
+**SSRF (incorporado en `A01:2025 – Broken Access Control` del OWASP Top 10:2025)** ocurre cuando una funcionalidad de la aplicación (por ejemplo "Importar imagen desde URL", "Previsualizar enlace" o "Probar webhook") acepta una URL proporcionada por el usuario y **el propio servidor backend realiza la petición de red hacia ese destino**.
 
 ¿Por qué es tan crítico aunque el servidor no muestre la respuesta completa?
 Porque el servidor backend se encuentra **dentro de la red interna**:
@@ -161,32 +161,37 @@ Cuando el servidor procesa URLs, documentos XML o cadenas registradas en logs si
 | **Blind XXE** | El parser XML tiene `DOCTYPE` y resolución de entidades externas habilitadas aunque no refleje el XML en la respuesta. | Enviar una declaración `<!DOCTYPE ...>` de prueba que referencie un recurso HTTP/DNS único del listener OAST del laboratorio, sin solicitar archivos locales reales. | Auditar configuraciones del parser (`defusedxml` en Python, `disallow-doctype-decl=true` en Java/.NET) y alertar resoluciones DNS/HTTP originadas por parsers XML. |
 | **Log4Shell (`CVE-2021-44228`)** | Log4j2 vulnerable evalúa búsquedas `${jndi:...}` dentro de cadenas registradas en logs (como `User-Agent` o parámetros). | Enviar una sonda benigna con token identificador (`${jndi:ldap://127.0.0.1:1389/probe-<id>}`) hacia un listener pasivo de laboratorio (sin entregar carga ejecutable) para verificar si el proceso Java intenta conectar. | Actualizar Log4j2 a versión parcheada, verificar `log4j2.formatMsgNoLookups=true`, monitorear en WAF/SIEM patrones `jndi:` y bloquear tráfico saliente LDAP/RMI/DNS no autorizado desde contenedores Java. |
 
-## 6. Ejemplo paso a paso: verificación de controles anti-Traversal y anti-SSRF en Python
+## 6. Ejemplo paso a paso: ciclo Purple Team de SSRF, SSTI y Upload en `app_lab_educativa.py`
 
-Ejecutá en tu entorno local la siguiente prueba de unidad para verificar cómo responden nuestras funciones defensivas `obtener_ruta_segura()` y `validar_url_anti_ssrf()`:
+Ejecutá el ciclo **Ataca → Detecta → Corrige y verifica** contra los pares SSRF, SSTI y Upload de `laboratorios/app_lab_educativa.py`:
 
-```python
-# Prueba local de contención de rutas y bloqueo de destinos internos
-from pathlib import Path
+```bash
+# 1. SSRF: ATACA (/fetch-vulnerable) -> CORRIGE (/fetch-seguro devuelve 403)
+curl -s "http://127.0.0.1:5050/fetch-vulnerable?url=http://169.254.169.254/latest/meta-data/"
+curl -i "http://127.0.0.1:5050/fetch-seguro?url=https://127.0.0.1:5050/interno-metadata"
 
-base = Path("./reportes_lab").resolve()
-base.mkdir(exist_ok=True)
+# 2. SSTI: ATACA (/plantilla-vulnerable evalúa 49) -> CORRIGE (/plantilla-seguro imprime literal)
+curl -s "http://127.0.0.1:5050/plantilla-vulnerable?nombre=%7B%7B7*7%7D%7D"
+curl -s "http://127.0.0.1:5050/plantilla-seguro?nombre=%7B%7B7*7%7D%7D"
 
-for entrada in ["informe_q1.pdf", "../../etc/passwd", "/etc/hosts"]:
-    ruta = (base / Path(entrada).name).resolve()
-    dentro = ruta.is_relative_to(base)
-    print(f"Entrada: {entrada:20s} -> Resuelta: {ruta.name:16s} | Dentro de base: {dentro}")
+# 3. DETECTA: inspeccioná los eventos SSRF_Internal_Target, SSRF_Bloqueado y SSTI_Probe
+curl -s "http://127.0.0.1:5050/telemetria-lab"
 ```
 
 Salida verificada:
 
 ```text
-Entrada: informe_q1.pdf       -> Resuelta: informe_q1.pdf   | Dentro de base: True
-Entrada: ../../etc/passwd     -> Resuelta: passwd           | Dentro de base: True
-Entrada: /etc/hosts           -> Resuelta: hosts            | Dentro de base: True
+// /plantilla-vulnerable?nombre={{7*7}} -> evalúa Jinja2:
+<h2>Perfil (Vulnerable): 49</h2>
+
+// /plantilla-seguro?nombre={{7*7}} -> pasa como variable de contexto escapada:
+<h2>Perfil (Seguro): {{7*7}}</h2>
+
+// /fetch-seguro frente a loopback -> HTTP 403:
+{"error":"Destino interno bloqueado por política anti-SSRF (127.0.0.1)"}
 ```
 
-Al extraer primero `Path(entrada).name` y comprobar `is_relative_to(base)`, cualquier intento de escapar hacia directorios superiores queda confinado estrictamente dentro de `./reportes_lab`.
+En paralelo, para contención de rutas en disco (`Upload`), extraer primero `Path(entrada).name` y comprobar `ruta.is_relative_to(base)` impide que un parámetro como `../../etc/passwd` escape de `./reportes_lab`, y `/upload-seguro` solo guarda tras validar magic bytes reales (`PNG`/`%PDF-`) bajo nombre `UUID`.
 
 ::: defensa Perspectiva defensiva y mitigación
 1. **Confinamiento de archivos (`Path.resolve()` + `.is_relative_to()`):** preferí siempre referenciar archivos por un ID numérico o UUID en base de datos en lugar de recibir rutas o nombres de archivo en parámetros HTTP.
@@ -196,12 +201,12 @@ Al extraer primero `Path(entrada).name` y comprobar `is_relative_to(base)`, cual
 
 ## Práctica en laboratorio local
 
-1. Creá un script `test_defensas_servidor.py` en tu carpeta de trabajo que implemente las dos funciones defensivas de este capítulo (`obtener_ruta_segura` y `validar_url_anti_ssrf`).
-2. Agregá casos de prueba automatizados con `assert` que verifiquen que `validar_url_anti_ssrf` rechaza `http://127.0.0.1:5050`, `http://localhost:8080`, `http://192.168.1.1` y `file:///etc/passwd`, aceptando únicamente URLs `https://` hacia direcciones IP públicas globales.
-3. Verificá en el mismo script la diferencia entre pasar `nombre="{{ 7*7 }}"` como variable de contexto en Jinja2 (`render_template_string("Hola {{ nombre }}", nombre=...)`) frente a interpolarlo en la plantilla: comprobá que en el modo seguro la salida es literalmente `Hola {{ 7*7 }}` (o escapado) sin evaluar nunca la multiplicación.
+1. **SSRF, SSTI y Upload en `app_lab_educativa.py`:** compará `/fetch-vulnerable` vs `/fetch-seguro`, `/plantilla-vulnerable` vs `/plantilla-seguro`, y probá enviar un archivo de texto renombrado `.png` a `POST /upload-vulnerable` frente a `POST /upload-seguro`, observando las alertas en `/telemetria-lab`.
+2. **OWASP Juice Shop (`127.0.0.1:3000`):** completá los retos de **subida de archivos sin restricción de tipo/tamaño** o **XXE / SSRF** en la instancia local, verificando en logs del contenedor qué petición los disparó.
+3. **Práctica unitaria y recursos externos:** escribí `test_defensas_servidor.py` validando `validar_url_anti_ssrf` contra `127.0.0.1`, `192.168.1.1` y `file:///`. Reforzá con los laboratorios de SSRF, XXE y SSTI de **PortSwigger Web Security Academy** y **DVWA** (*File Upload / File Inclusion*).
 
 ::: practica Entregable mínimo
-El archivo `test_defensas_servidor.py` con las tres pruebas unitarias (Path Traversal, Anti-SSRF y Plantilla Segura Jinja2) ejecutándose sin errores en tu consola local.
+Evidencia de ejecución **Ataca → Detecta → Corrige** sobre SSRF, SSTI y Upload en `app_lab_educativa.py`, reporte del reto resuelto en OWASP Juice Shop y `test_defensas_servidor.py` pasando al 100 %.
 :::
 
 ## Preguntas de repaso
@@ -230,6 +235,6 @@ Con estas seis familias de fallos de servidor dominadas, estamos listos para abo
 
 ## Referencias y estándares abiertos
 
-- **OWASP Top 10 (2021) — A08:2021 Software and Data Integrity Failures & A10:2021 Server-Side Request Forgery (SSRF).**
+- **OWASP Top 10:2025 (`A01:2025 – Broken Access Control [incl. SSRF]`, `A03:2025 – Software Supply Chain Failures`, `A08:2025 – Software or Data Integrity Failures` y `A10:2025 – Mishandling of Exceptional Conditions`) y OWASP ASVS 5.0 (Capítulo V5 — *File Handling*).**
 - **OWASP File Upload Cheat Sheet, Server-Side Request Forgery Prevention Cheat Sheet, XML External Entity (XXE) Prevention Cheat Sheet & Deserialization Cheat Sheet.**
 - **Documentación oficial de Python (`pathlib.Path.is_relative_to`, `ipaddress` y `defusedxml`).**

@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -54,6 +54,17 @@ whoami /all</code></pre>
 <h3 id="cap-3-4-mecanica-conceptual-de-rutas-sin-comillas-y-dll-hijacking">Mecánica conceptual de rutas sin comillas y DLL hijacking</h3>
 <p>Cuando un servicio se registra con una ruta como <code>C:\Program Files\App Interna\servicio.exe</code> sin comillas dobles, el administrador de servicios interpreta los espacios de forma ambigua y evalúa rutas intermedias antes de alcanzar el binario real. Si algún directorio intermedio otorga permisos de escritura a usuarios no privilegiados, un archivo colocado allí podría ejecutarse con los privilegios del servicio.</p>
 <p>De manera similar, el <strong>secuestro de DLL (DLL hijacking)</strong> aprovecha el orden de búsqueda de bibliotecas dinámicas de Windows cuando una aplicación solicita una DLL por nombre simple sin especificar la ruta completa y la biblioteca no reside en el directorio protegido de la aplicación ni en <code>System32</code>. Si el proceso continúa buscando en directorios incluidos en la variable <code>PATH</code> donde un usuario común puede escribir, la integridad del proceso queda comprometida.</p>
+<h3 id="cap-3-4-vectores-criticos-adicionales-alwaysinstallelevated-y-byovd-vision-defensiva">Vectores críticos adicionales: <code>AlwaysInstallElevated</code> y BYOVD (visión defensiva)</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Vector / Superficie</th>
+<th>Mecanismo técnico</th>
+<th>Telemetría (Event IDs + Sigma)</th>
+<th>Mitigación obligatoria</th>
+</tr></thead><tbody>
+<tr><td><strong><code>AlwaysInstallElevated</code></strong></td><td>Si tanto <code>HKCU\...\Installer\AlwaysInstallElevated</code> como <code>HKLM\...\Installer\AlwaysInstallElevated</code> valen <code>1</code>, cualquier usuario estándar puede ejecutar un instalador <code>.msi</code> (<code>msiexec /quiet /qn /i lab.msi</code>) con privilegios <code>NT AUTHORITY\SYSTEM</code>.</td><td><strong>Sysmon Event ID <code>1</code></strong> / <strong>Security <code>4688</code></strong> (<code>msiexec.exe /quiet</code> iniciado por usuario estándar desde <code>%TEMP%</code> o <code>Users\Public</code>) + <strong>Application <code>11707</code>/<code>1033</code></strong> (<code>MsiInstaller</code>). <strong>Criterio Sigma:</strong> <code>Image|endswith: '\msiexec.exe'</code> con <code>/q</code> y padre no administrativo desde ruta escribible.</td><td>Mantener <strong><code>AlwaysInstallElevated = 0</code></strong> en GPO (<code>Computer</code> y <code>User Configuration</code>), bloquear <code>.msi</code> no firmados mediante AppLocker/WDAC.</td></tr>
+<tr><td><strong>BYOVD</strong> (<em>Bring Your Own Vulnerable Driver</em>)</td><td>Un actor con privilegios administrativos locales carga un controlador legítimo firmado pero con vulnerabilidades de lectura/escritura en núcleo para terminar procesos EDR o alterar tokens del kernel.</td><td><strong>Sysmon Event ID <code>6</code></strong> (<em>Driver Loaded</em>), <strong>System <code>7045</code></strong> (<code>Type: Kernel Driver</code>) y <strong>CodeIntegrity <code>3076</code>/<code>3077</code></strong> por bloqueo WDAC/Blocklist. <strong>Criterio Sigma:</strong> carga de <code>.sys</code> desde <code>Users\</code>/<code>Temp\</code> o coincidencia de hash con listas <em>LOLDrivers</em>.</td><td>Habilitar <strong>Microsoft Vulnerable Driver Blocklist</strong> y <strong>HVCI (<em>Memory Integrity</em>)</strong> sobre VBS. Para el análisis técnico de drivers y firmas en núcleo, consultá <a href="../../CLS_Guia/guia/etapa-6.html">Curso de Reversing en Windows · Etapa 6</a>.</td></tr>
+</tbody></table></div>
 <h2 id="cap-3-4-3-medidas-de-endurecimiento-para-endpoints-windows">3. Medidas de endurecimiento para endpoints Windows</h2>
 <p>El hardening efectivo en Windows reduce drásticamente el impacto de credenciales expuestas y corta las vías habituales de elevación local.</p>
 <h3 id="cap-3-4-controles-prioritarios-recomendados-por-microsoft-y-cis">Controles prioritarios recomendados por Microsoft y CIS</h3>
@@ -107,6 +118,11 @@ Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\D
 # Salida comentada:
 # VirtualizationBasedSecurityStatus = 2 indica VBS activo.
 # SecurityServicesRunning contiene 1 cuando Credential Guard está en ejecución.</code></pre>
+<h3 id="cap-3-4-triaje-automatizado-en-laboratorio-winpeas-y-correlacion-sigma">Triaje automatizado en laboratorio (<code>WinPEAS</code>) y correlación Sigma</h3>
+<p>En VMs de laboratorio aisladas, <code>WinPEAS</code> acelera el inventario de servicios sin comillas, permisos de carpetas en <code>PATH</code>, <code>AlwaysInstallElevated</code> y credenciales en caché:</p>
+<pre><code class="lenguaje-powershell"># Triaje enfocado en servicios e información del sistema dentro de VM aislada de laboratorio
+.\winPEASx64.exe quiet servicesinfo systeminfo</code></pre>
+<ul><li><strong>Telemetría Blue Team:</strong> <strong>Sysmon Event ID <code>1</code></strong> / <strong>Security <code>4688</code></strong> (ejecución de <code>winPEAS*.exe</code> desde <code>Users\Public</code> o <code>%TEMP%</code> seguida de ráfagas de <code>reg query</code>, <code>sc qc</code> e <code>icacls</code>), <strong>Sysmon Event ID <code>11</code></strong> (<em>FileCreate</em> del binario) y <strong>PowerShell <code>4104</code></strong> si se ejecuta vía script en memoria.</li><li><strong>Criterio Sigma:</strong> <code>ProcessCreate</code> con <code>OriginalFileName</code> o <code>CommandLine</code> conteniendo <code>winPEAS</code> / <code>servicesinfo</code> o correlación en ventana &lt; 15 s de múltiples consultas <code>reg query</code> sobre <code>Run</code>, <code>Installer\AlwaysInstallElevated</code> y <code>Services</code> bajo usuario estándar.</li></ul>
 <aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva, detección y mitigación</p><p>Bajo la óptica Blue Team (tácticas de alto nivel de MITRE ATT&amp;CK como <strong>Privilege Escalation</strong>, <strong>Credential Access</strong> y <strong>Defense Evasion</strong>), la protección de endpoints Windows se apoya en dos pilares:</p>
 <ul><li><strong>Telemetría de alta señal:</strong> Monitorear mediante Sysmon y los registros de seguridad la creación o modificación de servicios y tareas programadas, cargas de DLLs desde carpetas de usuario o temporales, y procesos no esperados que intenten abrir manejadores hacia procesos críticos del sistema.</li><li><strong>Endurecimiento preventivo:</strong> Habilitar Windows LAPS, Credential Guard y LSA Protection (<code>RunAsPPL</code>), depurar privilegios sensibles en cuentas de servicio, aplicar políticas CIS Benchmark mediante GPO/Intune y garantizar que ningún directorio del <code>PATH</code> ni ningún binario de servicio sea modificable por usuarios estándar.</li></ul></aside>
 <h2 id="cap-3-4-practica-en-laboratorio-local">Práctica en laboratorio local</h2>

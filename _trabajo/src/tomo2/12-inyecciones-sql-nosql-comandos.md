@@ -19,7 +19,7 @@ Plantilla fija con marcadores (?)    ──► Compilación del AST fijo en el m
 Entrada usuario                      ──► Vinculación como literal puro (nunca altera el AST)
 ```
 
-La regla de oro de la ingeniería de software seguro (OWASP ASVS V5) es directa: **nunca se sanea una inyección intentando adivinar o borrar palabras prohibidas; se elimina por diseño separando el canal del código del canal de los datos**.
+La regla de oro de la ingeniería de software seguro (**OWASP ASVS 5.0**, Capítulos **V1 — Encoding and Sanitization** y **V2 — Validation and Business Logic**) es directa: **nunca se sanea una inyección intentando adivinar o borrar palabras prohibidas; se elimina por diseño separando el canal del código del canal de los datos**.
 
 ## 2. Inyección SQL (SQLi): arquitectura del fallo y clasificación
 
@@ -164,37 +164,42 @@ sqlmap -r /tmp/peticion_lab.req -p q --dbms=sqlite --level=1 --risk=1 --batch --
 
 *Advertencia operativa:* verificá primero en tu laboratorio que tus propias consultas SQL parametrizadas devuelven un mensaje claro de que el parámetro **`q` no parece ser inyectable** en SQLMap; esa es la prueba automatizada estándar de que la remediación funcionó.
 
-## 6. Ejemplo paso a paso: auditoría de código y verificación en nuestro laboratorio
+## 6. Ejemplo paso a paso: ciclo Purple Team (`Ataca → Detecta → Corrige`) en el laboratorio
 
-Vamos a inspeccionar cómo responde el endpoint parametrizado `/buscar-seguro` de `laboratorios/app_lab_educativa.py` cuando recibe caracteres especiales como comillas o paréntesis:
+Ahora podés comprobar lado a lado en `laboratorios/app_lab_educativa.py` (ligado exclusivamente a `127.0.0.1:5050`) la diferencia exacta entre el endpoint vulnerable (`/buscar-vulnerable`) y su gemelo parametrizado (`/buscar-seguro`):
 
 ```bash
-# 1. Consulta normal por categoría
-curl -s "http://127.0.0.1:5050/buscar-seguro?q=redes"
+# 1. ATACA (/buscar-vulnerable): el operador OR alterado rompe el predicado lógico
+curl -s "http://127.0.0.1:5050/buscar-vulnerable?q=redes'%20OR%20'1'='1"
 
-# 2. Consulta enviando comillas simples y operadores SQL como texto de búsqueda
+# 2. DETECTA (/telemetria-lab): verificar el evento generado para el SOC
+curl -s "http://127.0.0.1:5050/telemetria-lab"
+
+# 3. CORRIGE Y VERIFICA (/buscar-seguro): consulta parametrizada
 curl -s "http://127.0.0.1:5050/buscar-seguro?q=redes'%20OR%20'1'='1"
 ```
 
 Salida verificada:
 
 ```json
-{
-  "consulta": "redes' OR '1'='1",
-  "modo": "seguro_parametrizado",
-  "resultados": []
-}
+// En /buscar-vulnerable: devuelve todas las filas al inyectar OR '1'='1'
+{"consulta":"redes' OR '1'='1","modo":"vulnerable_concatenado","resultados":[{"categoria":"redes","id":1,...},{"categoria":"books","id":4,...}]}
+
+// En /telemetria-lab: evento estructurado emitido para detección
+{"endpoint":"/buscar-vulnerable","severidad":"ALTA","vector":"SQLi_Attempt","detalle":"Payload sospechoso en q=redes' OR '1'='1"}
+
+// En /buscar-seguro: devuelve lista vacía [] porque busca la cadena literal
+{"consulta":"redes' OR '1'='1","modo":"seguro_parametrizado","resultados":[]}
 ```
 
-¿Por qué devuelve una lista vacía `[]` y código `200 OK` sin ningún error de sintaxis SQL?
-Porque en `laboratorios/app_lab_educativa.py`:
+¿Por qué `/buscar-seguro` devuelve `[]` y `200 OK` sin error SQL? Porque ejecuta:
 ```python
 cur.execute(
     "SELECT id, nombre, categoria, precio FROM productos WHERE categoria = ? OR nombre LIKE ?",
     (q, f"%{q}%"),
 )
 ```
-SQLite buscó literalmente un producto cuya categoría o nombre contuviera los caracteres `redes' OR '1'='1`. Como ningún producto se llama así, devolvió `[]` limpiamente. El árbol sintáctico de la consulta jamás se alteró.
+SQLite busca literalmente un producto cuya categoría o nombre contenga la secuencia `redes' OR '1'='1` sin alterar nunca el árbol sintáctico de la consulta.
 
 ::: defensa Perspectiva defensiva y mitigación
 1. **Parametrización al 100 %:** toda consulta SQL debe usar marcadores de parámetros (`?`, `%s`, `:nombre`) o métodos de ORM que parametricen internamente (evitando métodos crudos como `.raw()` o `text()` concatenado).
@@ -204,12 +209,12 @@ SQLite buscó literalmente un producto cuya categoría o nombre contuviera los c
 
 ## Práctica en laboratorio local
 
-1. Abrí `laboratorios/app_lab_educativa.py` y revisá la función `buscar_seguro()`.
-2. Escribí en tu carpeta de trabajo un script local `test_parametrizacion.py` que cree una tabla SQLite en memoria con 3 usuarios de prueba y compare dos funciones: una que verifica qué pasa al pasar una comilla simple a una consulta parametrizada (`WHERE usuario = ?`) y otra que valide columnas de ordenamiento mediante un diccionario de lista blanca (`COLUMNAS_PERMITIDAS`).
-3. Agregá en el mismo script una función que valide una dirección IP con `ipaddress.ip_address()` antes de pasarla a una lista de argumentos con `shell=False`, comprobando que cualquier cadena que no sea una IP válida lance `ValueError` inmediatamente.
+1. **Ciclo completo en `app_lab_educativa.py`:** levantá `python laboratorios/app_lab_educativa.py` (o `docker compose up -d`), atacá `/buscar-vulnerable` con una comilla simple para provocar el evento `SQLi_Syntax_Error` y con `' UNION SELECT 1,owner,titulo,detalle FROM tickets--` para observar la extracción cruzada, revisá `/telemetria-lab` y repetí la misma entrada contra `/buscar-seguro`.
+2. **Práctica interactiva en OWASP Juice Shop (`127.0.0.1:3000`):** activá el perfil opcional (`docker compose --profile owasp up -d`) y completá el reto de *Login Admin* (SQLi en autenticación) documentando la consulta afectada y la remediación mediante *Prepared Statement*.
+3. **Pruebas unitarias propias y laboratorios adicionales:** escribí un script `test_parametrizacion.py` que valide columnas `ORDER BY` con diccionario de lista blanca (`COLUMNAS_PERMITIDAS`) y valide IPs con `ipaddress.ip_address()` antes de `subprocess.run(..., shell=False)`. Para práctica complementaria externa en local o academia, utilizá **PortSwigger Web Security Academy** (*SQL Injection*) y **DVWA**.
 
 ::: practica Entregable mínimo
-El script `test_parametrizacion.py` documentado junto con la salida de consola demostrando que las entradas con comillas o caracteres especiales son tratadas como literales inofensivos o rechazadas por validación de tipo.
+Registro del flujo **Ataca → Detecta → Corrige** sobre `/buscar-vulnerable`, `/telemetria-lab` y `/buscar-seguro`, captura del reto SQLi resuelto en OWASP Juice Shop local y el script `test_parametrizacion.py` pasando sin errores.
 :::
 
 ## Preguntas de repaso
@@ -237,6 +242,6 @@ Ya dominás la seguridad de los intérpretes del lado del servidor. Ahora vamos 
 
 ## Referencias y estándares abiertos
 
-- **OWASP Top 10 (A03:2021 Injection) y OWASP ASVS v4.0 (Capítulo V5 — Validation, Sanitization and Encoding):** requisitos estándar de verificación contra inyecciones.
+- **OWASP Top 10:2025 (`A05:2025 – Injection`) y OWASP ASVS 5.0 (mayo 2025 — Capítulos V1 *Encoding and Sanitization* y V2 *Validation and Business Logic*):** requisitos estándar de verificación contra inyecciones.
 - **OWASP SQL Injection Prevention Cheat Sheet & OS Command Injection Defense Cheat Sheet:** guías de parametrización y ejecución segura de procesos.
 - **Documentación oficial de Python (`sqlite3` y `subprocess`):** uso de parámetros DB-API 2.0 (PEP 249) y advertencias de seguridad sobre `shell=True`.

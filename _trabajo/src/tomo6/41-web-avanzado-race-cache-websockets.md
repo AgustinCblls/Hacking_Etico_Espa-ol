@@ -4,7 +4,7 @@ Dominar la auditoría y la remediación de vulnerabilidades web de alta compleji
 
 Las vulnerabilidades web clásicas suelen manifestarse en una única petición HTTP aislada: enviás un parámetro mal formado y el servidor responde con un error o un comportamiento inesperado. En aplicaciones modernas basadas en microservicios, balanceadores, CDN y clientes *Single Page Application* (SPA), las fallas más críticas emergen de la **interacción entre componentes** y de las **ventanas temporales** entre validación y ejecución.
 
-Este capítulo aborda cuatro superficies avanzadas siguiendo el criterio técnico de *PortSwigger Web Security Academy* y la guía *OWASP Web Security Testing Guide* (WSTG), priorizando el entendimiento profundo del protocolo y las defensas estructurales.
+Este capítulo aborda cinco superficies avanzadas siguiendo el criterio técnico de *PortSwigger Web Security Academy* y la guía *OWASP Web Security Testing Guide* (WSTG), priorizando el entendimiento profundo del protocolo y las defensas estructurales.
 
 ---
 
@@ -386,6 +386,44 @@ Para blindar generadores de PDF y navegadores *headless* en producción:
 
 ---
 
+## 5. HTTP Request Smuggling
+
+El **HTTP Request Smuggling** (contrabando de peticiones HTTP) explota discrepancias en cómo dos servidores encadenados —un *Front-End* (CDN, WAF o balanceador Nginx/HAProxy) y un *Back-End* (servidor de aplicación)— determinan **dónde termina una petición HTTP y empieza la siguiente** dentro de una misma conexión TCP persistente (`Keep-Alive`). Como el *Front-End* suele multiplexar conexiones de distintos usuarios hacia un mismo socket backend, cualquier byte sobrante envenena la petición del próximo usuario legítimo.
+
+### 5.1 Desincronización clásica en HTTP/1.1 (`CL.TE` y `TE.CL`)
+
+| Variante | Regla del *Front-End* | Regla del *Back-End* | Impacto y detección en laboratorio |
+| :--- | :--- | :--- | :--- |
+| **`CL.TE`** | Usa `Content-Length` | Usa `Transfer-Encoding: chunked` | El *Front-End* reenvía todo el bloque `Content-Length`; el *Back-End* se detiene al leer `0\r\n\r\n` y deja el prefijo restante encolado como inicio de la siguiente petición en el socket. |
+| **`TE.CL`** | Usa `Transfer-Encoding: chunked` | Usa `Content-Length` | El *Front-End* reenvía hasta el cierre `0\r\n\r\n`; el *Back-End* solo lee los primeros bytes indicados por `Content-Length` e interpreta la parte chunked restante como una nueva petición completa. |
+| **`TE.TE`** | Ambigüedad por ofuscación | Ambigüedad por ofuscación | Cabeceras malformadas (ej. `Transfer-Encoding: xchunked` o duplicadas) hacen que solo una capa ignore `TE` y caiga en `CL`, reproduciendo `CL.TE` o `TE.CL`. |
+
+```http
+POST / HTTP/1.1
+Host: app-lab.local
+Content-Length: 13
+Transfer-Encoding: chunked
+
+0
+
+SMUGGLED
+```
+
+### 5.2 Downgrade `HTTP/2 → HTTP/1.1` y *Client-Side Desync* (CSD)
+
+1. **Downgrade `HTTP/2 → HTTP/1.1` (`H2.CL` / `H2.TE` / CRLF en cabeceras H2):** en HTTP/2 la longitud de cada mensaje es binaria a nivel de frame (`DATA`). Sin embargo, si un proxy recibe HTTP/2 del cliente y traduce la petición a **HTTP/1.1** hacia el backend sin validar cabeceras, puede inyectar una `Transfer-Encoding: chunked` prohibida por RFC 9113, reenviar un `Content-Length` distinto al tamaño real del frame o permitir `\r\n` dentro del valor de una cabecera para contrabandear una segunda petición al serializar en texto HTTP/1.1.
+2. ***Client-Side Desync* (CSD):** no requiere un proxy intermedio. Ocurre cuando un servidor acepta HTTP/1.1 *Keep-Alive* pero **ignora el `Content-Length` de una petición `POST` hacia ciertas rutas** (por ejemplo respuestas `302` o estáticos) devolviendo la respuesta sin consumir el cuerpo. Un sitio externo puede inducir al navegador de la víctima (vía `fetch(..., { method: "POST", mode: "no-cors", credentials: "include" })`) a enviar una petición con cuerpo remanente que envenena la **propia conexión persistente del navegador** para la siguiente solicitud autenticada del usuario.
+
+### 5.3 Detección (*Blue Team*) y mitigación estructural
+
+- **Detección en proxy/WAF/Suricata:** alertar ante toda petición que incluya simultáneamente `Content-Length` y `Transfer-Encoding`, múltiples cabeceras `Content-Length`, espacios/tabulaciones anómalas antes de `:` o nombres de cabecera prohibidos en HTTP/2; correlacionar picos de errores `400`/`408`/`502` o rutas internas inesperadas asociadas a sockets persistentes de un mismo balanceador.
+- **Mitigación obligatoria:**
+  1. **HTTP/2 de extremo a extremo (*Front-End* ↔ *Back-End*)** siempre que sea posible, evitando la traducción a HTTP/1.1 con conexiones compartidas.
+  2. **Normalización estricta RFC 9112 / RFC 9113:** rechazar con `400 Bad Request` y cerrar inmediatamente el socket ante ambigüedades `CL`+`TE`, `Transfer-Encoding` no estándar o caracteres `\r`/`\n` en cabeceras HTTP/2.
+  3. **Drenado completo o cierre de socket frente a CSD:** todo servidor HTTP/1.1 debe consumir completamente el cuerpo indicado por `Content-Length` antes de reutilizar la conexión persistente (o enviar `Connection: close`).
+
+---
+
 ## Práctica guiada en laboratorio
 
 En tu entorno de laboratorio local (por ejemplo, una instancia controlada de Docker con una aplicación de pruebas propia o laboratorios locales educativos), diseñá una verificación reproducible para validar la resistencia ante concurrencia y engaño de caché:
@@ -399,7 +437,7 @@ Documentá en un informe breve de laboratorio: (a) el fragmento de código SQL/t
 :::
 
 ::: defensa Perspectiva defensiva y remediación
-Los cuatro vectores de este capítulo comparten un principio común: **nunca confíes en las suposiciones de orden temporal o de interpretación uniforme entre capas**. El backend no puede asumir que dos peticiones llegan una después de otra, el origen no puede asumir cómo normaliza rutas o qué cabeceras ignora una CDN, el servidor WebSocket no puede asumir que el navegador aplica Same-Origin Policy, y el JavaScript del navegador no puede asumir que `window` o las rutas relativas están libres de colisiones. Blindar estas fronteras requiere atomicidad en base de datos, contratos HTTP explícitos (`Cache-Control`, `Vary`, validación de `Origin`) y validación de esquema tanto en mensajes bidireccionales como en parámetros del cliente.
+Los cinco vectores de este capítulo comparten un principio común: **nunca confíes en las suposiciones de orden temporal o de interpretación uniforme entre capas**. El backend no puede asumir que dos peticiones llegan una después de otra, el proxy no puede asumir que el origen interpreta idénticamente `Content-Length` y `Transfer-Encoding`, la caché debe reflejar parámetros clave explícitos, el servidor WebSocket no puede asumir que el navegador aplica Same-Origin Policy, y el JavaScript del navegador no puede asumir que `window` o las rutas relativas están libres de colisiones. Blindar estas fronteras requiere atomicidad en base de datos, contratos HTTP explícitos (`RFC 9112/9113`, `Cache-Control`, `Vary`, validación de `Origin`) y validación de esquema tanto en mensajes bidireccionales como en parámetros del cliente.
 :::
 
 ## Preguntas de repaso

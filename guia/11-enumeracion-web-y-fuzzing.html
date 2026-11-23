@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -80,6 +80,7 @@ ffuf -u "http://127.0.0.1:5050/buscar-seguro?FUZZ=redes" -w diccionarios/paramet
 
 # 3. Descubrimiento de Virtual Hosts (vhosts) enviando la cabecera Host contra el proxy local
 ffuf -u http://127.0.0.1:8080/ -H "Host: FUZZ.lab.local" -w diccionarios/subdominios.txt -ac</code></pre>
+<aside class="callout nota"><p class="callout-titulo">Alternativas habituales en laboratorio (<code>gobuster</code>, <code>feroxbuster</code> y <code>Caido</code>)</p><p>Además de <code>ffuf</code>, en auditorías modernas vas a ver <strong><code>gobuster</code></strong> (<code>gobuster dir -u http://127.0.0.1:5050 -w ...</code>) y <strong><code>feroxbuster</code></strong> (escrito en Rust, ideal para descubrimiento <strong>recursivo automático</strong> de subdirectorios con autocalibración). Para inspección manual e intercepción de peticiones HTTP/S junto a Burp Suite Community u OWASP ZAP, <strong><code>Caido</code></strong> ofrece una arquitectura cliente-servidor ligera en Rust orientada a flujos repetibles y filtros rápidos.</p></aside>
 <h2 id="cap-2-2-4-analisis-y-desofuscacion-de-javascript-del-lado-cliente">4. Análisis y desofuscación de JavaScript del lado cliente</h2>
 <p>En aplicaciones modernas basadas en APIs REST o GraphQL, el navegador descarga archivos <code>.js</code> que contienen toda la tabla de enrutamiento del frontend, los nombres exactos de los endpoints del backend, los parámetros esperados y comentarios o constantes olvidados.</p>
 <h3 id="cap-2-2-que-buscar-al-auditar-archivos-javascript">Qué buscar al auditar archivos JavaScript</h3>

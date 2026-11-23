@@ -15,7 +15,7 @@ Un sistema puede tener una autenticación criptográficamente impecable con MFA 
 
 ## 2. Seguridad en flujos de autenticación y gestión de sesiones
 
-Al auditar un sistema de inicio de sesión, recuperación de cuenta y manejo de sesiones (OWASP ASVS V2 y V3), existen cuatro debilidades clásicas que debés verificar y corregir:
+Al auditar un sistema de inicio de sesión, recuperación de cuenta y manejo de sesiones (**OWASP ASVS 5.0**, Capítulos **V6 — Authentication** y **V7 — Session Management**), existen cuatro debilidades clásicas que debés verificar y corregir:
 
 ### 1. Enumeración de usuarios por diferencias en respuestas o tiempos
 
@@ -88,59 +88,46 @@ En entornos corporativos (*Single Sign-On*), **SAML 2.0** transmite aserciones d
 
 ## 5. Control de acceso: IDOR, BOLA, BFLA y HTTP Verb Tampering
 
-Los fallos de autorización encabezan tanto el **OWASP Top 10 Web (A01:2021 Broken Access Control)** como el **OWASP API Security Top 10 (API1:2023 BOLA y API5:2023 BFLA)**:
+Los fallos de autorización encabezan tanto el **OWASP Top 10:2025 (`A01:2025 – Broken Access Control`, verificable en ASVS 5.0 Cap. V8 — *Authorization*)** como el **OWASP API Security Top 10 (API1:2023 BOLA y API5:2023 BFLA)**:
 
 1. **Control de acceso horizontal — IDOR (*Insecure Direct Object Reference*) / BOLA (*Broken Object Level Authorization*):**
    Ocurre cuando un usuario autenticado `ana` cambia el identificador de un recurso en la URL, en el cuerpo JSON o en una consulta GraphQL (por ejemplo, de `/tickets/1` a `/tickets/2`) y el servidor devuelve o modifica el objeto de `carlos` porque solo verificó que la sesión estuviera iniciada, pero **olvidó comprobar que el objeto solicitado perteneciera a `ana`**.
 2. **Control de acceso vertical — BFLA (*Broken Function Level Authorization*) y *HTTP Verb Tampering*:**
    Ocurre cuando un usuario con rol estándar (`analista`) invoca un endpoint administrativo (`POST /api/admin/usuarios/crear` o `DELETE /api/logs`) y el servidor ejecuta la acción porque solo comprobó autenticación general en lugar de verificar el rol específico. Una variante clásica es **HTTP Verb Tampering**: cuando una regla de control de acceso bloquea explícitamente solo `GET` y `POST` hacia `/admin`, pero el servidor procesa igualmente una petición `HEAD`, `PUT` o un método personalizado sin activar el filtro de autorización. **Mitigación:** denegar todo por defecto y definir reglas de autorización independientes del método HTTP.
 
-## 6. Ejemplo paso a paso: verificación anti-IDOR en `laboratorios/app_lab_educativa.py`
+## 6. Ejemplo paso a paso: ciclo Purple Team de IDOR y JWT débil (`Ataca → Detecta → Corrige`)
 
-Revisemos la implementación del endpoint `/ticket-seguro/<int:ticket_id>` en nuestro archivo `laboratorios/app_lab_educativa.py`:
-
-```python
-@app.route("/ticket-seguro/<int:ticket_id>")
-def ticket_seguro(ticket_id):
-    usuario_actual = request.args.get("user", "").strip().lower()
-    cur = DB.cursor()
-    # PATRÓN SEGURO ANTI-IDOR / ANTI-BOLA:
-    # La consulta exige simultáneamente el ID del recurso Y el propietario autenticado (owner = ?)
-    cur.execute(
-        "SELECT id, owner, titulo, detalle FROM tickets WHERE id = ? AND owner = ?",
-        (ticket_id, usuario_actual),
-    )
-    row = cur.fetchone()
-    if not row:
-        return jsonify({"error": "Acceso denegado o recurso inexistente"}), 403
-    return jsonify({"id": row[0], "owner": row[1], "titulo": row[2], "detalle": row[3]})
-```
-
-Probemos ambos escenarios en consola con `curl`:
+En `laboratorios/app_lab_educativa.py` podés reproducir tanto el acceso horizontal indebido (IDOR/BOLA) como la aceptación de tokens JWT con `alg: none`:
 
 ```bash
-# Caso 1: Ana solicita su propio ticket (ID 1) -> Acceso permitido (HTTP 200)
-curl -i "http://127.0.0.1:5050/ticket-seguro/1?user=ana"
+# --- A. IDOR / BOLA ---
+# 1. ATACA (/ticket-vulnerable): Ana pide el ticket #2 (propiedad de Carlos)
+curl -i "http://127.0.0.1:5050/ticket-vulnerable/2?user=ana"
 
-# Caso 2: Ana intenta solicitar el ticket de Carlos (ID 2) -> Acceso bloqueado (HTTP 403)
+# 2. DETECTA: evento IDOR_Access registrado en /telemetria-lab
+curl -s "http://127.0.0.1:5050/telemetria-lab"
+
+# 3. CORRIGE Y VERIFICA (/ticket-seguro): devuelve 403 Forbidden
 curl -i "http://127.0.0.1:5050/ticket-seguro/2?user=ana"
+
+# --- B. JWT débil (alg: none) ---
+# Pedir un token de prueba débil y contrastar /jwt-vulnerable vs /jwt-seguro
+curl -s "http://127.0.0.1:5050/jwt-login?user=ana&modo=debil"
 ```
 
 Salida verificada en el laboratorio:
 
 ```text
-# Respuesta Caso 1:
-HTTP/1.1 200 OK
-{"detalle":"Reglas de salida verificadas","id":1,"owner":"ana","titulo":"Revisión firewall"}
+# IDOR vulnerable (/ticket-vulnerable/2?user=ana -> 200 OK exponiendo dato de Carlos):
+{"detalle":"Registro SPF/DMARC pendiente — secreto_lab_carlos","id":2,"modo":"vulnerable_idor","owner":"carlos"}
 
-# Respuesta Caso 2:
+# Control anti-IDOR (/ticket-seguro/2?user=ana -> 403 Forbidden):
 HTTP/1.1 403 Forbidden
 {"error":"Acceso denegado o recurso inexistente"}
 ```
 
-Observá dos decisiones de diseño importantes:
-1. La restricción `AND owner = ?` está integrada en la propia consulta parametrizada a la base de datos: ni siquiera se carga en memoria de la aplicación un registro ajeno.
-2. El mensaje de error `"Acceso denegado o recurso inexistente"` es idéntico tanto si el ticket `2` pertenece a otro usuario como si se consulta el ticket `9999` que no existe, evitando confirmar la existencia de identificadores privados.
+Observá dos decisiones clave en `/ticket-seguro` y `/jwt-seguro`:
+1. La restricción `AND owner = ?` se aplica directamente en la consulta parametrizada, sin cargar objetos ajenos ni revelar si el `id` existe, y `/jwt-seguro` rechaza explícitamente cualquier header distinto de `alg == "HS256"` validando `exp`, `iss` y `aud` con clave aleatoria segura (`hmac.compare_digest`).
 
 ::: defensa Perspectiva defensiva y mitigación
 1. **Autorización declarativa y centralizada:** nunca dependas de que cada desarrollador recuerde escribir un `if` manual suelto. Usá decoradores o middlewares de políticas (`@requiere_rol("admin")`) para el control vertical y filtros de ámbito por propietario (`repositorio.obtener_por_id_y_propietario(id, usuario_actual.id)`) para el control horizontal.
@@ -150,11 +137,12 @@ Observá dos decisiones de diseño importantes:
 
 ## Práctica en laboratorio local
 
-1. Con `laboratorios/app_lab_educativa.py` corriendo en `127.0.0.1:5050`, escribí un script en Python `auditar_autorizacion.py` que pruebe automáticamente la matriz de acceso de `/ticket-seguro/1` y `/ticket-seguro/2` con los usuarios `ana`, `carlos` y sin usuario, verificando con `assert` que solo las combinaciones propietarias devuelvan código `200`.
-2. Agregá en tu script una función que decodifique (usando `base64.urlsafe_b64decode` y `json.loads`) las dos primeras partes (`Header` y `Payload`) de un JWT de ejemplo y compruebe que `"alg"` esté dentro de `("HS256", "RS256", "ES256")` y que el campo `"exp"` sea mayor que el tiempo Unix actual (`time.time()`).
+1. **IDOR y JWT en `app_lab_educativa.py`:** ejecutá la matriz en un script `auditar_autorizacion.py` sobre `/ticket-vulnerable/2?user=ana` vs. `/ticket-seguro/2?user=ana` y armá un JWT de prueba con `{"typ":"JWT","alg":"none"}` contra `/jwt-vulnerable` (observando `JWT_Alg_None` en `/telemetria-lab`) para confirmar luego su rechazo (`401`) en `/jwt-seguro`.
+2. **Práctica en OWASP Juice Shop (`127.0.0.1:3000`):** resolvé un desafío de manipulación de carrito/usuario ajeno (IDOR/BOLA) o de JWT firmado con clave débil/ninguna.
+3. **Laboratorios adicionales:** explorá **crAPI** (OWASP *Completely Ridiculous API*) para practicar BOLA/BFLA en APIs modernas y los laboratorios de *Access Control* y *JWT* en **PortSwigger Web Security Academy**.
 
 ::: practica Entregable mínimo
-El script `auditar_autorizacion.py` con la matriz de pruebas de control de acceso horizontal pasando al 100 % y el validador estructural de cabeceras y claims JWT.
+El script `auditar_autorizacion.py` con la matriz IDOR + prueba JWT (`alg: none` vs. `/jwt-seguro`) pasando al 100 %, captura de `/telemetria-lab` y ficha corta del reto BOLA/JWT resuelto en OWASP Juice Shop.
 :::
 
 ## Preguntas de repaso
@@ -184,5 +172,5 @@ Con la autenticación y el control de acceso claros, el siguiente paso es domina
 
 - **RFC 7519 (JSON Web Token) y RFC 8725 (JSON Web Token Best Current Practices):** especificación y reglas de validación criptográfica segura para JWT.
 - **RFC 6749 (OAuth 2.0), RFC 7636 (PKCE) y RFC 9700 (OAuth 2.0 Security Best Current Practice):** estándares oficiales de delegación y autenticación federada.
-- **OWASP Top 10 (A01:2021 Broken Access Control & A07:2021 Identification and Authentication Failures).**
+- **OWASP Top 10:2025 (`A01:2025 – Broken Access Control` & `A07:2025 – Authentication Failures`) y OWASP ASVS 5.0 (V6 Authentication, V7 Session Management, V8 Authorization, V9 Self-Contained Tokens, V10 OAuth/OIDC).**
 - **OWASP API Security Top 10 (2023) — API1:2023 Broken Object Level Authorization (BOLA) & API5:2023 Broken Function Level Authorization (BFLA).**

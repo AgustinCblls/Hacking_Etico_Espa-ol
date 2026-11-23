@@ -37,26 +37,54 @@ Cuando entendés con qué clave se cifra cada mensaje de la tabla anterior, comp
 ### 1. Cuentas sin preautenticación Kerberos (*AS-REP Roasting*)
 
 - **Causa técnica:** si un administrador marca por error la casilla **`Do not require Kerberos preauthentication`** (flag `DONT_REQ_PREAUTH = 0x400000` en `userAccountControl`) en una cuenta de usuario, el KDC omite la verificación del paso 1 y responde a cualquier solicitud `AS-REQ` para ese usuario entregando un mensaje `AS-REP` cuya parte de sesión viene cifrada con el hash de la contraseña de ese usuario. Si esa cuenta tiene una contraseña débil, ese bloque puede someterse a auditoría de diccionario offline.
-- **Detección en el SOC:** monitorear el **Event ID `4768`** en los Controladores de Dominio filtrando por **`Pre-Authentication Type: 0`** y **`Ticket Encryption Type: 0x17` (RC4-HMAC)**.
-- **Remediación definitiva:** mantener obligatoria la preautenticación Kerberos en el 100 % de las cuentas del dominio (auditable en un segundo con `Get-ADUser -Filter {DoesNotRequirePreAuth -eq $true}`).
+- **Detección en el SOC:** monitorear el **Event ID `4768`** en los Controladores de Dominio filtrando por **`Pre-Authentication Type: 0`** y **`Ticket Encryption Type: 0x17` (RC4-HMAC)**; **criterio Sigma:** `EventID: 4768` con `PreAuthType: '0'` y `Status: '0x0'` emitido hacia cuentas con `DONT_REQ_PREAUTH`.
+- **Laboratorio Purple Team (`GetNPUsers.py`) y remediación:** mantener obligatoria la preautenticación Kerberos en el 100 % de las cuentas del dominio (auditable con `Get-ADUser -Filter {DoesNotRequirePreAuth -eq $true}`).
+
+```bash
+# Verificación en laboratorio autorizado (sin contraseña, si la cuenta carece de pre-auth)
+impacket-GetNPUsers corp.local/ -usersfile usuarios_lab.txt -no-pass -dc-ip 10.10.20.10 -format hashcat
+```
 
 ### 2. Cuentas de servicio humanas con SPN y contraseñas estáticas (*Kerberoasting*)
 
 - **Causa técnica:** en el paso 2 (`TGS-REQ` → `TGS-REP`), cualquier usuario autenticado del dominio puede solicitar legítimamente al KDC un ticket de servicio (TGS) para cualquier **SPN** registrado en el directorio, y el KDC devuelve ese ticket cifrado con el hash de la cuenta de Active Directory asociada al SPN.
-  - Si el servicio corre bajo la cuenta de máquina del servidor (`db01$`) o bajo una cuenta **gMSA (*Group Managed Service Account*)**, su contraseña tiene **120 bytes aleatorios** generados por el sistema y es matemáticamente imposible de adivinar por fuerza bruta.
+  - Si el servicio corre bajo la cuenta de máquina del servidor (`db01$`) o bajo una cuenta **gMSA (*Group Managed Service Account*)**, su contraseña tiene **240 bytes aleatorios** generados y rotados automáticamente por Active Directory, resultando inviable para adivinar por fuerza bruta.
   - El problema ocurre cuando un administrador crea una **cuenta de usuario común** (por ejemplo `svc_sql`), le asigna una contraseña escrita a mano que nunca rota, le registra un SPN (`setspn -A ...`) y además permite el algoritmo heredado **RC4 (`0x17`)** en lugar de **AES-256 (`0x12`)**.
-- **Detección en el SOC:** alertar sobre el **Event ID `4769`** cuando `Ticket Encryption Type` sea **`0x17` (RC4)** o cuando un mismo usuario solicite decenas de tickets TGS para distintos SPNs en pocos segundos.
+- **Detección en el SOC:** alertar sobre el **Event ID `4769`** cuando `Ticket Encryption Type` sea **`0x17` (RC4)** o cuando un mismo usuario solicite decenas de tickets TGS para distintos SPNs en pocos segundos. **Criterio Sigma:** `EventID: 4769` con `TicketEncryptionType: '0x17'` excluyendo cuentas máquina (`!*$`) y `krbtgt`.
+
+```bash
+# Verificación de cuentas kerberoasteables en laboratorio autorizado (`GetUserSPNs.py`)
+impacket-GetUserSPNs corp.local/usuario_lab:'ClaveLab!' -dc-ip 10.10.20.10 -request -outputfile tgs_lab.txt
+```
+
 - **Remediación definitiva:**
-  1. Migrar todas las cuentas de servicio con SPN a **gMSA (`New-ADServiceAccount`)** para que Active Directory gestione y rote automáticamente contraseñas de 120 bytes.
+  1. Migrar todas las cuentas de servicio con SPN a **gMSA (`New-ADServiceAccount`)** para que Active Directory gestione y rote automáticamente contraseñas de 240 bytes.
   2. Donde aún no se pueda usar gMSA, exigir contraseñas generadas aleatoriamente de **al menos 25 a 32 caracteres** y forzar el uso exclusivo de **AES-128 / AES-256** deshabilitando RC4 en las propiedades de la cuenta.
 
-## 3. NTLM, NTLM Relay y controles de firma de canal
+## 3. NTLM, NTLM Relay, cambio en Windows 11 24H2 / Server 2025 y vectores relacionados
 
 Aunque Kerberos sea el protocolo principal, Windows conserva soporte para el protocolo de desafío-respuesta heredado **NetNTLMv2** cuando un cliente se conecta a un servidor usando su **dirección IP** (`\\10.10.20.50\carpeta`) en vez de su nombre DNS (`\\srv01.corp.local\carpeta`), o cuando el SPN no está disponible.
 
 El protocolo NTLM carece de autenticación mutua del servidor por sí solo. Si una conexión NetNTLMv2 entrante es interceptada en la red local, el riesgo de **NTLM Relay** consiste en reenviar ese desafío-respuesta en tiempo real hacia otro servicio del dominio (como SMB, LDAP o un endpoint HTTP de certificados) que **no verifique la firma criptográfica de los paquetes ni el vínculo con el canal TLS**.
 
-### Las cuatro defensas que neutralizan por completo NTLM Relay
+```bash
+# Validación controlada de objetivos sin SMB Signing o sin EPA en laboratorio aislado (`ntlmrelayx.py`)
+impacket-ntlmrelayx -tf objetivos_lab.txt -smb2support --no-dump
+```
+
+::: importante Cambio estructural en Windows 11 24H2 y Windows Server 2025: SMB Signing por defecto y fin de NTLMv1
+A partir de **Windows 11 24H2** y **Windows Server 2025**, Microsoft habilita **SMB Signing obligatorio por defecto** en todas las conexiones SMB salientes y entrantes (`RequireSecuritySignature = True`) y **elimina completamente el protocolo NTLMv1** del sistema operativo. En la práctica, esto hace que el **NTLM Relay clásico hacia servidores SMB (`TCP/445`) falle de fábrica** entre sistemas actualizados sin necesidad de GPO adicional; no obstante, las pruebas de laboratorio deben seguir auditando **LDAPS/LDAP sin Channel Binding**, **ADCS Web Enrollment sin EPA (ESC8)** y servidores heredados donde el relay todavía prospera.
+:::
+
+### Vectores complementarios: Kerberos Relay, ADIDNS y cuentas Pre-Windows 2000
+
+| Vector en AD | Mecanismo técnico | Detección (Event IDs + Sigma) | Mitigación obligatoria |
+|---|---|---|---|
+| **Kerberos Relay** | Reenvío de un ticket `AP-REQ` capturado tras coerción o alias DNS (`DNS/SPN` compatible) hacia servicios SMB/HTTP/LDAP sin firma ni vinculación de canal. | **Event ID `4769`** hacia SPNs `cifs/` o `http/` seguido de **`4624`** Kerberos desde IP intermediaria no esperada y **`5136`** si modifica RBCD/ACLs. **Sigma:** desajuste entre IP cliente de `4624` y estación emisora original del ticket. | Exigir **SMB Signing**, **LDAP Signing + Channel Binding (CBT)**, **HTTPS + EPA** y parches actualizados contra suplantación de SPN. |
+| **ADIDNS** (*AD-Integrated DNS*) | Por defecto, `Authenticated Users` tiene permiso `CreateChild` en `DomainDnsZones`, permitiendo crear registros DNS dinámicos (incluidos comodines `*`) para interceptar tráfico hacia un host inexistente. | **Event ID `5136`** sobre objetos `dnsNode` en `DomainDnsZones` + registros de auditoría DNS (**Event ID `541`**). **Sigma:** creación de nodo DNS desde estación Tier 2 apuntando a IP no perteneciente a servidores autorizados. | Retirar `CreateChild` / `Write` a `Authenticated Users` en la zona ADIDNS, definir entradas estáticas críticas (WPAD/servicios) y bloquear `LLMNR`/`NBT-NS`. |
+| **Cuentas Pre-Windows 2000** | Equipos pre-creados marcando *"pre-Windows 2000 computer"* fijan su contraseña inicial como su **nombre en minúsculas sin `$`** (auditable con `nxc ldap dc01.corp.local -u usuario_lab -p 'ClaveLab!' --pre2k`). | **Event ID `4741`** (alta de equipo) seguida de **`4768` / `4624`** desde IP no corporativa usando la cuenta `$` pre-creada. **Sigma:** logon inicial de objeto `$` con `pwdLastSet == whenCreated` sin unión real al dominio. | Nunca habilitar la opción Pre-Windows 2000 al pre-crear equipos; asignar contraseñas aleatorias únicas, rotar cuentas `$` inactivas y limpiar `Pre-Windows 2000 Compatible Access`. |
+
+### Las cinco defensas que neutralizan por completo el Relay NTLM y Kerberos
 
 | Control de endurecimiento | Qué protege | Cómo configurarlo en el dominio |
 |---|---|---|
@@ -186,7 +214,7 @@ Tu script `auditar_kerberos_dacl.ps1`, la captura de consola mostrando `RequireS
 
 **1. En el flujo Kerberos v5, ¿con qué clave se cifra el TGT devuelto en el `AS-REP` y con qué clave se cifra el ticket de servicio (TGS) devuelto en el `TGS-REP`?** El **TGT** se cifra con la clave secreta de la cuenta **`krbtgt`** del Controlador de Dominio (para que solo el KDC pueda abrirlo y verificarlo). El **TGS** se cifra con el hash de la contraseña de la **cuenta de Active Directory propietaria del SPN** del servicio destino (para que el servidor de aplicación pueda descifrarlo localmente al recibir el `AP-REQ`).
 
-**2. ¿Por qué migrar una cuenta de servicio tradicional a una cuenta gMSA (*Group Managed Service Account*) elimina el riesgo de Kerberoasting?** Porque el riesgo de Kerberoasting reside en que un humano asigne una contraseña débil o adivinable por diccionario a la cuenta dueña del SPN. Una cuenta **gMSA** utiliza una contraseña aleatoria criptográfica de **120 bytes** generada y rotada automáticamente por los Controladores de Dominio y fuerza el uso de cifrado AES, haciendo inviable cualquier intento de fuerza bruta offline sobre el TGS.
+**2. ¿Por qué migrar una cuenta de servicio tradicional a una cuenta gMSA (*Group Managed Service Account*) elimina el riesgo de Kerberoasting?** Porque el riesgo de Kerberoasting reside en que un humano asigne una contraseña débil o adivinable por diccionario a la cuenta dueña del SPN. Una cuenta **gMSA** utiliza una contraseña aleatoria criptográfica de **240 bytes** generada y rotada automáticamente por los Controladores de Dominio y fuerza el uso de cifrado AES, haciendo inviable cualquier intento de fuerza bruta offline sobre el TGS.
 
 **3. ¿Qué tres configuraciones de dominio son necesarias para cerrar de forma integral los vectores de NTLM Relay hacia SMB, LDAP y servicios web HTTP/HTTPS?** Exigir **SMB Signing** (`RequireSecuritySignature = True`) en todos los servidores y estaciones; exigir **LDAP Signing y LDAP Channel Binding** en todos los Controladores de Dominio; y habilitar **HTTPS con Extended Protection for Authentication (EPA)** en los servicios web integrados como IIS y ADCS Web Enrollment.
 

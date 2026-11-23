@@ -125,6 +125,13 @@ Incluso con redirectores, HTTPS, *jitter* y perfiles maleables, la combinación 
   - **Huellas TLS (JA3/JA4)** inconsistentes con el `User-Agent` declarado (por ejemplo, declarar ser Chrome en Windows pero presentar una negociación TLS propia de `WinHTTP` o `curl`).
   - Dominios recién registrados, certificados TLS de corta duración con historial nulo en la organización y ausencia de consultas DNS previas coherentes (Sysmon ID `22`).
 
+### Defensa ante BYOVD (*Bring Your Own Vulnerable Driver*)
+
+En escenarios avanzados post-privilegio local, el abuso de **BYOVD (*Bring Your Own Vulnerable Driver*)** consiste en cargar un controlador de kernel legítimo y firmado digitalmente que contiene fallas conocidas de lectura/escritura arbitraria para deshabilitar sensores EDR o suprimir protecciones `PPL` desde anillo 0. Desde la perspectiva **Blue Team**:
+
+- **Telemetría clave:** monitorear **Sysmon Event ID `6`** (*Driver Loaded*), **Windows System Event ID `7045`** (*Service Installed* con `ServiceType: kernel driver`) y los eventos de bloqueo **CodeIntegrity `3076`/`3077`** cuando un binario `.sys` se carga fuera de `System32\drivers` o coincide con hashes catalogados en *LOLDrivers*.
+- **Mitigación obligatoria:** mantener activas **Microsoft Vulnerable Driver Blocklist** y **HVCI (*Hypervisor-Protected Code Integrity* / *Memory Integrity*)** bajo VBS junto con políticas WDAC restrictivas para drivers. Para estudiar la mecánica interna de controladores KMDF, IOCTLs y *callbacks* del núcleo en Windows, consultá [Curso de Reversing en Windows · Etapa 6](../../CLS_Guia/guia/etapa-6.html).
+
 ## Detección y verificación defensiva en laboratorio
 
 En un entorno Purple Team, podés validar la capacidad de detección tanto en red (analizando registros de conexiones salientes para encontrar *beaconing* incluso con *jitter*) como en endpoint (auditando eventos Sysmon).
@@ -264,15 +271,19 @@ tags:
 
 ## Práctica guiada en laboratorio
 
-En tu laboratorio aislado (una VM Windows con Sysmon configurado con un esquema comunitario como SwiftOnSecurity o Olaf Hartong, y una VM Linux con `auditd`), ejecutá un ciclo Purple Team controlado:
+En tu laboratorio aislado (una VM Windows con Sysmon configurado con un esquema comunitario como SwiftOnSecurity u Olaf Hartong, y una VM Linux con `auditd` + **Zeek** / **Suricata**, **sin salida a internet** en red Host-Only), ejecutá un ciclo **Purple Team** controlado emparejando ataque controlado y captura de telemetría:
 
-1. **Verificá la telemetría base de Windows**: habilitá *Command Line Process Auditing* (Directiva de grupo para Event ID `4688`) y *PowerShell Script Block Logging* (Event ID `4104`).
-2. **Generá eventos benignos de prueba**: en una consola PowerShell de prueba ejecutá `whoami /all` y un bloque de script inocuo (`Write-Output "Prueba Purple Team"`), y luego ejecutá `certutil.exe -?` y una consulta controlada en `forfiles.exe /p C:\Windows\System32 /m notepad.exe /c "cmd /c echo test_lab"`.
-3. **Inspeccioná los logs**: ejecutá el script de auditoría PowerShell visto en el capítulo y confirmá que podés reconstruir `ParentImage`, `CommandLine` y `ScriptBlockText` en el Visor de Eventos.
-4. **Probá el detector de *beaconing***: corré el script Python sobre el dataset de laboratorio, modificá el *jitter* simulado entre `5%` y `40%` y observá cómo cambia el coeficiente de variación (`cv_intervalo`).
+1. **Verificá la telemetría base de Windows**: habilitá *Command Line Process Auditing* (Directiva de grupo para Event ID `4688`) y *PowerShell Script Block Logging* (Event ID `4104`), y confirmá Sysmon activo (`ID 1`, `3`, `6`, `11`, `22`).
+2. **Emulación controlada (`Atomic Red Team` o `Sliver C2` aislado en laboratorio)**:
+   - *Opción A (Atomic Red Team):* ejecutá pruebas atómicas acotadas e inocuas en tu VM Windows de prueba (por ejemplo `Invoke-AtomicTest T1218.010 -TestNumbers 1` o `T1059.001`) tras revisar el YAML de la prueba (`-ShowDetailsBrief`).
+   - *Opción B (Sliver C2 sin salida de red):* levantá un listener HTTPS/mTLS únicamente en tu subred aislada (`192.168.56.x`, sin enrutamiento externo) con *jitter* configurado para capturar tráfico de laboratorio en PCAP sin exponer infraestructura real.
+3. **Inspección de endpoint y red (Sysmon + Zeek / Suricata)**:
+   - En Windows, corré el script PowerShell de auditoría de Sysmon Event ID `1`/`3`/`6` y confirmá `ParentImage`, `CommandLine` y hashes registrados.
+   - En tu colector Linux, procesá la captura con **Zeek** (`zeek -r trafico_lab.pcap`) y **Suricata** (`suricata -r trafico_lab.pcap -l logs/`), verificando en `conn.log` / `ssl.log` (huella JA3/JA4 e intervalos) y `eve.json` qué alertas dispararon.
+4. **Probá el detector de *beaconing***: corré el script Python sobre el dataset de laboratorio (o sobre los timestamps extraídos de `conn.log`), modificá el *jitter* entre `5%` y `40%` y observá cómo varía el coeficiente de variación (`cv_intervalo`).
 
 ::: practica Entregable mínimo
-Documentá una tabla de validación Purple Team con al menos **4 pruebas** ejecutadas en tu laboratorio (comando benigno de prueba, Event ID capturado en Windows o `auditd` en Linux, campos críticos visibles como `ParentImage` y `CommandLine`, y la regla o consulta exacta con la que el Blue Team lo detectaría). Adjuntá la salida del script Python mostrando cómo varía `cv_intervalo` al incrementar el *jitter*.
+Documentá una tabla de validación Purple Team con al menos **4 pruebas** ejecutadas en tu laboratorio aislado (técnica MITRE / Atomic o flujo Sliver local, Event ID en Sysmon/Security/`auditd`, registro observado en Zeek `conn.log`/`ssl.log` o Suricata `eve.json`, y la regla Sigma o consulta exacta de detección). Adjuntá la salida del script Python mostrando cómo varía `cv_intervalo` al incrementar el *jitter*.
 :::
 
 ::: defensa Perspectiva defensiva y mitigación

@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -148,6 +148,21 @@ grype sbom:./sbom.cdx.json --fail-on high
 
 # Alternativa equivalente con Trivy en formato SPDX para una imagen OCI
 trivy image --format spdx-json --output image.spdx.json ghcr.io/org/app:1.4.2</code></pre>
+<h3 id="cap-5-5-casos-reales-de-supply-chain-20242026-nist-ssdf-y-openssf-scorecard">Casos reales de <em>Supply Chain</em> (2024–2026), NIST SSDF y <em>OpenSSF Scorecard</em></h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Caso real</th>
+<th>Componente afectado</th>
+<th>Mecanismo de compromiso</th>
+<th>Contramedida de ingeniería clave</th>
+</tr></thead><tbody>
+<tr><td><strong><code>xz-utils</code></strong> (<code>CVE-2024-3094</code>)</td><td>Utilidad <code>xz</code> / <code>liblzma</code></td><td>Puerta trasera oculta en <em>tarballs</em> de compilación tras cooptar el rol de mantenedor.</td><td>Revisiones múltiples de mantenedores, compilaciones reproducibles y monitoreo de artefactos binarios.</td></tr>
+<tr><td><strong><code>Leaky Vessels</code></strong> (<code>CVE-2024-21626</code> y afines)</td><td><code>runc</code> y <code>BuildKit</code></td><td>Fuga de descriptores de archivos del host durante construcción/arranque de contenedores.</td><td>Parchear runtime OCI, aislar <em>builders</em> en nodos efímeros sin privilegios y evitar Dockerfiles no confiables.</td></tr>
+<tr><td><strong><code>IngressNightmare</code></strong> (<code>CVE-2025-1974</code> y afines)</td><td>Kubernetes <code>Ingress-NGINX</code></td><td>Ejecución remota sin autenticación mediante el <em>admission webhook</em> exponiendo secretos del clúster.</td><td>Restringir red hacia webhooks de admisión solo al plano de control, parchear urgente y aplicar mínimo privilegio RBAC.</td></tr>
+<tr><td><strong><code>tj-actions/changed-files</code></strong> (<code>CVE-2025-30066</code>)</td><td>GitHub Actions de terceros</td><td>Alteración retroactiva de etiquetas (<code>@v44</code>) para imprimir secretos de CI/CD en logs de <em>workflows</em>.</td><td><strong>Fijar acciones por hash SHA completo</strong> (<code>@&lt;commit-sha&gt;</code>), tokens efímeros mínimos y no usar secretos en repos públicos.</td></tr>
+<tr><td><strong><code>Shai-Hulud</code></strong> (npm / PyPI 2025)</td><td>Registros de paquetes públicos</td><td>Gusano en scripts <code>preinstall</code> que roba tokens cloud/registro y republica versiones infectadas.</td><td>Deshabilitar scripts automáticos (<code>--ignore-scripts</code>) en CI, usar <em>lockfiles</em> estrictos y <strong>MFA FIDO2</strong> en cuentas de publicación.</td></tr>
+</tbody></table></div>
+<p>Para gobernar este ciclo de forma sistemática, combiná <strong>NIST SSDF (<code>SP 800-218</code>)</strong> (prácticas verificables de preparación, compilación aislada y respuesta a vulnerabilidades) con <strong><code>OpenSSF Scorecard</code></strong>, que audita automáticamente repositorios en busca de protección de ramas, dependencias fijadas por SHA, firmas y permisos mínimos en <code>GITHUB_TOKEN</code>.</p>
 <h3 id="cap-5-5-pruebas-dinamicas-dast-controladas">Pruebas dinámicas (DAST) controladas</h3>
 <p>El <strong>DAST</strong> evalúa cabeceras HTTP de seguridad, exposición de endpoints administrativos, errores de CORS y fallas en flujos de autenticación contra una instancia viva desplegada en un entorno efímero de <em>staging</em> (nunca contra producción sin autorización ni ventanas de control). Un patrón práctico es levantar la aplicación con Docker Compose dentro del job de CI y ejecutar un escaneo base o contra la especificación OpenAPI con OWASP ZAP.</p>
 <hr>

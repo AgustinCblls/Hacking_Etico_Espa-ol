@@ -49,12 +49,21 @@ En servidores Linux (`ext4` / `xfs`), la investigación se concentra en registro
 
 En entornos **macOS**, la estructura equivalente combina los **Unified Logs** (`log show`), **FSEvents** (historial de cambios del sistema de archivos APFS), **`LaunchAgents` / `LaunchDaemons`** (`.plist` de persistencia), cuarentena (`com.apple.quarantine` / base SQLite de descargas) y bases SQLite de navegadores y TCC.
 
+::: nota Superficie de ataque y DFIR en macOS (visibilidad corporativa)
+En flotas corporativas híbridas con macOS, los analistas priorizan cuatro puntos de control sin salir del triage estándar:
+- **Gatekeeper y cuarentena:** verificar firmas/notarización (`spctl -a -vv`) y el atributo extendido `com.apple.quarantine` junto a la base `LSQuarantine` para identificar binarios o `.dmg` ejecutados fuera de canales aprobados.
+- **TCC (*Transparency, Consent, and Control*):** auditar `TCC.db` (permisos granulares de cámara, micrófono, pantalla y *Full Disk Access*) ante posibles abusos o solicitudes engañosas hacia el usuario.
+- **Persistencia (`LaunchAgents` / `LaunchDaemons`):** revisar archivos `.plist` añadidos en `~/Library/LaunchAgents/`, `/Library/LaunchAgents/` y `/Library/LaunchDaemons/`.
+- **Telemetría DFIR (`Unified Logs` y `osquery`):** correlacionar eventos históricos mediante `log show --predicate ...` y consultas SQL portables con **`osquery`** sobre procesos, sockets, extensiones del sistema y `launchd` en tiempo real.
+:::
+
 ## 4. Triage a escala (KAPE / Velociraptor) y memoria RAM con Volatility 3
 
 Cuando un incidente involucra decenas de equipos (por ejemplo, contención de ransomware o movimiento lateral en Active Directory), clonar discos de 1 TB por la red tardaría horas o días. Por eso los equipos DFIR modernos usan **triage dirigido a escala** y **análisis de memoria RAM**:
 
 - **KAPE (*Kroll Artifact Parser and Extractor*):** recolecta y analiza selectivamente en menos de 3 minutos los artefactos críticos (`$MFT`, hives del Registro, Prefetch, EVTX, SRUM, LNK), reduciendo 1 TB de disco a un paquete de triage de ~300 MB.
 - **Velociraptor:** plataforma cliente-servidor de código abierto que permite lanzar consultas **VQL (*Velociraptor Query Language*)** en tiempo real sobre toda la flota para recolectar artefactos, inspeccionar procesos y cazar indicadores simultáneamente en Windows, Linux y macOS.
+- **Análisis rápido sin SIEM (`Hayabusa`, `Chainsaw` y `Eric Zimmerman Tools`):** sobre paquetes recolectados de Windows, **`Hayabusa`** y **`Chainsaw`** aplican cientos de reglas Sigma directamente sobre archivos `.evtx` offline para generar líneas temporales en segundos, mientras la suite abierta de **Eric Zimmerman** (`MFTECmd`, `EvtxECmd`, `PECmd`, `RECmd`, `AmcacheParser`) convierte artefactos binarios en CSV normalizados listos para correlación.
 
 ### Plugins esenciales de Volatility 3 para memoria RAM
 

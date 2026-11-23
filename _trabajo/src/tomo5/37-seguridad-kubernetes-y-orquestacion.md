@@ -237,7 +237,7 @@ kube-bench run --targets master,node,policies
 ```
 
 ## Práctica guiada en laboratorio
-Desplegá un clúster local liviano en tu estación de trabajo utilizando **`kind`** (*Kubernetes in Docker*) o **`k3s`** con un CNI compatible con `NetworkPolicy` (como Calico o Cilium). Creá un namespace `lab-seguro` etiquetado con Pod Security Standards en modo `enforce: restricted`. Intentá aplicar un manifiesto de Pod inseguro (con `privileged: true` o sin `runAsNonRoot: true`) para verificar que el controlador de admisión lo rechaza en tiempo real. Luego corregí el manifiesto aplicando `securityContext` endurecido, `automountServiceAccountToken: false` y una `NetworkPolicy` de denegación por defecto.
+Desplegá un clúster local liviano en tu estación de trabajo utilizando **`kind`** (*Kubernetes in Docker*) o **`k3s`** con un CNI compatible con `NetworkPolicy` (como Calico o Cilium) —pudiendo también desplegar **`Kubernetes Goat`** en modo local aislado como entorno adicional de evaluación—. Creá un namespace `lab-seguro` etiquetado con Pod Security Standards en modo `enforce: restricted`. Intentá aplicar un manifiesto de Pod inseguro (con `privileged: true` o sin `runAsNonRoot: true`) para verificar que el controlador de admisión lo rechaza en tiempo real. Luego corregí el manifiesto aplicando `securityContext` endurecido, `automountServiceAccountToken: false` y una `NetworkPolicy` de denegación por defecto.
 
 ::: practica Entregable mínimo
 Consolidá en un archivo `auditoria-k8s-lab.md`:

@@ -30,7 +30,7 @@ Toda práctica de hacking ético exige un entorno controlado donde un error de c
 
 ### Hipervisores y snapshots
 
-Un hipervisor Tipo 2 (como VirtualBox, VMware Workstation Pro o Hyper-V en Windows) permite ejecutar sistemas invitados completos sobre tu sistema operativo anfitrión. Antes de instalar herramientas o modificar configuraciones críticas en una máquina virtual (VM), creá siempre un **snapshot limpio** (estado base). Esto te permite revertir cualquier experimento fallido en segundos sin reinstalar el sistema.
+Un hipervisor **Tipo 1** (*bare-metal*, como **Hyper-V**, KVM/QEMU o VMware ESXi) se ejecuta directamente sobre el hardware físico o mediante un núcleo de hipervisión propio, mientras que un hipervisor **Tipo 2** (*hosted*, como VirtualBox o VMware Workstation Pro) corre como aplicación sobre tu sistema operativo anfitrión. Antes de instalar herramientas o modificar configuraciones críticas en una máquina virtual (VM), creá siempre un **snapshot limpio** (estado base): esto te permite revertir cualquier experimento fallido en segundos sin reinstalar el sistema.
 
 ### Topologías de red en hipervisores
 
@@ -53,6 +53,12 @@ Para servicios web, bases de datos y microservicios de práctica, Docker consume
 
 1. Publicar puertos exclusivamente en la interfaz de loopback (`127.0.0.1:8080:80` y nunca `8080:80`, que escucha en `0.0.0.0`).
 2. Declarar redes de puente internas (`internal: true`) cuando los contenedores no necesiten salida a Internet.
+
+### VM atacante recomendada (Kali / Parrot), hardware y Git mínimo
+
+Para la estación de trabajo ofensiva dentro del laboratorio aislado se suele usar **Kali Linux** o **Parrot Security OS** (edición Security). Requisitos orientativos para ejecutar cómodamente una VM atacante junto con 1 o 2 objetivos locales: **16 GB de RAM** (mínimo funcional 8 GB cerrando aplicaciones del host), **4 núcleos de CPU** y **50–60 GB de disco libre** con *snapshots* antes de cada laboratorio.
+
+Asimismo, mantené tus scripts y notas bajo control de versiones con **Git mínimo** (excluyendo en `.gitignore` archivos `.pcap`, `.env`, claves privadas y volcados): `git status` (revisar cambios), `git add ruta/archivo` (preparar) y `git commit -m "nota técnica"` (registrar hito reproducible).
 
 ### Entornos heterogéneos y superficie física
 
@@ -99,60 +105,73 @@ Preservar evidencias con `SHA-256` garantiza **integridad** y cadena de custodia
 
 ## Ejemplo paso a paso: Laboratorio Docker aislado, consulta DNS local y bitácora SHA-256
 
-En este ejemplo vas a crear una definición mínima de laboratorio en `laboratorios/docker-compose.yml` con red interna aislada, verificar que los puertos expuestos queden atados solo a `127.0.0.1`, ejecutar un script propio en Python para resolver nombres locales de forma controlada y sellar la evidencia con `SHA-256`.
+En este ejemplo vas a trabajar con el archivo real [`laboratorios/docker-compose.yml`](../laboratorios/docker-compose.yml), verificar que los contenedores (`lab_local_web` y `lab_local_nginx` en la red `red_aislada_lab`) queden atados exclusivamente a `127.0.0.1`, ejecutar `laboratorios/dns_check_local.py` y sellar la evidencia con `SHA-256`.
 
-### Paso 1: Definir el laboratorio aislado
+### Paso 1: Revisar el laboratorio aislado (`laboratorios/docker-compose.yml`)
 
-Creá el archivo `laboratorios/docker-compose.yml` con un servicio web de pruebas accesible únicamente desde tu equipo local:
+En `laboratorios/docker-compose.yml` definimos la red `red_aislada_lab` con `internal: false` (necesario en Docker bridge cuando se publican puertos locales en el host, ya que `internal: true` impide exponer puertos hacia loopback) combinada con **enlace estricto a `127.0.0.1`** (`127.0.0.1:8080:80` para `lab_local_nginx` y `127.0.0.1:5050:5050` para `lab_local_web`) para impedir cualquier acceso desde la LAN:
 
 ```yaml
 services:
-  web-lab:
-    image: nginx:1.27-alpine
-    container_name: lab_web
+  app-educativa:
+    image: python:3.12-slim
+    container_name: lab_local_web
+    working_dir: /app
+    volumes:
+      - ./app_lab_educativa.py:/app/app_lab_educativa.py:ro
+    command: ["sh", "-c", "pip install --no-cache-dir flask && python /app/app_lab_educativa.py"]
+    ports:
+      - "127.0.0.1:5050:5050"
+    networks:
+      - red_aislada_lab
+    restart: unless-stopped
+
+  servidor-nginx:
+    image: nginx:alpine
+    container_name: lab_local_nginx
     ports:
       - "127.0.0.1:8080:80"
     networks:
-      - red_aislada
-    read_only: true
-    tmpfs:
-      - /var/cache/nginx
-      - /var/run
+      - red_aislada_lab
+    restart: unless-stopped
 
 networks:
-  red_aislada:
+  red_aislada_lab:
     driver: bridge
-    internal: true
+    internal: false
 ```
 
-### Paso 2: Levantar el servicio y validar el aislamiento de red
+### Paso 2: Levantar los servicios y validar el aislamiento de red
 
 ```bash
-# Levantamos el contenedor en segundo plano
+# Levantamos los contenedores base en segundo plano
 docker compose -f laboratorios/docker-compose.yml up -d
 
-# Verificamos qué dirección IP quedó asociada al puerto publicado
+# Verificamos qué direcciones quedaron asociadas a los puertos publicados
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 ```
 
 Salida esperada comentada:
 
 ```text
-NAMES         STATUS         PORTS
-lab_web   Up 6 seconds   127.0.0.1:8080->80/tcp
+NAMES             STATUS         PORTS
+lab_local_web     Up 6 seconds   127.0.0.1:5050->5050/tcp
+lab_local_nginx   Up 6 seconds   127.0.0.1:8080->80/tcp
 # Confirmación crítica: el prefijo 127.0.0.1 garantiza que ningún equipo
-# externo de tu LAN pueda alcanzar el puerto 8080 de este contenedor.
+# externo de tu LAN pueda alcanzar los puertos 5050 u 8080 de estos contenedores.
 ```
 
-Comprobá además que el contenedor no tiene salida a Internet gracias a `internal: true`:
+Comprobá además desde tu estación host que el puerto responde en loopback (`127.0.0.1:8080`) y verificá con `ss` / `netstat` que NO escucha en `0.0.0.0`:
 
 ```bash
-docker exec lab_web sh -c "wget -qO- --timeout=2 http://1.1.1.1 || echo 'Aislamiento OK: sin salida externa'"
+curl -sI http://127.0.0.1:8080 | head -n 3
+ss -tln | grep -E "5050|8080" || netstat -an | findstr "8080"
 ```
 
 ```text
-wget: can't connect to remote host (1.1.1.1): Network unreachable
-Aislamiento OK: sin salida externa
+HTTP/1.1 200 OK
+Server: nginx/1.27.x
+LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*
 ```
 
 ### Paso 3: Automatizar una consulta DNS controlada en laboratorio con Python
@@ -211,7 +230,7 @@ Get-FileHash -Path ".\evidencias\cap1_1\dns_local.log" -Algorithm SHA256 | Forma
 Incluso en tu propia estación de trabajo, el laboratorio debe tratarse como una **zona no confiable**. Aplicá tres controles inmediatos:
 1. **Aislamiento de red estricto:** mantené el firewall del host activo (`ufw`/`nftables` en Linux, Windows Defender Firewall en Windows, `pf` en macOS) y bloqueá tráfico entrante desde interfaces de laboratorio hacia servicios locales del host (SMB, RDP, SSH).
 2. **Mínimo privilegio en contenedores y VMs:** evitá `--privileged`, usá `read_only: true` cuando sea viable y desactivá carpetas compartidas bidireccionales o portapapeles compartido cuando analices binarios desconocidos.
-3. **Verificación Purple Team:** cada vez que corras una prueba en el laboratorio, revisá qué evento generó el servidor (`docker logs lab_web`) para entrenar el ojo en la lectura de telemetría real desde el primer día.
+3. **Verificación Purple Team:** cada vez que corras una prueba en el laboratorio, revisá qué evento generó el servidor (`docker logs lab_local_nginx` / `docker logs lab_local_web`) para entrenar el ojo en la lectura de telemetría real desde el primer día.
 :::
 
 ## Práctica en laboratorio local

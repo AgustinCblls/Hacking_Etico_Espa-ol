@@ -54,21 +54,37 @@ Con la adopción de defensas contra ESC1–ESC8, nuevas investigaciones identifi
 
 | Código | Condición técnica o superficie afectada | Impacto y mecanismo de abuso | Remediación obligatoria |
 |---|---|---|---|
-| **ESC9 / ESC10** | Plantillas con el flag `CT_FLAG_NO_SECURITY_EXTENSION` (**ESC9**) o Controladores de Dominio con mapeo débil de certificados (`StrongCertificateBindingEnforcement` en `0` o `CertificateMappingMethods` permisivo sobre UPN/DNS, **ESC10**). | Al no exigir la extensión fuerte con el **SID exacto** (`szOID_NTDS_CA_SECURITY_EXT`), quien controle el atributo `userPrincipalName` o `dNSHostName` de una cuenta puede suplantar temporalmente el UPN de otro usuario para obtener un certificado y autenticarse como él. | Aplicar el parche **KB5014754** en modo estricto (`StrongCertificateBindingEnforcement = 2`), restringir `CertificateMappingMethods` y eliminar `CT_FLAG_NO_SECURITY_EXTENSION` de las plantillas. |
+| **ESC9 / ESC10** | Plantillas con el flag `CT_FLAG_NO_SECURITY_EXTENSION` (**ESC9**) o Controladores de Dominio heredados sin mapeo fuerte estricto o con `CertificateMappingMethods` permisivo sobre UPN/DNS (**ESC10**). | Al no exigir la extensión fuerte con el **SID exacto** (`szOID_NTDS_CA_SECURITY_EXT`), quien controle `userPrincipalName` o `dNSHostName` puede suplantar otra identidad. Desde el **09/09/2025**, el parche **KB5014754** pasó a cumplimiento obligatorio (*Full Enforcement*) y `StrongCertificateBindingEnforcement` ya no permite revertir a compatibilidad débil en DCs actualizados. | Mantener todos los DCs actualizados bajo **KB5014754 (Full Enforcement obligatorio desde 09/09/2025)**, deshabilitar `CertificateMappingMethods` permisivos y quitar `CT_FLAG_NO_SECURITY_EXTENSION` de las plantillas. |
 | **ESC11** | Interfaz RPC de inscripción de certificados (**`MS-ICPR`**) expuesta en la CA sin el flag **`IF_ENFORCEENCRYPTICERTREQUEST`** en `InterfaceFlags`. | Permite ejecutar **NTLM Relay directamente sobre RPC (`MS-ICPR`)** para inscribir certificados sin pasar por IIS Web Enrollment (`/certsrv/`), eludiendo mitigaciones aplicadas solo a ESC8. | Activar la privacidad obligatoria de paquete RPC en la CA (`certutil -setreg CA\InterfaceFlags +IF_ENFORCEENCRYPTICERTREQUEST`) y reiniciar `certsvc`. |
 | **ESC12** | Acceso local o de lectura sobre la configuración/PIN de módulos criptográficos (YubiHSM / PKCS#11) que resguardan la clave privada de la CA. | Permite acceder directamente a la clave privada de la CA para firmar certificados arbitrarios fuera de los registros normales de emisión. | Aislar la CA en **Tier 0**, proteger con permisos estrictos los archivos/claves del HSM y auditar accesos al servicio criptográfico. |
 | **ESC13** | Plantilla configurada con una política de emisión (`msPKI-Certificate-Policy`) vinculada mediante **`msDS-OIDToGroupLink`** a un grupo privilegiado en AD. | Cualquier usuario autorizado a inscribirse en esa plantilla recibe en su PAC el SID del grupo universal vinculado cuando se autentica con el certificado emitido. | Auditar todos los OIDs con `msDS-OIDToGroupLink` en la partición `Configuration` y eliminar vínculos hacia grupos privilegiados o plantillas abiertas. |
 | **ESC14** | Permisos delegados para modificar el atributo `altSecurityIdentities` o métodos débiles de mapeo explícito (p. ej. `X509:<RFC822>`). | Permite asociar manualmente un certificado emitido para una identidad controlada hacia una cuenta objetivo mediante mapeo explícito débil. | Restringir quién puede escribir `altSecurityIdentities` en AD y exigir mapeos fuertes (`X509:<SID>` o `IssuerSerialNumber`) conforme a KB5014754. |
 | **ESC15 / ESC16** | Plantillas esquema v1 con `ENROLLEE_SUPPLIES_SUBJECT` vulnerables a inyección arbitraria de **Application Policies** (`CVE-2024-49019`, **ESC15**); o la deshabilitación global en la CA de la extensión SID (`1.3.6.1.4.1.311.25.2` en `policy\DisableExtensionList`, **ESC16**). | **ESC15** permite inyectar EKU de autenticación o *Enrollment Agent* en plantillas v1 que no los tenían; **ESC16** suprime la extensión SID en **todos** los certificados emitidos por esa CA (replicando el riesgo de ESC9 a escala global). | Instalar la actualización de seguridad contra `CVE-2024-49019` y migrar plantillas v1; verificar con `certutil -getreg policy\DisableExtensionList` que `1.3.6.1.4.1.311.25.2` no esté deshabilitado y mantener `StrongCertificateBindingEnforcement = 2`. |
 
-### Telemetría de detección de ADCS en el SIEM
+### Telemetría de detección de ADCS, auditoría con `Certipy` y abuso de dMSA (`BadSuccessor` en Server 2025)
+
+En laboratorio autorizado, **`Certipy`** permite auditar en segundos qué plantillas y propiedades de la CA exponen vectores ESC1–ESC16:
+
+```bash
+# 1. Inventario automatizado de plantillas vulnerables y flags de la CA
+certipy find -u usuario_lab@corp.local -p 'ClaveLab!' -dc-ip 10.10.20.10 -vulnerable -stdout
+
+# 2. Verificación controlada de inscripción (ejemplo ESC1 hacia una plantilla de prueba en laboratorio)
+certipy req -u usuario_lab@corp.local -p 'ClaveLab!' -dc-ip 10.10.20.10 -ca corp-DC01-CA -template LabESC1 -upn admin_lab@corp.local
+```
 
 Para que el SOC tenga visibilidad completa sobre la emisión de certificados:
 1. En las propiedades de la Autoridad de Certificación (pestaña *Auditing*), activar la casilla **`Issue and manage certificate requests`**.
 2. Monitorear en el registro `Security` de la CA los eventos:
    - **Event ID `4886`:** *Certificate Services received a certificate request*.
-   - **Event ID `4887`:** *Certificate Services approved a certificate request and issued a certificate* (inspeccionar que el `Subject` y el `Subject Alternative Name` coincidan con la cuenta `Requester`).
+   - **Event ID `4887`:** *Certificate Services approved a certificate request and issued a certificate* (inspeccionar que el `Subject` y el `Subject Alternative Name` coincidan con la cuenta `Requester`; **criterio Sigma:** divergencia entre `RequesterName` y el UPN/DNS emitido en el SAN).
 3. Monitorear en los Controladores de Dominio el **Event ID `4768`** cuando el certificado utilizado para `PKINIT` difiera de la cuenta que solicitó el certificado minutos antes, y verificar que esté aplicado el parche de mapeo fuerte de certificados de Microsoft (**`StrongCertificateBindingEnforcement`** en `HKLM\SYSTEM\CurrentControlSet\Services\Kdc`).
+
+::: peligro Vector Windows Server 2025: dMSA ("BadSuccessor", `CVE-2025-53779`)
+**Windows Server 2025** introdujo las **Delegated Managed Service Accounts (dMSA)** (`msDS-DelegatedManagedServiceAccount`) para facilitar la migración de cuentas de servicio tradicionales. En el vector **BadSuccessor**, un usuario con permiso **`CreateChild`** sobre cualquier Unidad Organizativa (OU) crea un objeto dMSA en esa OU, vincula su atributo **`msDS-ManagedAccountPrecededByLink`** hacia una cuenta privilegiada del dominio y establece **`msDS-DelegatedMSAState = 2`**: en un KDC sin parchear, al solicitar un TGT como esa dMSA, Active Directory asume una migración activa e incrusta los privilegios de la cuenta objetivo en el PAC.
+- **Detección (Event IDs + Sigma):** auditar en el registro Security de los DCs el **Event ID `5137`** (creación de objeto con `ObjectClass = msDS-DelegatedManagedServiceAccount`) y el **Event ID `5136`** (modificación de `msDS-ManagedAccountPrecededByLink`, `msDS-DelegatedMSAState` o `msDS-SupersededManagedAccountLink`). **Criterio Sigma:** creación o vinculación de dMSA fuera de OUs aprobadas o ejecutada por identidades ajenas a Tier 0.
+- **Mitigación obligatoria:** aplicar la actualización de seguridad de **`CVE-2025-53779`** (que exige vínculo mutuo verificado vía `msDS-SupersededManagedAccountLink`), auditar las ACLs de todas las OUs para remover `CreateChild` / `WriteDacl` / `GenericAll` sobre objetos `msDS-DelegatedManagedServiceAccount` fuera de Tier 0 y proteger cuentas críticas dentro de `Protected Users`.
+:::
 
 ## 3. Relaciones de confianza entre dominios y bosques (Domain & Forest Trusts)
 
@@ -134,7 +150,7 @@ Para cerrar el **Tomo III**, esta matriz condensa los diez controles de mayor im
 |---|---|---|
 | **1** | **Aislamiento de Tier 0 y PAWs** | Separar cuentas y estaciones de administración por niveles (Tier 0, 1 y 2) aplicando GPOs de denegación de logon cruzado y Silos de Autenticación. |
 | **2** | **Grupo `Protected Users`** | Incluir al 100 % de las cuentas de Tier 0 (`Domain Admins`, `Enterprise Admins`, `Schema Admins`) en el grupo `Protected Users`. |
-| **3** | **Cuentas de servicio gMSA** | Migrar todas las cuentas de servicio con SPN a `gMSA` (120 bytes rotados automáticamente) y forzar cifrado Kerberos AES-256 (`0x12`), deshabilitando RC4 (`0x17`). |
+| **3** | **Cuentas de servicio gMSA** | Migrar todas las cuentas de servicio con SPN a `gMSA` (240 bytes rotados automáticamente) y forzar cifrado Kerberos AES-256 (`0x12`), deshabilitando RC4 (`0x17`). |
 | **4** | **Rotación de `krbtgt`** | Rotar la contraseña de la cuenta `krbtgt` periódicamente (dos rotaciones espaciadas según el tiempo máximo de vida del TGT, mínimo 10–24 horas entre la primera y la segunda) siguiendo el script oficial de Microsoft. |
 | **5** | **LAPS (*Windows LAPS*)** | Desplegar **Windows LAPS** en el 100 % de las estaciones de trabajo y servidores miembro para que cada equipo tenga una contraseña de Administrador local única, aleatoria y rotada automáticamente almacenada con cifrado en AD. |
 | **6** | **Firma SMB, LDAP y EPA** | Exigir `SMB Signing` en clientes y servidores, `LDAP Signing` + `LDAP Channel Binding` en todos los DCs, y `HTTPS + EPA` en todos los servicios web integrados. |

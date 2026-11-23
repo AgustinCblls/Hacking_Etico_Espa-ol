@@ -175,27 +175,27 @@ Al anotar cada hoja con atributos como **Costo/Dificultad (Bajo/Medio/Alto)** y 
 
 Un error clásico del modelado de amenazas es terminar con recomendaciones vagas como *"asegurar la API"* o *"agregar monitoreo"*. Todo hallazgo priorizado debe traducirse en un **requisito verificable** que QA o seguridad puedan comprobar objetivamente.
 
-El estándar **OWASP ASVS (Application Security Verification Standard v4.0)** ofrece el catálogo exacto de controles divididos en niveles (L1 básico, L2 estándar para la mayoría de apps con datos sensibles, L3 crítico como banca/salud).
+El estándar **OWASP ASVS 5.0 (Application Security Verification Standard, mayo 2025 — 17 capítulos V1–V17)** ofrece el catálogo exacto de controles divididos en niveles (L1 básico, L2 estándar para la mayoría de apps con datos sensibles, L3 crítico como banca/salud).
 
 A continuación tenés el mapeo completo para nuestra **API de Pagos y Login**:
 
-| Componente DFD | Amenaza STRIDE identificada | Mitigación arquitectónica concreta | Requisito OWASP ASVS v4.0 |
+| Componente DFD | Amenaza STRIDE identificada | Mitigación arquitectónica concreta | Requisito OWASP ASVS 5.0 |
 | :--- | :--- | :--- | :--- |
-| **P2: Servicio Auth** | *Spoofing* por fuerza bruta o credenciales comprometidas | Rate limiting por cuenta/IP, contraseñas con Argon2id y soporte MFA FIDO2/TOTP. | **`V2.2.1`** (Anti-automatización), **`V2.4.1`** (Hashing resistente), **`V2.8`** (MFA). |
-| **Flujo (1) -> P1** | *Spoofing* / *Information Disclosure* de tokens de sesión | Emitir tokens opacos o JWT firmados con vida corta; cookies con `HttpOnly`, `Secure`, `SameSite=Lax`. | **`V3.2.1`** (Entropía de sesión), **`V3.4.1-3.4.5`** (Atributos seguros de cookie). |
-| **P3: Servicio Pagos** | *Elevation of Privilege* (IDOR sobre órdenes ajenas) | Validar `order.owner_id == auth_context.user_id` en el servicio antes de leer o confirmar orden. | **`V4.1.3`** / **`V4.2.1`** (Control de acceso a nivel de objeto y rechazo por defecto). |
-| **P3: Servicio Pagos** | *Tampering* de precios o cantidades en payload | Ignorar montos enviados por el cliente; recalcular precios desde catálogo DB y usar `Decimal`/centavos. | **`V5.1.3`** (Validación de esquema) y **`V11.1.4`** (Integridad de flujos de negocio). |
-| **P3: Servicio Pagos** | *Tampering* / Race condition en cobros y cupones | Implementar `Idempotency-Key` único y bloqueo pesimista `SELECT ... FOR UPDATE` en base de datos. | **`V11.1.5`** (Protección contra abuso concurrente y límites de lógica de negocio). |
-| **P2 & P3 (Logs)** | *Repudiation* en transacciones y cambios de cuenta | Registrar eventos de login, fallos, pagos y cambios de rol en log centralizado inmutable sin guardar secretos/PAN. | **`V7.1.1`** (No registrar datos sensibles), **`V7.2.2`** (Registro de eventos de seguridad). |
-| **E2 -> P3 (Webhook)** | *Spoofing* de confirmaciones de la pasarela externa | Verificar firma HMAC-SHA256 sobre payload crudo con `constant_time_compare` y validar timestamp contra replay. | **`V9.2.1`** (TLS mutuo/autenticado entre servicios) y **`V13.1.3`** (Validación de origen de APIs). |
-| **D1 / D3 (Bases)** | *Information Disclosure* de datos en reposo/tránsito | Cifrado TLS hacia DB, tokenización PCI en proveedor externo (nunca persistir PAN/CVV), cuentas DB con mínimos privilegios. | **`V6.1.1`** (Datos clasificados), **`V9.1.1`** (TLS en todas las conexiones). |
+| **P2: Servicio Auth** | *Spoofing* por fuerza bruta o credenciales comprometidas | Rate limiting por cuenta/IP, contraseñas con Argon2id y soporte MFA FIDO2/TOTP. | **`V6`** (Authentication: hashing resistente, MFA) y **`V2`** (Anti-automatización). |
+| **Flujo (1) -> P1** | *Spoofing* / *Information Disclosure* de tokens de sesión | Emitir tokens opacos o JWT firmados con vida corta; cookies con `HttpOnly`, `Secure`, `SameSite=Lax`. | **`V7`** (Session Management) y **`V9`** (Self-Contained Tokens). |
+| **P3: Servicio Pagos** | *Elevation of Privilege* (IDOR sobre órdenes ajenas) | Validar `order.owner_id == auth_context.user_id` en el servicio antes de leer o confirmar orden. | **`V8`** (Authorization: control de acceso a nivel de objeto y rechazo por defecto). |
+| **P3: Servicio Pagos** | *Tampering* de precios o cantidades en payload | Ignorar montos enviados por el cliente; recalcular precios desde catálogo DB y usar `Decimal`/centavos. | **`V2`** (Validation and Business Logic) y **`V1`** (Encoding and Sanitization). |
+| **P3: Servicio Pagos** | *Tampering* / Race condition en cobros y cupones | Implementar `Idempotency-Key` único y bloqueo pesimista `SELECT ... FOR UPDATE` en base de datos. | **`V2`** (Validation and Business Logic — protección ante abuso concurrente). |
+| **P2 & P3 (Logs)** | *Repudiation* en transacciones y cambios de cuenta | Registrar eventos de login, fallos, pagos y cambios de rol en log centralizado inmutable sin guardar secretos/PAN. | **`V16`** (Security Logging and Error Handling). |
+| **E2 -> P3 (Webhook)** | *Spoofing* de confirmaciones de la pasarela externa | Verificar firma HMAC-SHA256 sobre payload crudo con `constant_time_compare` y validar timestamp contra replay. | **`V12`** (Secure Communication) y **`V4`** (API and Web Service). |
+| **D1 / D3 (Bases)** | *Information Disclosure* de datos en reposo/tránsito | Cifrado TLS hacia DB, tokenización PCI en proveedor externo (nunca persistir PAN/CVV), cuentas DB con mínimos privilegios. | **`V14`** (Data Protection) y **`V11` / `V12`** (Cryptography / Secure Communication). |
 
 ### Responder la pregunta 4: verificación continua y antipatrones frecuentes
 
-Un modelo de amenazas queda obsoleto si nadie comprueba que las contramedidas mapeadas a **OWASP ASVS** realmente existen en el código desplegado. Para cerrar el ciclo con la pregunta *"¿Hicimos un buen trabajo?"*, asociá cada fila de la tabla anterior a una prueba automatizada en integración continua:
+Un modelo de amenazas queda obsoleto si nadie comprueba que las contramedidas mapeadas a **OWASP ASVS 5.0** realmente existen en el código desplegado. Para cerrar el ciclo con la pregunta *"¿Hicimos un buen trabajo?"*, asociá cada fila de la tabla anterior a una prueba automatizada en integración continua:
 
-- **Pruebas de contrato e integración**: verificar que toda llamada al endpoint de órdenes sin JWT válido devuelva `401`, que intentar leer la orden de otro usuario devuelva `403`/`404` (`V4.2.1`) y que un webhook con firma HMAC inválida sea rechazado (`V13.1.3`).
-- **Pruebas de concurrencia y aritmética**: ejecutar tests paralelos contra `POST /checkout/confirm` verificando que solo una transacción avance y que montos negativos sean rechazados (`V11.1.4`, `V11.1.5`).
+- **Pruebas de contrato e integración**: verificar que toda llamada al endpoint de órdenes sin JWT válido devuelva `401`, que intentar leer la orden de otro usuario devuelva `403`/`404` (**`V8`**) y que un webhook con firma HMAC inválida sea rechazado (**`V4` / `V12`**).
+- **Pruebas de concurrencia y aritmética**: ejecutar tests paralelos contra `POST /checkout/confirm` verificando que solo una transacción avance y que montos negativos sean rechazados (**`V2`**).
 - **Antipatrones que debés evitar**: considerar que "estar dentro de la misma VPC" elimina la necesidad de autenticación entre servicios (ignorando la *Frontera de Confianza 2*), copiar un DFD genérico sin actualizarlo cuando se agrega un nuevo webhook o almacenamiento S3, y redactar amenazas sin asignar un responsable ni un criterio de verificación ASVS.
 
 ---
@@ -207,7 +207,7 @@ Elegí una arquitectura pequeña que estés construyendo o un escenario de labor
 1. **Dibujá el DFD**: representá al menos 2 entidades externas, 3 procesos, 2 almacenes de datos, sus flujos etiquetados con protocolo y al menos 2 **Fronteras de Confianza** claras.
 2. **Aplicá STRIDE-per-element**: seleccioná 1 flujo que cruce una frontera de confianza, 1 proceso crítico y 1 almacén de datos; documentá al menos 6 amenazas concretas derivadas de la matriz STRIDE.
 3. **Construí un Árbol de Ataque**: modelá un único objetivo adverso (por ejemplo, *"Ejecutar transferencia no autorizada desde cuenta ajena"*) usando al menos un nodo `AND` y un nodo `OR`.
-4. **Mapeá a ASVS**: vinculá cada amenaza detectada con una contramedida técnica específica y su identificador correspondiente de **OWASP ASVS v4.0** (Nivel 2).
+4. **Mapeá a ASVS**: vinculá cada amenaza detectada con una contramedida técnica específica y su capítulo correspondiente de **OWASP ASVS 5.0** (Nivel 2).
 
 ::: practica Entregable mínimo
 Un documento Markdown de arquitectura segura (`threat-model.md`) que contenga: (a) el diagrama DFD con fronteras de confianza numeradas, (b) la tabla STRIDE-per-element con al menos 6 filas, (c) el árbol de ataque ASCII con nodos `AND`/`OR`, y (d) la tabla de mitigaciones mapeadas a códigos `OWASP ASVS` listos para convertirse en tickets verificables.
@@ -243,7 +243,7 @@ Antes de avanzar hacia el pentesting *White-Box* y la revisión segura de códig
 ## Referencias y estándares abiertos
 
 - **Threat Modeling Manifesto** (*threatmodelingmanifesto.org*) — Principios, valores y antipatrones del modelado de amenazas.
-- **OWASP Application Security Verification Standard (ASVS v4.0.3)** — Catálogo completo de requisitos verificables (`V1` a `V14`).
+- **OWASP Application Security Verification Standard (ASVS 5.0, mayo 2025)** — Catálogo completo de requisitos verificables (`V1` a `V17`).
 - **OWASP Threat Modeling Cheat Sheet** — Guía práctica de DFD, STRIDE y priorización de contramedidas.
 - **Adam Shostack — *Threat Modeling: Designing for Security*** — Referencia fundacional de las 4 preguntas y *STRIDE-per-element*.
 - **PASTA (*Process for Attack Simulation and Threat Analysis*)** — Marco de modelado centrado en riesgo de negocio (UcedaVélez & Morana).

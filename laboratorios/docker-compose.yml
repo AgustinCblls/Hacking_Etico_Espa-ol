@@ -5,6 +5,8 @@ services:
     image: python:3.12-slim
     container_name: lab_local_web
     working_dir: /app
+    environment:
+      - LAB_HOST=0.0.0.0
     volumes:
       - ./app_lab_educativa.py:/app/app_lab_educativa.py:ro
     command: ["sh", "-c", "pip install --no-cache-dir flask && python /app/app_lab_educativa.py"]

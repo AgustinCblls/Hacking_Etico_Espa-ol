@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -97,6 +97,21 @@
 <tr><td><strong>S7comm / Plus</strong></td><td>TCP 102</td><td>Solo en S7commPlus moderno</td><td>Parada remota de CPU (<code>STOP</code>) o alteración de lógica</td><td><code>s7comm</code></td></tr>
 <tr><td><strong>OPC UA</strong></td><td>TCP 4840</td><td>Robusta (X.509 + AES/SHA256)</td><td>Degradación manual a <code>SecurityPolicy: None</code></td><td><code>opcua</code></td></tr>
 </tbody></table></div>
+<p>Otros tres protocolos habituales en auditorías de campo son <strong><code>BACnet</code></strong> (<code>UDP/47808</code>, automatización de edificios y climatización HVAC), <strong><code>EtherNet/IP</code></strong> (<code>TCP/44818</code> y <code>UDP/2222</code>, manufactura industrial) e <strong><code>IEC 60870-5-104</code></strong> (<code>TCP/2404</code>, telecontrol en subestaciones eléctricas), todos mapeados en la matriz especializada <strong>MITRE ATT&amp;CK for ICS</strong> (tácticas propias de planta como <em>Inhibit Response Function</em> e <em>Impair Process Control</em>).</p>
+<h3 id="cap-7-6-incidentes-historicos-ot-ics-que-explican-la-defensa-actual">Incidentes históricos OT/ICS que explican la defensa actual</h3>
+<div class="tabla"><table>
+<thead><tr>
+<th>Incidente / Malware OT</th>
+<th>Año</th>
+<th>Superficie / Protocolo explotado</th>
+<th>Lección defensiva para planta</th>
+</tr></thead><tbody>
+<tr><td><strong><code>Stuxnet</code></strong></td><td>2010</td><td>Alteración silenciosa de lógica en PLCs Siemens vía estación de ingeniería comprometida</td><td>Aislamiento estricto de EWS/USB y verificación de integridad de lógica PLC.</td></tr>
+<tr><td><strong><code>Industroyer</code> / <code>Industroyer2</code></strong></td><td>2016 / 2022</td><td>Envío nativo de comandos de maniobra por <strong>IEC 104 / IEC 101 / OPC DA</strong> en redes eléctricas</td><td>Firewalls con DPI industrial y bloqueo de comandos fuera de consolas HMI autorizadas.</td></tr>
+<tr><td><strong><code>Triton</code> (<code>TRISIS</code>)</strong></td><td>2017</td><td>Reprogramación de controladores de seguridad física <strong>SIS</strong> (<em>Safety Instrumented Systems</em>)</td><td>Separación física e independiente de redes SIS frente al control básico BPCS.</td></tr>
+<tr><td><strong><code>PIPEDREAM</code> (<code>INCONTROLLER</code>)</strong></td><td>2022</td><td>Framework modular multiprotocolo (<strong>Modbus</strong>, OPC UA, CODESYS, Omron)</td><td>Inventario continuo de activos OT y monitoreo pasivo de cargas de firmware.</td></tr>
+<tr><td><strong><code>FrostyGoop</code></strong></td><td>2024</td><td>Abuso directo sin exploits de <strong>Modbus TCP (<code>502</code>)</strong> contra controladores de calefacción</td><td>Nunca exponer TCP/502 ni HMI a Internet; exigir segmentación Purdue y NDR Modbus.</td></tr>
+</tbody></table></div>
 <h2 id="cap-7-6-segmentacion-ot-data-diodes-y-monitoreo-pasivo-de-trafico">Segmentación OT, Data Diodes y monitoreo pasivo de tráfico</h2>
 <p>Como en OT raramente podés parchear PLCs en caliente o instalarles agentes EDR, la defensa se apoya en controlar caminos de red y observar pasivamente lo que circula por el cable.</p>
 <h3 id="cap-7-6-firewalls-ot-con-inspeccion-profunda-de-protocolos-dpi">Firewalls OT con inspección profunda de protocolos (DPI)</h3>
@@ -112,7 +127,7 @@ alert modbus any any -&gt; 10.20.1.0/24 502 (msg:"OT ALERTA - Escritura Modbus F
     src_ip: ![10.20.30.10,10.20.30.11]; sid:9000101; rev:1;)</code></pre>
 <h2 id="cap-7-6-practica-guiada-en-laboratorio">Práctica guiada en laboratorio</h2>
 <p>En esta práctica vas a analizar de manera estrictamente pasiva una captura de tráfico industrial simulado y diseñar reglas defensivas de segmentación y detección.</p>
-<ol><li><strong>Obtención de captura educativa:</strong> descargá en tu VM de análisis una captura <code>.pcap</code> pública de tráfico ICS (por ejemplo, muestras Modbus/DNP3/S7comm de <em>Wireshark SampleCaptures</em> o repositorios educativos abiertos de <em>ICS-Security-Tools</em>).</li><li><strong>Inspección pasiva con TShark/Wireshark:</strong> ejecutá análisis en modo solo lectura sobre la captura:</li></ol>
+<ol><li><strong>Obtención de captura educativa o simulación aislada (<code>OpenPLC</code> / Modbus):</strong> descargá en tu VM de análisis una captura <code>.pcap</code> pública de tráfico ICS (por ejemplo, muestras Modbus/DNP3/S7comm de <em>Wireshark SampleCaptures</em> o <em>ICS-Security-Tools</em>), o bien levantá en tu propio host un contenedor local aislado de <strong><code>OpenPLC</code></strong> / simulador Modbus vinculado exclusivamente a <code>127.0.0.1:502</code> (nunca contra equipos industriales reales) mientras capturás tráfico en loopback con <code>tshark</code>.</li><li><strong>Inspección pasiva con TShark/Wireshark:</strong> ejecutá análisis en modo solo lectura sobre la captura:</li></ol>
 <ul><li>Listá conversaciones Modbus con <code>tshark -r captura.pcap -Y "modbus" -T fields -e ip.src -e ip.dst -e modbus.func_code</code>.</li><li>Clasificá los códigos de función observados diferenciando lecturas (<code>1</code>, <code>3</code>, <code>4</code>) de escrituras (<code>5</code>, <code>6</code>, <code>15</code>, <code>16</code>).</li></ul>
 <ol start="3"><li><strong>Diseño Purdue y reglas DPI:</strong> ubicá las IPs observadas en los Niveles 1, 2, 3 y 3.5 del Modelo Purdue, definiendo dónde conectarías el puerto SPAN para monitoreo pasivo y qué reglas DPI permitirían solo lecturas hacia el Historian.</li></ol>
 <aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Entregá un informe breve de análisis pasivo OT con: (a) los comandos <code>tshark</code> / filtros Wireshark usados y el inventario de nodos cliente-servidor extraído del <code>.pcap</code>; (b) tabla diferenciando códigos de función de lectura y escritura observados; y (c) diagrama textual del Modelo Purdue con Nivel 3.5 (IDMZ), ubicación del sensor pasivo y tres reglas DPI propuestas.</p></aside>

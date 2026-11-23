@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -48,7 +48,7 @@
 <h2 id="cap-1-1-arquitectura-del-laboratorio-local-aislado">Arquitectura del laboratorio local aislado</h2>
 <p>Toda práctica de hacking ético exige un entorno controlado donde un error de configuración nunca afecte redes domésticas, corporativas ni terceros en Internet. Un laboratorio bien diseñado separa el <strong>host físico</strong> (tu equipo principal), la <strong>capa de virtualización o contenedores</strong> y las <strong>redes virtuales aisladas</strong>.</p>
 <h3 id="cap-1-1-hipervisores-y-snapshots">Hipervisores y snapshots</h3>
-<p>Un hipervisor Tipo 2 (como VirtualBox, VMware Workstation Pro o Hyper-V en Windows) permite ejecutar sistemas invitados completos sobre tu sistema operativo anfitrión. Antes de instalar herramientas o modificar configuraciones críticas en una máquina virtual (VM), creá siempre un <strong>snapshot limpio</strong> (estado base). Esto te permite revertir cualquier experimento fallido en segundos sin reinstalar el sistema.</p>
+<p>Un hipervisor <strong>Tipo 1</strong> (<em>bare-metal</em>, como <strong>Hyper-V</strong>, KVM/QEMU o VMware ESXi) se ejecuta directamente sobre el hardware físico o mediante un núcleo de hipervisión propio, mientras que un hipervisor <strong>Tipo 2</strong> (<em>hosted</em>, como VirtualBox o VMware Workstation Pro) corre como aplicación sobre tu sistema operativo anfitrión. Antes de instalar herramientas o modificar configuraciones críticas en una máquina virtual (VM), creá siempre un <strong>snapshot limpio</strong> (estado base): esto te permite revertir cualquier experimento fallido en segundos sin reinstalar el sistema.</p>
 <h3 id="cap-1-1-topologias-de-red-en-hipervisores">Topologías de red en hipervisores</h3>
 <p>La elección del adaptador de red virtual determina si tus máquinas vulnerables quedan expuestas a tu red local (LAN) o contenidas en un segmento privado.</p>
 <div class="tabla"><table>
@@ -68,6 +68,9 @@
 <h3 id="cap-1-1-contenedores-locales-con-docker">Contenedores locales con Docker</h3>
 <p>Para servicios web, bases de datos y microservicios de práctica, Docker consume una fracción de la memoria RAM que exige una VM completa. La seguridad de un entorno Docker local descansa en dos reglas de diseño:</p>
 <ol><li>Publicar puertos exclusivamente en la interfaz de loopback (<code>127.0.0.1:8080:80</code> y nunca <code>8080:80</code>, que escucha en <code>0.0.0.0</code>).</li><li>Declarar redes de puente internas (<code>internal: true</code>) cuando los contenedores no necesiten salida a Internet.</li></ol>
+<h3 id="cap-1-1-vm-atacante-recomendada-kali-parrot-hardware-y-git-minimo">VM atacante recomendada (Kali / Parrot), hardware y Git mínimo</h3>
+<p>Para la estación de trabajo ofensiva dentro del laboratorio aislado se suele usar <strong>Kali Linux</strong> o <strong>Parrot Security OS</strong> (edición Security). Requisitos orientativos para ejecutar cómodamente una VM atacante junto con 1 o 2 objetivos locales: <strong>16 GB de RAM</strong> (mínimo funcional 8 GB cerrando aplicaciones del host), <strong>4 núcleos de CPU</strong> y <strong>50–60 GB de disco libre</strong> con <em>snapshots</em> antes de cada laboratorio.</p>
+<p>Asimismo, mantené tus scripts y notas bajo control de versiones con <strong>Git mínimo</strong> (excluyendo en <code>.gitignore</code> archivos <code>.pcap</code>, <code>.env</code>, claves privadas y volcados): <code>git status</code> (revisar cambios), <code>git add ruta/archivo</code> (preparar) y <code>git commit -m "nota técnica"</code> (registrar hito reproducible).</p>
 <h3 id="cap-1-1-entornos-heterogeneos-y-superficie-fisica">Entornos heterogéneos y superficie física</h3>
 <p>Aunque la mayor parte del curso utiliza Linux y Windows, en evaluaciones reales vas a encontrar otros dos planos relevantes:</p>
 <ul><li><strong>Estaciones macOS:</strong> basadas en el núcleo Darwin (BSD/Mach), comparten herramientas POSIX (<code>zsh</code>, <code>ssh</code>, <code>lsof</code>, <code>pf</code> como firewall) pero incorporan controles propios como <strong>System Integrity Protection (SIP)</strong>, <strong>Gatekeeper</strong> (verificación de firma y notarización de aplicaciones), <strong>TCC</strong> (permisos granulares de privacidad) y el <strong>Keychain</strong> para credenciales. Si tu host físico es macOS, aplican las mismas reglas de aislamiento de red con UTM, VMware Fusion o Docker Desktop/Colima.</li><li><strong>Superficie de hardware:</strong> en auditorías de dispositivos embebidos o IoT con autorización explícita, el alcance puede incluir interfaces físicas de depuración como <strong>UART</strong> (consola serie), <strong>SPI/I2C</strong> (lectura de memoria flash externa), <strong>JTAG/SWD</strong> (depuración a nivel de CPU) o riesgos de periféricos USB no confiables (emulación de teclado HID y acceso directo a memoria DMA). En este tomo trabajamos exclusivamente sobre software y redes virtuales locales; la seguridad física y de hardware requiere equipamiento dedicado y permisos específicos.</li></ul>
@@ -96,41 +99,54 @@
 <ol><li><strong>Hipótesis previa:</strong> antes de correr un comando, anticipá qué protocolo, archivo o proceso va a intervenir.</li><li><strong>Ejecución controlada:</strong> corré el comando en tu laboratorio local y observá la salida completa (incluyendo códigos de retorno y errores).</li><li><strong>Verificación de rastro:</strong> revisá los logs o paquetes capturados para confirmar qué quedó registrado.</li><li><strong>Registro en bitácora:</strong> documentá fecha UTC, comando exacto, resultado resumido y hash criptográfico de cada evidencia guardada.</li></ol>
 <p>Preservar evidencias con <code>SHA-256</code> garantiza <strong>integridad</strong> y cadena de custodia: si un archivo de captura (<code>.pcap</code>), un log o una salida de escaneo se altera un solo bit, su resumen criptográfico cambia por completo.</p>
 <h2 id="cap-1-1-ejemplo-paso-a-paso-laboratorio-docker-aislado-consulta-dns-local-y-bitacora-sha-256">Ejemplo paso a paso: Laboratorio Docker aislado, consulta DNS local y bitácora SHA-256</h2>
-<p>En este ejemplo vas a crear una definición mínima de laboratorio en <code>laboratorios/docker-compose.yml</code> con red interna aislada, verificar que los puertos expuestos queden atados solo a <code>127.0.0.1</code>, ejecutar un script propio en Python para resolver nombres locales de forma controlada y sellar la evidencia con <code>SHA-256</code>.</p>
-<h3 id="cap-1-1-paso-1-definir-el-laboratorio-aislado">Paso 1: Definir el laboratorio aislado</h3>
-<p>Creá el archivo <code>laboratorios/docker-compose.yml</code> con un servicio web de pruebas accesible únicamente desde tu equipo local:</p>
+<p>En este ejemplo vas a trabajar con el archivo real <a href="../laboratorios/docker-compose.yml"><code>laboratorios/docker-compose.yml</code></a>, verificar que los contenedores (<code>lab_local_web</code> y <code>lab_local_nginx</code> en la red <code>red_aislada_lab</code>) queden atados exclusivamente a <code>127.0.0.1</code>, ejecutar <code>laboratorios/dns_check_local.py</code> y sellar la evidencia con <code>SHA-256</code>.</p>
+<h3 id="cap-1-1-paso-1-revisar-el-laboratorio-aislado-laboratorios-docker-compose-yml">Paso 1: Revisar el laboratorio aislado (<code>laboratorios/docker-compose.yml</code>)</h3>
+<p>En <code>laboratorios/docker-compose.yml</code> definimos la red <code>red_aislada_lab</code> con <code>internal: false</code> (necesario en Docker bridge cuando se publican puertos locales en el host, ya que <code>internal: true</code> impide exponer puertos hacia loopback) combinada con <strong>enlace estricto a <code>127.0.0.1</code></strong> (<code>127.0.0.1:8080:80</code> para <code>lab_local_nginx</code> y <code>127.0.0.1:5050:5050</code> para <code>lab_local_web</code>) para impedir cualquier acceso desde la LAN:</p>
 <pre><code class="lenguaje-yaml">services:
-  web-lab:
-    image: nginx:1.27-alpine
-    container_name: lab_web
+  app-educativa:
+    image: python:3.12-slim
+    container_name: lab_local_web
+    working_dir: /app
+    volumes:
+      - ./app_lab_educativa.py:/app/app_lab_educativa.py:ro
+    command: ["sh", "-c", "pip install --no-cache-dir flask &amp;&amp; python /app/app_lab_educativa.py"]
+    ports:
+      - "127.0.0.1:5050:5050"
+    networks:
+      - red_aislada_lab
+    restart: unless-stopped
+
+  servidor-nginx:
+    image: nginx:alpine
+    container_name: lab_local_nginx
     ports:
       - "127.0.0.1:8080:80"
     networks:
-      - red_aislada
-    read_only: true
-    tmpfs:
-      - /var/cache/nginx
-      - /var/run
+      - red_aislada_lab
+    restart: unless-stopped
 
 networks:
-  red_aislada:
+  red_aislada_lab:
     driver: bridge
-    internal: true</code></pre>
-<h3 id="cap-1-1-paso-2-levantar-el-servicio-y-validar-el-aislamiento-de-red">Paso 2: Levantar el servicio y validar el aislamiento de red</h3>
-<pre><code class="lenguaje-bash"># Levantamos el contenedor en segundo plano
+    internal: false</code></pre>
+<h3 id="cap-1-1-paso-2-levantar-los-servicios-y-validar-el-aislamiento-de-red">Paso 2: Levantar los servicios y validar el aislamiento de red</h3>
+<pre><code class="lenguaje-bash"># Levantamos los contenedores base en segundo plano
 docker compose -f laboratorios/docker-compose.yml up -d
 
-# Verificamos qué dirección IP quedó asociada al puerto publicado
+# Verificamos qué direcciones quedaron asociadas a los puertos publicados
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"</code></pre>
 <p>Salida esperada comentada:</p>
-<pre><code class="lenguaje-text">NAMES         STATUS         PORTS
-lab_web   Up 6 seconds   127.0.0.1:8080-&gt;80/tcp
+<pre><code class="lenguaje-text">NAMES             STATUS         PORTS
+lab_local_web     Up 6 seconds   127.0.0.1:5050-&gt;5050/tcp
+lab_local_nginx   Up 6 seconds   127.0.0.1:8080-&gt;80/tcp
 # Confirmación crítica: el prefijo 127.0.0.1 garantiza que ningún equipo
-# externo de tu LAN pueda alcanzar el puerto 8080 de este contenedor.</code></pre>
-<p>Comprobá además que el contenedor no tiene salida a Internet gracias a <code>internal: true</code>:</p>
-<pre><code class="lenguaje-bash">docker exec lab_web sh -c "wget -qO- --timeout=2 http://1.1.1.1 || echo 'Aislamiento OK: sin salida externa'"</code></pre>
-<pre><code class="lenguaje-text">wget: can't connect to remote host (1.1.1.1): Network unreachable
-Aislamiento OK: sin salida externa</code></pre>
+# externo de tu LAN pueda alcanzar los puertos 5050 u 8080 de estos contenedores.</code></pre>
+<p>Comprobá además desde tu estación host que el puerto responde en loopback (<code>127.0.0.1:8080</code>) y verificá con <code>ss</code> / <code>netstat</code> que NO escucha en <code>0.0.0.0</code>:</p>
+<pre><code class="lenguaje-bash">curl -sI http://127.0.0.1:8080 | head -n 3
+ss -tln | grep -E "5050|8080" || netstat -an | findstr "8080"</code></pre>
+<pre><code class="lenguaje-text">HTTP/1.1 200 OK
+Server: nginx/1.27.x
+LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*</code></pre>
 <h3 id="cap-1-1-paso-3-automatizar-una-consulta-dns-controlada-en-laboratorio-con-python">Paso 3: Automatizar una consulta DNS controlada en laboratorio con Python</h3>
 <p>Para entender cómo funcionan los protocolos sin depender de cajas negras, escribí un script mínimo (<code>laboratorios/dns_check_local.py</code>) que resuelva únicamente nombres locales configurados en tu sistema o zona interna de laboratorio y registre la salida con marca temporal UTC:</p>
 <pre><code class="lenguaje-python">#!/usr/bin/env python3
@@ -166,7 +182,7 @@ evidencias/cap1_1/dns_local.log: OK
 <p>En Windows PowerShell podés generar exactamente el mismo sello de integridad con <code>Get-FileHash</code>:</p>
 <pre><code class="lenguaje-powershell">Get-FileHash -Path ".\evidencias\cap1_1\dns_local.log" -Algorithm SHA256 | Format-List</code></pre>
 <aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><p>Incluso en tu propia estación de trabajo, el laboratorio debe tratarse como una <strong>zona no confiable</strong>. Aplicá tres controles inmediatos:</p>
-<ol><li><strong>Aislamiento de red estricto:</strong> mantené el firewall del host activo (<code>ufw</code>/<code>nftables</code> en Linux, Windows Defender Firewall en Windows, <code>pf</code> en macOS) y bloqueá tráfico entrante desde interfaces de laboratorio hacia servicios locales del host (SMB, RDP, SSH).</li><li><strong>Mínimo privilegio en contenedores y VMs:</strong> evitá <code>--privileged</code>, usá <code>read_only: true</code> cuando sea viable y desactivá carpetas compartidas bidireccionales o portapapeles compartido cuando analices binarios desconocidos.</li><li><strong>Verificación Purple Team:</strong> cada vez que corras una prueba en el laboratorio, revisá qué evento generó el servidor (<code>docker logs lab_web</code>) para entrenar el ojo en la lectura de telemetría real desde el primer día.</li></ol></aside>
+<ol><li><strong>Aislamiento de red estricto:</strong> mantené el firewall del host activo (<code>ufw</code>/<code>nftables</code> en Linux, Windows Defender Firewall en Windows, <code>pf</code> en macOS) y bloqueá tráfico entrante desde interfaces de laboratorio hacia servicios locales del host (SMB, RDP, SSH).</li><li><strong>Mínimo privilegio en contenedores y VMs:</strong> evitá <code>--privileged</code>, usá <code>read_only: true</code> cuando sea viable y desactivá carpetas compartidas bidireccionales o portapapeles compartido cuando analices binarios desconocidos.</li><li><strong>Verificación Purple Team:</strong> cada vez que corras una prueba en el laboratorio, revisá qué evento generó el servidor (<code>docker logs lab_local_nginx</code> / <code>docker logs lab_local_web</code>) para entrenar el ojo en la lectura de telemetría real desde el primer día.</li></ol></aside>
 <h2 id="cap-1-1-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
 <ol><li>Verificá que tenés instalado al menos un hipervisor (VirtualBox, VMware o Hyper-V) o Docker Engine funcional.</li><li>Creá la estructura de carpetas <code>laboratorios/</code> y <code>evidencias/cap1_1/</code> en tu directorio de estudio.</li><li>Desplegá <code>laboratorios/docker-compose.yml</code>, validá que el contenedor escucha únicamente en <code>127.0.0.1:8080</code> y confirmá la respuesta HTTP con <code>curl -I http://127.0.0.1:8080</code>.</li><li>Redactá una plantilla breve de <strong>Rules of Engagement</strong> ficticia (<code>evidencias/cap1_1/roe_laboratorio.md</code>) que defina tu rango de laboratorio local (por ejemplo <code>192.168.56.0/24</code> y <code>127.0.0.1</code>), exclusiones y formato de bitácora.</li><li>Ejecutá <code>dns_check_local.py</code>, generá el manifiesto <code>manifest.sha256</code> con todos los archivos creados y verificá la integridad con <code>sha256sum -c</code> o <code>Get-FileHash</code>.</li></ol>
 <aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Al finalizar debés contar en <code>evidencias/cap1_1/</code> con:</p>

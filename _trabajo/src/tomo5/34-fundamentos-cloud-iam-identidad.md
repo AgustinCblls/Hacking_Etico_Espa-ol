@@ -210,6 +210,10 @@ aws iam generate-credential-report
 aws iam get-credential-report --query "Content" --output text | base64 --decode > credential_report.csv
 ```
 
+::: nota Herramientas de auditoría Cloud y entornos abiertos de práctica
+En evaluaciones autorizadas *Purple Team* sobre entornos propios o sandboxes legales se complementa la CLI nativa con utilidades especializadas: **`Pacu`** (framework modular de auditoría IAM y servicios en AWS), **`ROADtools`** / **`AzureHound`** (mapeo de objetos, aplicaciones y rutas de ataque en **Entra ID** hacia BloodHound) y **`GraphRunner`** (auditoría de exposición sobre Microsoft 365 y Microsoft Graph). Para entrenar sin riesgo productivo podés utilizar **`flaws.cloud`** (escenarios conceptuales clásicos), **`CloudGoat`** (infraestructura AWS vulnerable controlada vía Terraform) y **`Kubernetes Goat`** (entorno de laboratorio para contenedores y clústeres).
+:::
+
 ## Práctica guiada en laboratorio
 En tu entorno local (podés usar **LocalStack** o una cuenta propia de pruebas en AWS Free Tier), creá un rol de aplicación llamado `RolLecturaLogs` y un usuario de pruebas `auditor-junior`. Adjuntale al usuario una política JSON acotada que permita consultar metadatos de IAM (`iam:Get*`, `iam:List*`) y simular políticas, más un `Deny` explícito sobre cualquier operación fuera de tu región elegida. Ejecutá `aws iam simulate-principal-policy` para comprobar cómo el motor prioriza el `Deny` explícito frente a un `Allow` amplio.
 

@@ -31,14 +31,16 @@ El rendimiento operativo se controla mediante acuerdos de nivel de servicio (**S
 
 Reducir el `MTTD` mejora con telemetría bien configurada; reducir el `MTTR` depende de playbooks claros y automatización segura.
 
-## 2. Ciclo de respuesta a incidentes según NIST SP 800-61
+## 2. Respuesta a incidentes según NIST SP 800-61 Rev. 3 y NIST CSF 2.0
 
-El estándar **NIST SP 800-61** define cuatro fases iterativas que ordenan el trabajo del equipo desde antes de que ocurra un ataque hasta las lecciones aprendidas.
+La actualización **NIST SP 800-61 Rev. 3 (abril de 2025)** (*Incident Response Recommendations and Considerations for Cybersecurity Risk Management*) reemplaza el antiguo esquema lineal de 4 fases de la Rev. 2 e integra la gestión de incidentes directamente dentro de las **6 funciones del NIST CSF 2.0**, alineándose con el cierre del **Cap. 4.8**:
 
-1. **Preparación:** Definir políticas, canales de comunicación, respaldos inmutables, perfiles de referencia (*baselines*) y herramientas listas en un kit forense. Incluye controles preventivos como la validación de certificados mediante **PKI** (Infraestructura de Clave Pública) para verificar firmas de software confiable y la verificación de línea base criptográfica (*golden baseline* SHA-256) sobre binarios y configuraciones críticas antes de entrar en producción o frente a sospecha de manipulación.
-2. **Detección y Análisis:** Identificar anomalías, validar indicadores, clasificar la severidad y preservar evidencias volátiles sin alterar el sistema innecesariamente.
-3. **Contención, Erradicación y Recuperación:** Aislar hosts afectados en red, eliminar causas raíz (cuentas comprometidas, persistencia, binarios maliciosos), restaurar servicios desde copias verificadas y monitorear reapariciones.
-4. **Actividad Post-Incidente:** Documentar la línea de tiempo en un reporte formal de incidente, revisar métricas SLA y actualizar controles preventivos y reglas de detección.
+1. **Govern (Gobernar):** establecer políticas de respuesta, roles RACI, métricas (`MTTD`/`MTTR`), acuerdos legales/RoE y mecanismos de mejora continua.
+2. **Identify (Identificar):** mantener el inventario de activos críticos, modelar riesgos, validar firmas mediante **PKI** y verificar la línea base criptográfica (*golden baseline* SHA-256) sobre binarios y configuraciones antes y durante un incidente.
+3. **Protect (Proteger):** aplicar endurecimiento preventivo, segmentación, copias de seguridad inmutables y capacitación para reducir superficie de ataque y tiempo de recuperación.
+4. **Detect (Detectar):** operar el monitoreo continuo en SIEM/EDR, validar indicadores, clasificar alertas (TP/FP/BP) y recolectar evidencia volátil sin alterar el sistema innecesariamente.
+5. **Respond (Responder):** contener hosts afectados mediante aislamiento lógico en red, erradicar causas raíz (cuentas comprometidas, persistencia, artefactos) y ejecutar notificaciones internas o regulatorias.
+6. **Recover (Recuperar):** restaurar servicios desde respaldos verificados en entorno limpio, confirmar integridad operativa y retroalimentar controles y reglas de detección con las lecciones aprendidas (*post-incidente*).
 
 ### Triage inicial en sistemas Windows y Linux
 
@@ -120,6 +122,10 @@ En lugar de intentar cubrir toda la matriz en un día, un SOC maduro agrupa sus 
 
 Este mapeo evidencia rápido dónde hay puntos ciegos (por ejemplo, tener registros de red perimetral pero ninguna visibilidad sobre la táctica de Ejecución en estaciones de trabajo).
 
+::: nota Validación continua de reglas ATT&CK: Atomic Red Team y MITRE CALDERA
+Para comprobar si tus alertas realmente disparan sin esperar un incidente real, los SOC maduros ejecutan emulación acotada de técnicas ATT&CK en un entorno de prueba: **`Atomic Red Team`** permite correr pruebas unitarias YAML reproducibles por técnica (por ejemplo `T1059.001` o `T1003`) y medir segundos hasta la alerta en SIEM/EDR, mientras **`MITRE CALDERA`** automatiza cadenas completas multi-paso mediante un agente de laboratorio para validar correlaciones de extremo a extremo.
+:::
+
 ## 4. Triage con VirusTotal, análisis de servidores web comprometidos, ASM y seguridad en asistentes IA
 
 En la operación diaria de un SOC L1/L2 intervienen cuatro flujos prácticos adicionales:
@@ -183,7 +189,7 @@ La respuesta eficaz combina prevención y visibilidad previa al incidente:
 
 ## Práctica en laboratorio local
 
-Desplegá dos VMs en una red local aislada (Host-Only): una estación analista y un equipo objetivo (Linux o Windows). Generá una actividad controlada y benigna (por ejemplo, una conexión TCP de prueba con `nc` o un script Python de eco local), recolectá evidencia volátil con los comandos de triage y documentá todo el ciclo NIST SP 800-61.
+Desplegá dos VMs en una red local aislada (Host-Only): una estación analista y un equipo objetivo (Linux o Windows). Generá una actividad controlada y benigna (por ejemplo, una conexión TCP de prueba con `nc` o un script Python de eco local), recolectá evidencia volátil con los comandos de triage y documentá todo el ciclo conforme a **NIST SP 800-61 Rev. 3** (funciones *Detect*, *Respond* y *Recover* de **CSF 2.0**).
 
 ::: practica Entregable mínimo
 Creá un archivo `reporte_incidente_lab.md` en tu carpeta de prácticas que contenga:
@@ -199,7 +205,7 @@ Creá un archivo `reporte_incidente_lab.md` en tu carpeta de prácticas que cont
 
 **2. ¿Qué diferencia a un False Positive de un Benign Positive y cómo impacta cada uno en el SOC?** Un False Positive ocurre cuando no existe el comportamiento buscado y señala un fallo en la lógica de detección; un Benign Positive refleja actividad legítima que coincide con la regla y requiere excepciones controladas para evitar ruido operativo.
 
-**3. ¿Por qué NIST SP 800-61 ubica la Preparación como fase inicial y la conecta con Post-Incidente?** Porque sin respaldos, telemetría previa ni procedimientos claros no es posible detectar ni contener a tiempo; a su vez, las lecciones aprendidas post-incidente retroalimentan directamente la preparación futura.
+**3. ¿Por qué NIST SP 800-61 Rev. 3 articula la respuesta a incidentes mediante las seis funciones de NIST CSF 2.0 (*Govern, Identify, Protect, Detect, Respond, Recover*)?** Porque la preparación preventiva (*Govern, Identify, Protect*), la detección y análisis (*Detect*) y la contención y restauración (*Respond, Recover*) forman un ciclo continuo de gestión de riesgos: cada lección aprendida tras recuperar un servicio retroalimenta directamente la gobernanza y las detecciones futuras.
 
 **4. ¿Qué aporta el Diamond Model que no cubre por sí sola la Cyber Kill Chain?** Mientras la Cyber Kill Chain ordena fases secuenciales de un ataque, el Diamond Model vincula relaciones entre adversario, capacidad, infraestructura y víctima, permitiendo agrupar campañas y pivotar evidencia.
 
@@ -208,7 +214,7 @@ Creá un archivo `reporte_incidente_lab.md` en tu carpeta de prácticas que cont
 ## Antes de avanzar
 
 - [ ] Diferenciás con claridad las responsabilidades de L1, L2 y L3 y el cálculo de `MTTD`/`MTTR`.
-- [ ] Sabés aplicar las cuatro fases de NIST SP 800-61 y estructurar un reporte de incidente claro.
+- [ ] Sabés aplicar el marco **NIST SP 800-61 Rev. 3** alineado con **CSF 2.0** y estructurar un reporte de incidente claro (ver [Cap. 4.8](33-telemetria-bajo-nivel-y-analisis-malware.html)).
 - [ ] Ejecutaste comandos de triage volátil en Windows o Linux dentro de una VM aislada.
 - [ ] Mapeaste un escenario de laboratorio al Diamond Model y a tácticas padre de MITRE ATT&CK.
 
@@ -218,7 +224,7 @@ Con los procesos del SOC y el marco de respuesta establecidos, el siguiente paso
 
 ## Referencias y estándares abiertos
 
-- NIST Special Publication 800-61 Rev. 2 / Rev. 3 — *Computer Security Incident Handling Guide*: https://csrc.nist.gov/publications/sp800
+- NIST Special Publication 800-61 Rev. 3 (abril 2025) — *Incident Response Recommendations and Considerations for Cybersecurity Risk Management* & *NIST CSF 2.0*: https://csrc.nist.gov/publications/sp800
 - MITRE ATT&CK Framework (Enterprise Matrix): https://attack.mitre.org/
 - Caltagirone, Pendergast & Betz — *The Diamond Model of Intrusion Analysis*: https://www.activeresponse.org/wp-content/uploads/2013/07/diamond.pdf
 - CIS Critical Security Controls v8 (Incident Response Management): https://www.cisecurity.org/controls

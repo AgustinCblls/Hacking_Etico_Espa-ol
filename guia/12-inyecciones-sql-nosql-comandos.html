@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -38,7 +38,7 @@ Entrada usuario + Plantilla de texto ──► Cadena única ──► Parser de
 [Patrón Seguro: Parametrización / Separación de canal]
 Plantilla fija con marcadores (?)    ──► Compilación del AST fijo en el motor
 Entrada usuario                      ──► Vinculación como literal puro (nunca altera el AST)</code></pre>
-<p>La regla de oro de la ingeniería de software seguro (OWASP ASVS V5) es directa: <strong>nunca se sanea una inyección intentando adivinar o borrar palabras prohibidas; se elimina por diseño separando el canal del código del canal de los datos</strong>.</p>
+<p>La regla de oro de la ingeniería de software seguro (<strong>OWASP ASVS 5.0</strong>, Capítulos <strong>V1 — Encoding and Sanitization</strong> y <strong>V2 — Validation and Business Logic</strong>) es directa: <strong>nunca se sanea una inyección intentando adivinar o borrar palabras prohibidas; se elimina por diseño separando el canal del código del canal de los datos</strong>.</p>
 <h2 id="cap-2-3-2-inyeccion-sql-sqli-arquitectura-del-fallo-y-clasificacion">2. Inyección SQL (SQLi): arquitectura del fallo y clasificación</h2>
 <p>Una inyección SQL ocurre cuando una aplicación incorpora datos externos directamente en la cadena de una sentencia SQL mediante concatenación (<code>+</code>), interpolación (<code>f"..."</code> en Python, <code>${...}</code> en JavaScript) o formato (<code>%s</code>).</p>
 <h3 id="cap-2-3-comparacion-directa-en-codigo-python-sqlite-postgresql">Comparación directa en código Python (SQLite / PostgreSQL)</h3>
@@ -131,29 +131,35 @@ def verificar_host_seguro(ip_usuario: str) -&gt; str:
 # --technique=BEU: Boolean-blind, Error-based, UNION (evita cargas pesadas por tiempo si no hacen falta)
 sqlmap -r /tmp/peticion_lab.req -p q --dbms=sqlite --level=1 --risk=1 --batch --banner</code></pre>
 <p><em>Advertencia operativa:</em> verificá primero en tu laboratorio que tus propias consultas SQL parametrizadas devuelven un mensaje claro de que el parámetro <strong><code>q</code> no parece ser inyectable</strong> en SQLMap; esa es la prueba automatizada estándar de que la remediación funcionó.</p>
-<h2 id="cap-2-3-6-ejemplo-paso-a-paso-auditoria-de-codigo-y-verificacion-en-nuestro-laboratorio">6. Ejemplo paso a paso: auditoría de código y verificación en nuestro laboratorio</h2>
-<p>Vamos a inspeccionar cómo responde el endpoint parametrizado <code>/buscar-seguro</code> de <code>laboratorios/app_lab_educativa.py</code> cuando recibe caracteres especiales como comillas o paréntesis:</p>
-<pre><code class="lenguaje-bash"># 1. Consulta normal por categoría
-curl -s "http://127.0.0.1:5050/buscar-seguro?q=redes"
+<h2 id="cap-2-3-6-ejemplo-paso-a-paso-ciclo-purple-team-ataca-detecta-corrige-en-el-laboratorio">6. Ejemplo paso a paso: ciclo Purple Team (<code>Ataca → Detecta → Corrige</code>) en el laboratorio</h2>
+<p>Ahora podés comprobar lado a lado en <code>laboratorios/app_lab_educativa.py</code> (ligado exclusivamente a <code>127.0.0.1:5050</code>) la diferencia exacta entre el endpoint vulnerable (<code>/buscar-vulnerable</code>) y su gemelo parametrizado (<code>/buscar-seguro</code>):</p>
+<pre><code class="lenguaje-bash"># 1. ATACA (/buscar-vulnerable): el operador OR alterado rompe el predicado lógico
+curl -s "http://127.0.0.1:5050/buscar-vulnerable?q=redes'%20OR%20'1'='1"
 
-# 2. Consulta enviando comillas simples y operadores SQL como texto de búsqueda
+# 2. DETECTA (/telemetria-lab): verificar el evento generado para el SOC
+curl -s "http://127.0.0.1:5050/telemetria-lab"
+
+# 3. CORRIGE Y VERIFICA (/buscar-seguro): consulta parametrizada
 curl -s "http://127.0.0.1:5050/buscar-seguro?q=redes'%20OR%20'1'='1"</code></pre>
 <p>Salida verificada:</p>
-<pre><code class="lenguaje-json">{
-  "consulta": "redes' OR '1'='1",
-  "modo": "seguro_parametrizado",
-  "resultados": []
-}</code></pre>
-<p>¿Por qué devuelve una lista vacía <code>[]</code> y código <code>200 OK</code> sin ningún error de sintaxis SQL? Porque en <code>laboratorios/app_lab_educativa.py</code>:</p>
+<pre><code class="lenguaje-json">// En /buscar-vulnerable: devuelve todas las filas al inyectar OR '1'='1'
+{"consulta":"redes' OR '1'='1","modo":"vulnerable_concatenado","resultados":[{"categoria":"redes","id":1,...},{"categoria":"books","id":4,...}]}
+
+// En /telemetria-lab: evento estructurado emitido para detección
+{"endpoint":"/buscar-vulnerable","severidad":"ALTA","vector":"SQLi_Attempt","detalle":"Payload sospechoso en q=redes' OR '1'='1"}
+
+// En /buscar-seguro: devuelve lista vacía [] porque busca la cadena literal
+{"consulta":"redes' OR '1'='1","modo":"seguro_parametrizado","resultados":[]}</code></pre>
+<p>¿Por qué <code>/buscar-seguro</code> devuelve <code>[]</code> y <code>200 OK</code> sin error SQL? Porque ejecuta:</p>
 <pre><code class="lenguaje-python">cur.execute(
     "SELECT id, nombre, categoria, precio FROM productos WHERE categoria = ? OR nombre LIKE ?",
     (q, f"%{q}%"),
 )</code></pre>
-<p>SQLite buscó literalmente un producto cuya categoría o nombre contuviera los caracteres <code>redes' OR '1'='1</code>. Como ningún producto se llama así, devolvió <code>[]</code> limpiamente. El árbol sintáctico de la consulta jamás se alteró.</p>
+<p>SQLite busca literalmente un producto cuya categoría o nombre contenga la secuencia <code>redes' OR '1'='1</code> sin alterar nunca el árbol sintáctico de la consulta.</p>
 <aside class="callout defensa"><p class="callout-titulo">Perspectiva defensiva y mitigación</p><ol><li><strong>Parametrización al 100 %:</strong> toda consulta SQL debe usar marcadores de parámetros (<code>?</code>, <code>%s</code>, <code>:nombre</code>) o métodos de ORM que parametricen internamente (evitando métodos crudos como <code>.raw()</code> o <code>text()</code> concatenado).</li><li><strong>Principio de mínimo privilegio en la cuenta de base de datos:</strong> la aplicación web nunca debe conectarse al motor de base de datos como <code>sa</code>, <code>postgres</code> o <code>root</code>. Debe usar una cuenta dedicada que solo tenga permisos <code>SELECT</code>, <code>INSERT</code>, <code>UPDATE</code> y <code>DELETE</code> sobre las tablas del esquema de la aplicación, sin permisos de lectura de archivos (<code>pg_read_file</code>, <code>LOAD_FILE</code>) ni ejecución de comandos (<code>xp_cmdshell</code>).</li><li><strong>Prohibición de <code>shell=True</code> en linters de CI/CD:</strong> herramientas de análisis estático como <strong>Bandit</strong> (Python), <strong>Semgrep</strong> o <strong>ESLint Security</strong> detectan automáticamente llamadas a <code>subprocess</code> con <code>shell=True</code> o cadenas SQL interpoladas con <code>f"SELECT ..."</code> antes de que el código llegue a producción.</li></ol></aside>
 <h2 id="cap-2-3-practica-en-laboratorio-local">Práctica en laboratorio local</h2>
-<ol><li>Abrí <code>laboratorios/app_lab_educativa.py</code> y revisá la función <code>buscar_seguro()</code>.</li><li>Escribí en tu carpeta de trabajo un script local <code>test_parametrizacion.py</code> que cree una tabla SQLite en memoria con 3 usuarios de prueba y compare dos funciones: una que verifica qué pasa al pasar una comilla simple a una consulta parametrizada (<code>WHERE usuario = ?</code>) y otra que valide columnas de ordenamiento mediante un diccionario de lista blanca (<code>COLUMNAS_PERMITIDAS</code>).</li><li>Agregá en el mismo script una función que valide una dirección IP con <code>ipaddress.ip_address()</code> antes de pasarla a una lista de argumentos con <code>shell=False</code>, comprobando que cualquier cadena que no sea una IP válida lance <code>ValueError</code> inmediatamente.</li></ol>
-<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>El script <code>test_parametrizacion.py</code> documentado junto con la salida de consola demostrando que las entradas con comillas o caracteres especiales son tratadas como literales inofensivos o rechazadas por validación de tipo.</p></aside>
+<ol><li><strong>Ciclo completo en <code>app_lab_educativa.py</code>:</strong> levantá <code>python laboratorios/app_lab_educativa.py</code> (o <code>docker compose up -d</code>), atacá <code>/buscar-vulnerable</code> con una comilla simple para provocar el evento <code>SQLi_Syntax_Error</code> y con <code>' UNION SELECT 1,owner,titulo,detalle FROM tickets--</code> para observar la extracción cruzada, revisá <code>/telemetria-lab</code> y repetí la misma entrada contra <code>/buscar-seguro</code>.</li><li><strong>Práctica interactiva en OWASP Juice Shop (<code>127.0.0.1:3000</code>):</strong> activá el perfil opcional (<code>docker compose --profile owasp up -d</code>) y completá el reto de <em>Login Admin</em> (SQLi en autenticación) documentando la consulta afectada y la remediación mediante <em>Prepared Statement</em>.</li><li><strong>Pruebas unitarias propias y laboratorios adicionales:</strong> escribí un script <code>test_parametrizacion.py</code> que valide columnas <code>ORDER BY</code> con diccionario de lista blanca (<code>COLUMNAS_PERMITIDAS</code>) y valide IPs con <code>ipaddress.ip_address()</code> antes de <code>subprocess.run(..., shell=False)</code>. Para práctica complementaria externa en local o academia, utilizá <strong>PortSwigger Web Security Academy</strong> (<em>SQL Injection</em>) y <strong>DVWA</strong>.</li></ol>
+<aside class="callout practica"><p class="callout-titulo">Entregable mínimo</p><p>Registro del flujo <strong>Ataca → Detecta → Corrige</strong> sobre <code>/buscar-vulnerable</code>, <code>/telemetria-lab</code> y <code>/buscar-seguro</code>, captura del reto SQLi resuelto en OWASP Juice Shop local y el script <code>test_parametrizacion.py</code> pasando sin errores.</p></aside>
 <h2 id="cap-2-3-preguntas-de-repaso">Preguntas de repaso</h2>
 <p><strong>1. ¿Por qué filtrar o borrar palabras como <code>SELECT</code>, <code>UNION</code> o <code>OR</code> con <code>replace()</code> no es una solución segura contra la inyección SQL?</strong> Porque las listas negras de palabras son frágiles: rompen datos legítimos (por ejemplo, un apellido como "O'Reilly" o palabras que contienen "or") y pueden eludirse mediante variaciones de codificación, comentarios o sintaxis alternativa del motor SQL. La única solución definitiva es separar el código de los datos mediante consultas parametrizadas.</p>
 <p><strong>2. ¿Qué ocurre internamente en el motor de base de datos cuando ejecutás una consulta parametrizada (<code>Prepared Statement</code>)?</strong> El motor primero compila la plantilla SQL con los marcadores (<code>?</code>) y construye el árbol de sintaxis abstracta (AST) y el plan de ejecución de forma inmutable. Luego recibe los valores de los parámetros en un canal de datos separado y los inserta directamente como literales escalares, sin volver a pasar por el analizador sintáctico SQL.</p>
@@ -165,7 +171,7 @@ curl -s "http://127.0.0.1:5050/buscar-seguro?q=redes'%20OR%20'1'='1"</code></pre
 <ul><li>Explicar por qué la mezcla de código y datos altera el AST de un intérprete.</li><li>Escribir consultas SQL 100 % parametrizadas y listas blancas para cláusulas <code>ORDER BY</code>.</li><li>Sustituir cualquier llamada a comandos del sistema con <code>shell=True</code> por bibliotecas nativas o listas de argumentos con <code>shell=False</code> y validación de tipos.</li></ul>
 <aside class="callout nota"><p class="callout-titulo">Puerta de salida</p><p>Ya dominás la seguridad de los intérpretes del lado del servidor. Ahora vamos a cruzar al otro extremo de la comunicación HTTP para analizar cómo proteger el navegador del usuario: avanzá al <strong>Capítulo 2.4 · Seguridad del lado del cliente: XSS, CSRF, CORS y CSP</strong>.</p></aside>
 <h2 id="cap-2-3-referencias-y-estandares-abiertos">Referencias y estándares abiertos</h2>
-<ul><li><strong>OWASP Top 10 (A03:2021 Injection) y OWASP ASVS v4.0 (Capítulo V5 — Validation, Sanitization and Encoding):</strong> requisitos estándar de verificación contra inyecciones.</li><li><strong>OWASP SQL Injection Prevention Cheat Sheet &amp; OS Command Injection Defense Cheat Sheet:</strong> guías de parametrización y ejecución segura de procesos.</li><li><strong>Documentación oficial de Python (<code>sqlite3</code> y <code>subprocess</code>):</strong> uso de parámetros DB-API 2.0 (PEP 249) y advertencias de seguridad sobre <code>shell=True</code>.</li></ul>
+<ul><li><strong>OWASP Top 10:2025 (<code>A05:2025 – Injection</code>) y OWASP ASVS 5.0 (mayo 2025 — Capítulos V1 <em>Encoding and Sanitization</em> y V2 <em>Validation and Business Logic</em>):</strong> requisitos estándar de verificación contra inyecciones.</li><li><strong>OWASP SQL Injection Prevention Cheat Sheet &amp; OS Command Injection Defense Cheat Sheet:</strong> guías de parametrización y ejecución segura de procesos.</li><li><strong>Documentación oficial de Python (<code>sqlite3</code> y <code>subprocess</code>):</strong> uso de parámetros DB-API 2.0 (PEP 249) y advertencias de seguridad sobre <code>shell=True</code>.</li></ul>
 
 <details class="qa" style="margin-top:1.5rem">
   <summary>Trazabilidad curricular: 8 módulo(s) del catálogo público de referencia cubiertos en este capítulo</summary>

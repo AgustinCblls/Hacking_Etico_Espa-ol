@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="../00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="../00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="../guia/index.html">Curso</a>
@@ -104,7 +104,25 @@ sudo auditctl -l
 -w /etc/shadow -p wa -k cambios_identidad
 -w /etc/sudoers -p wa -k cambios_sudoers
 -w /etc/sudoers.d/ -p wa -k cambios_sudoers
--w /etc/crontab -p wa -k tareas_programadas</code></pre>
+-w /etc/crontab -p wa -k tareas_programadas
+-a always,exit -F arch=b64 -S execve -F dir=/tmp -k exec_temporal</code></pre>
+<h3 id="cap-3-3-triaje-automatizado-en-laboratorio-linpeas-y-pspy-y-su-deteccion">Triaje automatizado en laboratorio (<code>LinPEAS</code> y <code>pspy</code>) y su detección</h3>
+<p>En auditorías locales de tu VM de laboratorio, dos utilidades abiertas aceleran la verificación de hallazgos sin reemplazar el criterio del analista:</p>
+<pre><code class="lenguaje-bash"># 1. LinPEAS (solo en VM de laboratorio aislada): triaje integral de SUID, capabilities, PATH y cron
+./linpeas.sh -q | tee /tmp/triaje_linpeas.log
+
+# 2. pspy64 (monitoreo de procesos sin privilegios root vía /proc e inotify para descubrir cron jobs)
+./pspy64 -pf -i 1000</code></pre>
+<div class="tabla"><table>
+<thead><tr>
+<th>Vector / Herramienta</th>
+<th>Qué revela en el sistema</th>
+<th>Telemetría Blue Team (<code>auditd</code> / Sysmon for Linux / Sigma)</th>
+<th>Mitigación estructural</th>
+</tr></thead><tbody>
+<tr><td><strong><code>LinPEAS</code></strong></td><td>Inventario rápido de SUID, <code>getcap</code>, permisos débiles, grupos (<code>docker</code>/<code>lxd</code>) y sockets expuestos.</td><td>Ráfaga de llamadas <code>execve</code> (<code>auditd SYSCALL</code> / Sysmon for Linux <strong>Event ID <code>1</code></strong>) desde <code>/tmp</code> o <code>/dev/shm</code> con comandos <code>find -perm -4000</code>, <code>getcap</code>, <code>sudo -l</code>. <strong>Criterio Sigma:</strong> <code>Image</code> en <code>/tmp/*</code> o <code>/dev/shm/*</code> con <code>CommandLine</code> conteniendo <code>linpeas</code> o enumeración encadenada en &lt; 10 s.</td><td>Montar <code>/tmp</code>, <code>/var/tmp</code> y <code>/dev/shm</code> con <code>noexec,nosuid,nodev</code> y activar alertas sobre binarios ejecutados desde rutas temporales.</td></tr>
+<tr><td><strong><code>pspy</code></strong></td><td>Procesos efímeros lanzados por <code>root</code> (<code>cron</code>, <code>systemd.timer</code>) y sus argumentos en línea de comandos.</td><td>Lecturas intensivas de <code>/proc/[pid]/cmdline</code> o ejecución desde rutas de usuario (Sysmon for Linux <strong>ID <code>1</code></strong>). <strong>Criterio Sigma:</strong> binario no firmado en ruta escribible observando <code>/proc</code> repetidamente.</td><td>Montar <code>/proc</code> con <strong><code>hidepid=2</code></strong> (o <code>subset=pid</code>) para ocultar los procesos de otros usuarios a cuentas sin privilegios, y no pasar secretos como argumentos CLI.</td></tr>
+</tbody></table></div>
 <h2 id="cap-3-3-ejemplo-paso-a-paso-auditoria-y-remediacion-de-permisos-en-un-servidor-linux-de-laboratorio">Ejemplo paso a paso: auditoría y remediación de permisos en un servidor Linux de laboratorio</h2>
 <p>En este recorrido auditamos una VM Linux propia para detectar binarios SUID no estándar, scripts de cron con permisos excesivos y capacidades POSIX inesperadas, y luego aplicamos la corrección.</p>
 <pre><code class="lenguaje-bash"># 1. Inventariar binarios SUID y comparar contra una línea base limpia

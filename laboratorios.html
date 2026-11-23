@@ -11,7 +11,7 @@
 <body>
 <a class="salto" href="#contenido">Saltar al contenido</a>
 <header class="cabecera">
-  <div class="marca"><a href="00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.0 · Hiper Biblioteca · Noviembre 2026</span></div>
+  <div class="marca"><a href="00_EMPEZAR_AQUI.html">Hacking Ético Español</a> <span class="edicion">edición 2.1 · Hiper Biblioteca · Noviembre 2026</span></div>
   <nav class="principal" aria-label="Navegación principal">
     <a href="00_EMPEZAR_AQUI.html">Inicio</a>
     <a href="guia/index.html">Curso</a>
@@ -37,8 +37,9 @@
 <div class="tabla"><table>
 <thead><tr><th>Archivo / Recurso</th><th>Capítulos donde se usa</th><th>Propósito técnico</th></tr></thead>
 <tbody>
-<tr><td><a href="laboratorios/docker-compose.yml"><code>docker-compose.yml</code></a></td><td>Tomo I (1.8) y Tomo II</td><td>Despliega la app educativa local en <code>127.0.0.1:5050</code>, Nginx en <code>127.0.0.1:8080</code> y perfil opcional <code>--profile owasp</code> (OWASP Juice Shop en <code>127.0.0.1:3000</code>).</td></tr>
-<tr><td><a href="laboratorios/app_lab_educativa.py"><code>app_lab_educativa.py</code></a></td><td>Cap. 1.8 y Tomo II (2.3–2.5)</td><td>Aplicación Flask + SQLite en memoria con endpoints seguros de referencia (SQL parametrizado, escape HTML + CSP, control anti-IDOR).</td></tr>
+<tr><td><a href="laboratorios/docker-compose.yml"><code>docker-compose.yml</code></a></td><td>Tomo I (1.1, 1.8) y Tomo II</td><td>Despliega <code>lab_local_web</code> en <code>127.0.0.1:5050</code>, <code>lab_local_nginx</code> en <code>127.0.0.1:8080</code> y perfil opcional <code>--profile owasp</code> (OWASP Juice Shop en <code>127.0.0.1:3000</code>).</td></tr>
+<tr><td><a href="laboratorios/dns_check_local.py"><code>dns_check_local.py</code></a></td><td>Cap. 1.1</td><td>Verificador local de resolución DNS/hosts en Python 3 estándar con marca temporal UTC para sellado <code>SHA-256</code>.</td></tr>
+<tr><td><a href="laboratorios/app_lab_educativa.py"><code>app_lab_educativa.py</code></a></td><td>Cap. 1.8 y Tomo II (2.3–2.6)</td><td>App Flask + SQLite en memoria (solo <code>127.0.0.1</code>) con endpoints gemelos <code>-vulnerable</code> y <code>-seguro</code> (SQLi, XSS reflejado/almacenado, IDOR, JWT débil, SSRF, SSTI y Upload) más <code>/telemetria-lab</code> para flujo Purple Team.</td></tr>
 <tr><td><a href="laboratorios/auditor_red_local.py"><code>auditor_red_local.py</code></a></td><td>Cap. 1.6 y 2.1</td><td>Inspector TCP y banners en Python 3 restringido por código a direcciones <code>127.0.0.0/8</code> y RFC 1918.</td></tr>
 <tr><td><a href="laboratorios/analizador_logs_soc.py"><code>analizador_logs_soc.py</code></a></td><td>Cap. 1.6, 4.3 y 4.6</td><td>Parser de logs SSH/HTTP en Python 3 que detecta fuerza bruta y escaneo 4xx emitiendo alertas JSON estructuradas.</td></tr>
 <tr><td><a href="laboratorios/diccionario_web_lab.txt"><code>diccionario_web_lab.txt</code></a></td><td>Cap. 2.2</td><td>Lista controlada de 40 rutas y parámetros comunes para practicar enumeración HTTP y calibración de filtros con <code>ffuf</code> en <code>127.0.0.1</code>.</td></tr>

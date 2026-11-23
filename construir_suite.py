@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Constructor maestro de 'Hacking Ético Español' (Edición 2.0 · Hiper Biblioteca).
+"""Constructor maestro de 'Hacking Ético Español' (Edición 2.1 · Hiper Biblioteca).
 Genera el sitio HTML 100 % offline (54 capítulos en 7 Tomos + Portada + Mapa + Catálogo interactivo de 358 módulos y 25 paths
 + Cheat Sheets + Glosario ampliado + Preguntas de repaso + Buscador offline + Orden de impresión)
 y compila los 9 PDFs A4 (Tomos I–VII + Separata + Maestro único) con TOC paginado, marcadores jerárquicos y paridad par estricta.
@@ -34,7 +34,7 @@ from contenidos_apoyo import (
     LABORATORIOS_HTML,
 )
 
-EDICION_LABEL = "edición 2.0 · Hiper Biblioteca · Noviembre 2026"
+EDICION_LABEL = "edición 2.1 · Hiper Biblioteca · Noviembre 2026"
 CURSO_NOMBRE = "Hacking Ético Español"
 
 TOMOS_META = [
@@ -614,8 +614,8 @@ def construir_sitio_html(data):
 </table></div>
 
 <aside class="callout aviso">
-<p class="callout-titulo">Cobertura integral de la Edición 2.0 (358 / 358 módulos) y Puente con Curso de Reversing</p>
-<p>Esta Hiper Biblioteca integra en <strong>{len(TOMOS_META)} Tomos ({len(caps)} capítulos)</strong> el espectro completo de la ciberseguridad moderna: Fundamentos, Pentesting Web/APIs, Infraestructura/AD, Blue Team/SOC/DFIR, Multi-Cloud/Docker/K8s/DevSecOps/SaaS, Web Avanzado (PortSwigger/WSTG), Threat Modeling, White-Box Code Review, Red Team/OPSEC, Mobile (OWASP MASTG), Wi-Fi/802.1X/WPA3, Hardware/BLE/OT-SCADA, GRC 2026 y Seguridad en IA, LLMs y Agentes ({en_alcance} módulos del catálogo público integrados directamente). Adicionalmente, enlaza los {puente_cls} módulos de ensamblador, depuración y reversing de binarios hacia nuestra obra hermana <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><strong>Curso de Reversing en Windows</strong></a>.</p>
+<p class="callout-titulo">Cobertura integral de la Edición 2.1 (358 / 358 módulos) y Puente con Curso de Reversing</p>
+<p>Esta Hiper Biblioteca integra en <strong>{len(TOMOS_META)} Tomos ({len(caps)} capítulos)</strong> el espectro completo de la ciberseguridad moderna: Fundamentos, Pentesting Web/APIs, Infraestructura/AD, Blue Team/SOC/DFIR, Multi-Cloud/Docker/K8s/DevSecOps/SaaS, Web Avanzado (PortSwigger/WSTG), Threat Modeling, White-Box Code Review, Red Team/OPSEC, Mobile (OWASP MASTG), Wi-Fi/802.1X/WPA3, Hardware/BLE/OT-SCADA, GRC 2026 y Seguridad en IA, LLMs y Agentes ({en_alcance} módulos de taxonomía pública mapeados íntegramente). Adicionalmente, enlaza los {puente_cls} módulos de ensamblador, depuración y reversing de binarios hacia nuestra obra hermana <a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><strong>Curso de Reversing en Windows</strong></a>.</p>
 </aside>
 
 <h2 id="que-hay-en-el-paquete">Qué incluye este paquete (100 % offline)</h2>
@@ -623,7 +623,7 @@ def construir_sitio_html(data):
 <thead><tr><th>Archivo / Recurso</th><th>Para qué sirve</th></tr></thead>
 <tbody>
 <tr><td><a href="guia/index.html"><code>guia/</code></a></td><td>Los {len(caps)} capítulos completos en HTML navegable con trazabilidad curricular.</td></tr>
-<tr><td><a href="catalogo_completo.html"><code>catalogo_completo.html</code></a></td><td>Explorador filtrable offline de los 358 módulos (con sus descripciones, prerrequisitos y 4,068 secciones) y 25 rutas públicas + <a href="datos/catalogo_htb_publico.csv">CSV</a>.</td></tr>
+<tr><td><a href="catalogo_completo.html"><code>catalogo_completo.html</code></a></td><td>Explorador filtrable offline de la taxonomía propia en español sobre los 358 módulos y 25 rutas de estudio + <a href="datos/catalogo_htb_publico.csv">CSV</a>.</td></tr>
 <tr><td><a href="laboratorios.html"><code>laboratorios/</code></a></td><td>Entorno Docker local (<code>127.0.0.1</code>), app educativa Flask/SQLite, auditor White-Box AST, manifests endurecidos Docker/K8s/Terraform, logs simulados, muestras DFIR/YARA/Suricata y plantillas RoE/STRIDE/Pentest/IR.</td></tr>
 <tr><td><a href="hojas-referencia-rapida.html"><code>hojas-referencia-rapida.html</code></a></td><td>Cheat Sheets de escritorio (Redes/Nmap, Linux/Windows, OWASP, AD, SOC/Sysmon/SPL/KQL/Sigma, Cripto, Cloud/K8s, Web Avanzado/OPSEC y Mobile/Wi-Fi/OT/GRC).</td></tr>
 <tr><td><a href="glosario.html"><code>glosario.html</code></a></td><td>Glosario técnico alfabético con {len(GLOSARIO_ITEMS)} conceptos clave.</td></tr>
@@ -666,9 +666,6 @@ def construir_sitio_html(data):
             "href": f"guia/{cap_file_map[cid]}" if cid in cap_file_map else "",
             "cap_t": cap_title_map.get(cid, ""),
             "p": m.get("paths", []),
-            "sum": m.get("summary", ""),
-            "pre": m.get("prerrequisitos", []),
-            "sec": m.get("secciones", []),
         })
 
     paths_html_blocks = []
@@ -678,13 +675,13 @@ def construir_sitio_html(data):
         paths_html_blocks.append(
             f'<details class="qa"><summary><strong>{esc(p.get("title",""))}</strong> '
             f'<span class="meta">({esc(p.get("type",""))} · {len(pmods)} módulos · {esc(p.get("difficulty",""))})</span></summary>'
-            f'<div class="respuesta"><p>{esc(p.get("summary",""))}</p><ol>{li}</ol></div></details>'
+            f'<div class="respuesta"><ol>{li}</ol></div></details>'
         )
 
     cat_body = f"""
 <nav class="migas"><a href="00_EMPEZAR_AQUI.html">Inicio</a><span>›</span><span>Catálogo de 358 módulos y 25 paths</span></nav>
 <h1>Catálogo público clasificado (358 módulos y 25 rutas de estudio)</h1>
-<p>Este tablero offline consolida la taxonomía pública completa utilizada para estructurar el curso. Cada módulo en alcance enlaza directamente al capítulo original de nuestra obra que desarrolla sus fundamentos técnicos. También podés abrir la tabla en Excel desde <a href="datos/catalogo_htb_publico.csv"><code>datos/catalogo_htb_publico.csv</code></a>.</p>
+<p>Este tablero offline consolida la taxonomía propia en español utilizada para estructurar el curso. Cada tema de referencia en alcance enlaza directamente al capítulo original de nuestra obra que desarrolla sus fundamentos técnicos. También podés abrir la tabla en Excel desde <a href="datos/catalogo_htb_publico.csv"><code>datos/catalogo_htb_publico.csv</code></a>.</p>
 
 <div class="stats-grid">
   <div class="stat-box"><div class="big">{en_alcance}</div><div class="lbl">En alcance (Tomos I–VII)</div></div>
@@ -695,7 +692,7 @@ def construir_sitio_html(data):
 
 <h2 id="explorador-modulos">Explorador filtrable de los 358 módulos</h2>
 <div class="filtros-bar">
-  <input id="f-q" type="search" placeholder="Filtrar por título, descripción, sección, dominio o path (ej. Kerberos, CloudTrail, LLM, Frida, WPA3)...">
+  <input id="f-q" type="search" placeholder="Filtrar por título, dominio, capítulo o ruta (ej. Kerberos, CloudTrail, LLM, Frida, WPA3)...">
   <select id="f-alc">
     <option value="">Todos los alcances (358)</option>
     <option value="En alcance">En alcance ({en_alcance})</option>
@@ -764,25 +761,14 @@ function render(){{
     if(dif && m.d !== dif) continue;
     if(cat && m.c !== cat) continue;
     if(q){{
-      const hay = (m.t+' '+m.dom+' '+m.tom+' '+m.cap+' '+m.p.join(' ')+' '+(m.sum||'')+' '+(m.sec||[]).join(' ')).toLowerCase();
+      const hay = (m.t+' '+m.dom+' '+m.tom+' '+m.cap+' '+m.cap_t+' '+m.p.join(' ')).toLowerCase();
       if(!hay.includes(q)) continue;
     }}
     shown++;
     let capLink = '<span class="meta">—</span>';
     if(m.href) capLink = '<a href="'+m.href+'"><strong>'+escHtml(m.tom)+' · Cap. '+escHtml(m.cap)+'</strong></a>';
     else if(m.alc==='Puente con CLS_Guia') capLink = '<a href="../CLS_Guia/00_EMPEZAR_AQUI.html"><strong>Ver Curso de Reversing (Reversing)</strong></a>';
-    let det = '';
-    if(m.sum || (m.sec && m.sec.length) || (m.pre && m.pre.length)){{
-      let inner = '';
-      if(m.sum) inner += '<p style="margin:6px 0 4px;">'+escHtml(m.sum)+'</p>';
-      if(m.pre && m.pre.length) inner += '<div class="meta" style="margin:4px 0;"><strong>Prerrequisitos:</strong> '+m.pre.map(escHtml).join(', ')+'</div>';
-      if(m.sec && m.sec.length){{
-        inner += '<div class="meta" style="margin-top:4px;"><strong>Secciones del temario ('+m.sec.length+'):</strong></div><ol style="margin:4px 0 6px 18px;padding:0;">'+m.sec.map(s=>'<li>'+escHtml(s)+'</li>').join('')+'</ol>';
-      }}
-      const lbl = (m.sec && m.sec.length) ? 'Ver descripción y '+m.sec.length+' temas' : 'Ver descripción';
-      det = '<details style="margin-top:4px;"><summary class="meta" style="cursor:pointer;">'+lbl+'</summary><div style="font-size:12px;line-height:1.45;">'+inner+'</div></details>';
-    }}
-    rows.push('<tr><td>'+m.id+'</td><td><strong>'+escHtml(m.t)+'</strong>'+(m.p.length?'<div class="meta">Paths: '+escHtml(m.p.slice(0,3).join(', '))+(m.p.length>3?'…':'')+'</div>':'')+det+'</td><td>'+escHtml(m.d)+'</td><td>'+escHtml(m.c)+'</td><td>'+escHtml(m.dom)+'</td><td>'+badgeAlc(m.alc)+'</td><td>'+capLink+'</td></tr>');
+    rows.push('<tr><td>'+m.id+'</td><td><strong>'+escHtml(m.t)+'</strong>'+(m.p.length?'<div class="meta">Rutas: '+escHtml(m.p.slice(0,3).join(', '))+(m.p.length>3?'…':'')+'</div>':'')+'</td><td>'+escHtml(m.d)+'</td><td>'+escHtml(m.c)+'</td><td>'+escHtml(m.dom)+'</td><td>'+badgeAlc(m.alc)+'</td><td>'+capLink+'</td></tr>');
   }}
   tbody.innerHTML = rows.join('');
   cntEl.textContent = 'Mostrando '+shown+' de '+MODS.length+' módulos.';
@@ -1175,7 +1161,7 @@ def compilar_todos_los_pdfs(data, rendered_chapters):
     puente_cls = sum(1 for m in data["modulos"] if "CLS_Guia" in m["alcance"])
     paths_pdf_html = (
         '<h1>Mapa de Rutas Públicas Relevadas (25 Paths) y Alcance Integral</h1>'
-        f'<p>Referencia resumida de las 25 rutas públicas (9 Job Role Paths y 16 Skill Paths) y los 358 módulos analizados e integrados en esta Edición 2.0 ({en_alcance} módulos integrados en los {len(TOMOS_META)} Tomos —incluyendo los 16 módulos de IA en el Cap. 7.8— y {puente_cls} módulos puente con Curso de Reversing).</p>'
+        f'<p>Referencia resumida de las 25 rutas públicas (9 Job Role Paths y 16 Skill Paths) y los 358 temas integrados en esta Edición 2.1 ({en_alcance} temas mapeados en los {len(TOMOS_META)} Tomos —incluyendo los 16 tópicos de IA en el Cap. 7.8— y {puente_cls} módulos puente con Curso de Reversing).</p>'
         f'<div class="tabla"><table><thead><tr><th>Ruta de referencia</th><th>Tipo</th><th>Nivel</th><th>Módulos</th></tr></thead><tbody>{paths_rows}</tbody></table></div>'
     )
     sep_secciones = [
